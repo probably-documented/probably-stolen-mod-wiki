@@ -7,7 +7,7 @@
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
-//      rm guard → admin source outside dist → id lint → asset sources
+//      rm guard → CMS shell source → id lint → asset sources
 //   1. data prep (drop missing icons, merge content/mechanics)
 //   2. render
 //   3. rm dist → 4. write files → 5. copy repo assets → 6. auditExternalLinks(dist)
@@ -232,32 +232,63 @@ async function copyAssets(assetsDir, distDir) {
 }
 
 /**
- * Copy the CMS shell (adminDir) into distDir/admin — strictly AFTER the
- * external-link audit. The shell is online-only by design (OAuth callbacks,
- * a vendored bundle that talks to the network), so it is exactly what the
- * audit must never see; being left out of the audit on purpose is also why
- * the offline zip leaves it out (tools/pack.js).
+ * Pre-flight for the CMS shell: decide now — before anything is rendered,
+ * let alone removed — whether there is a shell to inject. Every answer here
+ * is one path comparison or one stat away, so none of them may cost the
+ * previous dist (ruling 4a):
  *
- * A missing adminDir is not an error — the repo ships without admin/ until
- * Task 6 creates it — and null skips the injection on purpose. Every other
- * failure (unreadable directory, a full disk) fails the build: a deployed
- * site whose /admin/ silently went missing is worse than a red build.
- * @returns {Promise<boolean>} whether an admin tree was injected
+ *   adminDir null               → null: skip on purpose
+ *   adminDir inside distDir     → throws. rm dist would delete the shell
+ *                                  before step 7 reads it — and a deleted
+ *                                  shell reads as "missing", i.e. as the
+ *                                  skip-silently case.
+ *   missing (ENOENT / ENOTDIR)  → null. Not an error: the repo ships without
+ *                                  admin/ until Task 6 creates it.
+ *   exists, not a directory     → throws. fs.cp would happily copy that file
+ *                                  to dist/admin, and /admin/ would 404.
+ *   exists, a directory         → its absolute path, copied in step 7.
+ *
+ * Any other stat failure (unreadable directory, …) is rethrown as is.
+ *
+ * @param {string|null} adminDir
+ * @param {string} distDir resolved dist path
+ * @returns {Promise<string|null>} the directory to inject, or null to skip
  */
-async function injectAdmin(adminDir, distDir) {
-  if (adminDir == null) return false;
+async function resolveAdminSource(adminDir, distDir) {
+  if (adminDir == null) return null;
+  if (isInsideDir(distDir, adminDir)) {
+    throw new Error(`[build:skeleton] refusing: adminDir ${path.resolve(adminDir)} is inside distDir ${distDir} `
+      + '(rm dist would delete the CMS shell before it is injected)');
+  }
   let stat;
   try {
     stat = await fs.stat(adminDir);
   } catch (err) {
-    if (isMissing(err)) return false;
+    if (isMissing(err)) return null;
     throw err;
   }
   if (!stat.isDirectory()) {
-    // fs.cp would happily copy that file to dist/admin, and /admin/ would 404.
     throw new Error(`[build:skeleton] adminDir is not a directory: ${adminDir}`);
   }
-  await fs.cp(adminDir, path.join(distDir, 'admin'), { recursive: true });
+  return path.resolve(adminDir);
+}
+
+/**
+ * Copy the CMS shell into distDir/admin — strictly AFTER the external-link
+ * audit. The shell is online-only by design (OAuth callbacks, a vendored
+ * bundle that talks to the network), so it is exactly what the audit must
+ * never see; being left out of the audit on purpose is also why the offline
+ * zip leaves it out (tools/pack.js).
+ *
+ * Whether there is a shell to copy was settled in the pre-flight
+ * (resolveAdminSource); this only copies. A copy failure (unreadable
+ * directory, a full disk) fails the build: a deployed site whose /admin/
+ * silently went missing is worse than a red build.
+ * @param {string} adminSource the shell directory, as resolveAdminSource returned it
+ * @returns {Promise<true>}
+ */
+async function injectAdmin(adminSource, distDir) {
+  await fs.cp(adminSource, path.join(distDir, 'admin'), { recursive: true });
   return true;
 }
 
@@ -277,9 +308,9 @@ async function injectAdmin(adminDir, distDir) {
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   adminInjected = whether an admin tree was copied into dist.
  * @throws {Error} when distDir resolves to the repo root or one of its
- *   ancestors, when adminDir lies inside distDir (both refused before
- *   anything is removed), when a content/items markdown file is not named
- *   `<item.id>.md`, when an asset source is missing, on any
+ *   ancestors, when adminDir lies inside distDir or is not a directory (all
+ *   three refused before anything is removed), when a content/items markdown
+ *   file is not named `<item.id>.md`, when an asset source is missing, on any
  *   render/write/asset-copy/admin-copy failure, or on an external-link audit
  *   violation; process.exitCode is set to 1 before the throw. The pre-flight
  *   (step 0) and render failures happen before the old dist is removed, which
@@ -299,13 +330,11 @@ async function buildSkeleton({
     if (isUnsafeDistDir(distPath, REPO_ROOT)) {
       throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it is the repo root or one of its ancestors`);
     }
-    //    admin source outside dist: step 3 would delete the shell before
-    //    step 7 reads it — and a deleted shell reads as "missing", i.e. as
-    //    the "skip silently" case.
-    if (adminDir != null && isInsideDir(distPath, adminDir)) {
-      throw new Error(`[build:skeleton] refusing: adminDir ${path.resolve(adminDir)} is inside distDir ${distPath} `
-        + '(rm dist would delete the CMS shell before it is injected)');
-    }
+    //    CMS shell source — all three answers known up front (see
+    //    resolveAdminSource): inside dist → refused (step 3 would delete it
+    //    before step 7 reads it); missing → nothing to inject; not a
+    //    directory → refused (fs.cp would copy that file to dist/admin).
+    const adminSource = await resolveAdminSource(adminDir, distPath);
     //    id lint (the CMS can create content/items files under any slug).
     if (contentDir != null) {
       const violations = await validateItemContentIds(
@@ -348,8 +377,9 @@ async function buildSkeleton({
     }
 
     // 7. CMS shell → dist/admin. Strictly the step after the audit: the shell
-    //    is online-only and would fail it by design (see injectAdmin).
-    const adminInjected = await injectAdmin(adminDir, distPath);
+    //    is online-only and would fail it by design. Whether there is one was
+    //    settled in the pre-flight; here it is only copied.
+    const adminInjected = adminSource != null && await injectAdmin(adminSource, distPath);
 
     return { pages: rendered.size, iconsDropped, assetsCopied, adminInjected };
   } catch (err) {

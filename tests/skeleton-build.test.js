@@ -20,6 +20,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -102,14 +103,20 @@ async function listFiles(dir) {
 
 /**
  * Everything about a directory tree that "rm + recreate" would change: the
- * top directory's identity (ino) and mtime, plus every file's relative path
- * and bytes. Used to prove a failed build left the previous dist untouched.
+ * top directory's identity (ino) and mtime, plus every file's relative path,
+ * size and sha256. Used to prove a failed build left the previous dist
+ * untouched. Files are summarised rather than returned as raw bytes on
+ * purpose: a failing deepEqual over multi-megabyte Buffers makes node:assert
+ * build a per-byte diff that takes minutes and dies with "Array buffer
+ * allocation failed" — unreadable, and not the failure we want to see.
  */
 async function snapshotTree(dir) {
   const { ino, mtimeMs } = await fs.stat(dir);
   const files = [];
   for (const file of await listFiles(dir)) {
-    files.push([toPosix(path.relative(dir, file)), await fs.readFile(file)]);
+    const bytes = await fs.readFile(file);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    files.push(`${toPosix(path.relative(dir, file))}  ${bytes.length} bytes  sha256=${digest}`);
   }
   return { ino, mtimeMs, files };
 }
@@ -723,6 +730,10 @@ test('buildSkeleton skips the admin injection when adminDir does not exist (or i
 
 test('buildSkeleton fails loudly when adminDir exists but is not a directory (instead of copying a file to dist/admin)', async (t) => {
   const distDir = await tmpDir(t, 'admin-file');
+  // A stand-in for the previous build. Ruling 4(a): a non-directory adminDir
+  // is known from one stat, so refusing it must not cost the previous dist.
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
   const adminDir = path.join(await tmpDir(t, 'admin-file-src'), 'admin');
   await fs.writeFile(adminDir, 'not a directory');
 
@@ -733,6 +744,7 @@ test('buildSkeleton fails loudly when adminDir exists but is not a directory (in
   assert.match(err.message, /adminDir is not a directory/);
   assert.equal(exitCode, 1);
   await assert.rejects(fs.access(path.join(distDir, 'admin')), 'nothing is copied');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (checked before rm dist)');
 });
 
 test('buildSkeleton refuses an adminDir inside distDir instead of letting rm dist delete the shell and then "skip" it', async (t) => {
