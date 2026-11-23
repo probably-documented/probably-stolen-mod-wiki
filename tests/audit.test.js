@@ -800,7 +800,6 @@ test('AA — CSS escapes are undone first: \\68 ttps://, \\75 rl(, \\2f\\2f … 
       String.raw`b{background:url(\68 ttps://evil.example/b.png)}`, // \68 + blank = h
       String.raw`c{background:url(h\74 tps://evil.example/c.png)}`, // \74 + blank = t
       String.raw`d{background:url(\2f\2f evil.example/d.png)}`, // \2f = /, twice: a protocol-relative address
-      String.raw`e{background:\40 import "https://evil.example/e.css";`, // \40 + blank = @
       String.raw`f{background:url(\2f root-relative.png)}`, // one \2f: root-relative
       String.raw`g{background:url(\2f\2f\65 vil.example/g.png)}`, // \65 + blank = e
       String.raw`h{background:url(\000068 ttps://evil.example/h.png)}`, // six hex digits
@@ -809,15 +808,21 @@ test('AA — CSS escapes are undone first: \\68 ttps://, \\75 rl(, \\2f\\2f … 
     ),
   });
   assert.deepEqual(brief(violations), [
-    ...[1, 2, 3, 4, 5].map((n) => `css/theme.css:${n} [css-external-url]`),
-    'css/theme.css:6 [css-root-relative]',
-    ...[7, 8, 9, 10].map((n) => `css/theme.css:${n} [css-external-url]`),
+    ...[1, 2, 3, 4].map((n) => `css/theme.css:${n} [css-external-url]`),
+    'css/theme.css:5 [css-root-relative]',
+    ...[6, 7, 8, 9].map((n) => `css/theme.css:${n} [css-external-url]`),
   ]);
 });
 
-test('AA — an escaped @ is reported like an @import, although a browser reads it as a mere name: the safe side', async (t) => {
-  const violations = await auditOf(t, { 'css/theme.css': String.raw`a{background:\@import "https://evil.example/k.css";` });
-  assert.deepEqual(brief(violations), ['css/theme.css:1 [css-external-url]']);
+test('an escaped @ is a name, not an at-keyword — as a browser reads it, nothing is imported and nothing is reported; a real @ is', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': page(
+      String.raw`a{background:\@import "https://evil.example/k.css";`,
+      String.raw`b{background:\40 import "https://evil.example/e.css";`, // \40 + blank = @ — escaped all the same
+      '@import "https://evil.example/real.css";',
+    ),
+  });
+  assert.deepEqual(brief(violations), ['css/theme.css:3 [css-external-url]']);
 });
 
 test('AA — …and escapes that spell no address stay what they are: a class name, a string of text', async (t) => {
@@ -907,4 +912,85 @@ test('review Critical 1 — every rule reads the first of a repeated attribute, 
     `${HTML}:7 [external-url]`,
     `${HTML}:7 [inline-event-handler]`,
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Review of 2c486cd — Important 1: CSS addresses that slipped through
+//
+// The CSS was read as "blank the comments, undo the escapes, then run three
+// regular expressions that do not cross a line". Two consequences, each
+// shown by the reviewer in Chromium 152 (the browser fetched every one of
+// these addresses):
+//   • a /* inside a string began a "comment", which swallowed the rule after
+//     it — a{content:"/*"} on one line, the outside url() on the next;
+//   • an address that runs across a line break — a string continued with a
+//     backslash, or holding an escaped newline — matched nothing.
+// The strings below are the reviewer's.
+// ---------------------------------------------------------------------------
+
+test('review Important 1 — cause 1: a /* inside a string is text, not a comment; the rule on the next line is still CSS', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': ['a{content:"/*"}', 'b{background:url(https://evil.example/b.png)}', ''].join('\n'),
+    [HTML]: ['<style>', 'a{content:"/*"}', 'b{background:url(https://evil.example/c.png)}', '</style>'].join('\n'),
+  });
+  assert.deepEqual(brief(violations), ['css/theme.css:2 [css-external-url]', `${HTML}:3 [css-external-url]`]);
+});
+
+test('review Important 1 — cause 2: an address may run across lines — a string continued with a backslash, an escaped newline, an @import', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': [
+      'a{background:url("https://evil.example/a\\', // the string goes on after the line break
+      '.png")}',
+      'b{background:url("https://evil.example/b\\a .png")}', // \a is a line feed inside the string
+      'c{background:url("https://evil.example/c\\d .png")}', // …and \d a carriage return
+      '@import "https://evil.example/x\\',
+      '.css";',
+      "@import 'https://evil.example/y\\",
+      ".css';",
+      'd{background:url("https://evil.example/\\',
+      'd.png") screen;}',
+    ].join('\n'),
+    [HTML]: "<div style=\"background:url('https://evil.example/e\\\n.png')\">x</div>",
+  });
+  assert.deepEqual(brief(violations), [
+    'css/theme.css:1 [css-external-url]',
+    'css/theme.css:3 [css-external-url]',
+    'css/theme.css:4 [css-external-url]',
+    'css/theme.css:5 [css-external-url]',
+    'css/theme.css:7 [css-external-url]',
+    'css/theme.css:9 [css-external-url]',
+    `${HTML}:1 [css-external-url]`, // a tag across lines is reported where it starts
+  ]);
+});
+
+test('review Important 1 — image-set() is read the same way: across lines, with an escaped newline', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': [
+      'a{background:image-set(',
+      '  "https://evil.example/a.png" 1x,',
+      '  "b.png" 2x)}',
+      'b{background:image-set("https://evil.example/\\',
+      'b.png" 1x)}',
+      'c{background:-webkit-image-set(url("https://evil.example/c.png") 1x, "https://evil.example/d\\a .png" 2x)}',
+    ].join('\n'),
+  });
+  assert.deepEqual(brief(violations), [
+    'css/theme.css:1 [css-external-url]',
+    'css/theme.css:4 [css-external-url]',
+    'css/theme.css:6 [css-external-url]',
+    'css/theme.css:6 [css-external-url]',
+  ]);
+});
+
+test('review Important 1 — …and read right the other way round too: an escaped quote does not end a string, a comment may span lines, url( with a blank before the address is still url()', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': [
+      'a{content:"say \\" url(https://evil.example/inside-a-string.png) \\" more"}', // one string, all of it
+      '/* a comment', 'that spans lines: url(https://evil.example/commented.png) */',
+      "b{content:'it\\'s text: url(https://evil.example/more-text.png)'}", // the same with single quotes
+      'c{background:url( https://evil.example/after-a-blank.png )}', // fetched: the blank makes url( a function
+      'd{background:URL("https://evil.example/upper-case.png")}',
+    ].join('\n'),
+  });
+  assert.deepEqual(brief(violations), ['css/theme.css:5 [css-external-url]', 'css/theme.css:6 [css-external-url]']);
 });

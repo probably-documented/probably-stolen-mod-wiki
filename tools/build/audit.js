@@ -61,16 +61,17 @@
 //     <style>'s content is read as CSS. A browser keeps a script element open
 //     past a nested <script> that follows <!--; the audit stops at the first
 //     </script> — so that one case is over-reported, never under-reported.
-//   • CSS is read after its comments are blanked and its escapes undone
-//     (\68 ttps:// is https://), with a map back to the text as written for
-//     the line number. A quoted string is text, not syntax: content:"url(…)"
-//     is no url().
+//   • CSS is read in one pass: a string with its escaped quotes and
+//     continued lines, a comment and an escape (\68 ttps:// is https://) are
+//     told apart where each of them is, and the addresses are looked for on
+//     what that produced. A quoted string is text, not syntax:
+//     content:"url(…)" is no url(). A string that a line break ends before
+//     its quote is dropped, as a browser drops it.
 //   • An address written in running text, outside every tag, is not a
 //     violation: a contributor may write a URL in a sentence (ruling AA).
 //   • A tag's attributes are read with the scanner whatever the rule: a >
 //     inside a quoted value does not end the tag, so nothing hides behind it.
-//   • Not covered: a quote escaped inside a CSS string (it ends that string
-//     early); in a .js file only src=, href= and CSS are read, as text.
+//   • In a .js file only src=, href= and CSS are read, as text.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -213,81 +214,126 @@ function lineText(text, index) {
 // ---------------------------------------------------------------------------
 
 /**
- * CSS escapes undone (CSS Syntax 3 §4.3.7). `\XXXXXX` — one to six hex
- * digits, and one optional blank after them, which is consumed — is that
- * code point; `\c`, a backslash before anything else, is that character; a
- * backslash before a newline is no escape and both stay. Returns the text
- * and, for each of its characters, where it was in the input: unescaping
- * changes lengths, and the line reported must be the input's.
+ * One CSS escape at `i` (css[i] is a backslash), as CSS Syntax 3 §4.3.7
+ * reads it. `\XXXXXX` — one to six hex digits and one optional blank after
+ * them — is that code point (0, a surrogate or anything past U+10FFFF is
+ * U+FFFD); `\c`, a backslash before any other character, is that character.
+ * A backslash before a line break continues a string and stands for nothing;
+ * one at the very end is a backslash. Returns the text and where it ends.
  */
-function decodeCssEscapes(css) {
-  let text = '';
-  const map = [];
-  const isHex = (c) => c !== undefined && /[0-9a-f]/i.test(c);
-  const isBlank = (c) => c !== undefined && /[ \t\n\r\f]/.test(c);
-  for (let i = 0; i < css.length; i += 1) {
-    const ch = css[i];
-    if (ch !== '\\' || i + 1 >= css.length) { // the backslash itself, or one at the very end
-      text += ch;
-      map.push(i);
+function cssEscape(css, i) {
+  const next = css[i + 1];
+  if (next === undefined) return { text: '\\', end: i + 1 };
+  if (next === '\n' || next === '\f' || (next === '\r' && css[i + 2] !== '\n')) return { text: '', end: i + 2 };
+  if (next === '\r') return { text: '', end: i + 3 };
+  let digits = '';
+  let end = i + 1;
+  while (end < css.length && end < i + 7 && /[0-9a-f]/i.test(css[end])) { digits += css[end]; end += 1; }
+  if (digits === '') return { text: next, end: i + 2 };
+  if (css[end] !== undefined && /[ \t\n\r\f]/.test(css[end])) end += 1;
+  const code = Number.parseInt(digits, 16);
+  return {
+    text: code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ? '\ufffd' : String.fromCodePoint(code),
+    end,
+  };
+}
+
+const isCssLineBreak = (c) => c === '\n' || c === '\r' || c === '\f';
+const isCssBlank = (c) => c === ' ' || c === '\t' || isCssLineBreak(c);
+const CSS_NAME_START = /[a-zA-Z_\\\-\u0080-\uffff]/; // a backslash starts a name too: \75 rl( is url(
+const CSS_NAME_CHAR = /[a-zA-Z0-9_\-\u0080-\uffff]/;
+
+/** A name (identifier) from `i`: name characters and escapes, up to the first character that is neither. */
+function readCssName(css, i) {
+  let value = '';
+  while (i < css.length) {
+    const c = css[i];
+    if (CSS_NAME_CHAR.test(c)) { value += c; i += 1; continue; }
+    if (c === '\\' && !isCssLineBreak(css[i + 1])) { const e = cssEscape(css, i); value += e.text; i = e.end; continue; }
+    break;
+  }
+  return { value, end: i };
+}
+
+/**
+ * CSS read in ONE pass, as far as the audit needs it (CSS Syntax 3 §4): a
+ * string with its escaped quotes and continued lines, a comment and an
+ * escape are told apart where each of them is. The audit used to blank the
+ * comments first, then run three regular expressions that did not cross a
+ * line — so a `/*` inside a string swallowed the rule after it, and an
+ * address with a line break in it matched nothing.
+ *   { type: 'string',     value, at }  a quoted string, escapes undone
+ *   { type: 'url',        value, at }  url( followed by an unquoted address, read to the )
+ *   { type: 'function',   value, at }  a name directly followed by ( — the ( is part of it
+ *   { type: 'at-keyword', value, at }  @name
+ *   { type: 'ident',      value, at }
+ *   { type: 'char',       value, at }  any other single character
+ * Comments are dropped, and so is a string that a line break ends before its
+ * quote (a bad string, which a browser drops too). `at` is where the token
+ * starts in the text read.
+ */
+function tokenizeCss(css) {
+  const tokens = [];
+  let i = 0;
+  while (i < css.length) {
+    const c = css[i];
+    if (isCssBlank(c)) { i += 1; continue; }
+    if (c === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 2;
       continue;
     }
-    const next = css[i + 1];
-    if (next === '\n' || next === '\r' || next === '\f') { // no escape: keep both characters
-      text += ch;
-      map.push(i);
+    if (c === '"' || c === "'") {
+      const at = i;
+      i += 1;
+      let value = '';
+      let closed = false;
+      while (i < css.length) {
+        const d = css[i];
+        if (d === c) { i += 1; closed = true; break; }
+        if (isCssLineBreak(d)) break;
+        if (d === '\\') { const e = cssEscape(css, i); value += e.text; i = e.end; continue; }
+        value += d;
+        i += 1;
+      }
+      if (closed) tokens.push({ type: 'string', value, at });
       continue;
     }
-    if (isHex(next)) {
-      let end = i + 1;
-      while (end < css.length && end < i + 7 && isHex(css[end])) end += 1;
-      const code = Number.parseInt(css.slice(i + 1, end), 16);
-      if (isBlank(css[end])) end += 1; // the blank after the digits is part of the escape
-      text += code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ? '\ufffd' : String.fromCodePoint(code);
-      map.push(i);
-      i = end - 1;
+    if (c === '@') {
+      const name = readCssName(css, i + 1);
+      if (name.value !== '') { tokens.push({ type: 'at-keyword', value: name.value, at: i }); i = name.end; continue; }
+      tokens.push({ type: 'char', value: c, at: i });
+      i += 1;
       continue;
     }
-    text += next; // a character escape: the character itself
-    map.push(i);
+    if (CSS_NAME_START.test(c)) {
+      const at = i;
+      const name = readCssName(css, i);
+      i = name.end;
+      if (css[i] !== '(') { tokens.push({ type: 'ident', value: name.value, at }); continue; }
+      i += 1;
+      const after = css[i];
+      if (name.value.toLowerCase() !== 'url' || after === undefined || after === '"' || after === "'" || isCssBlank(after)) {
+        // url( with a quote or a blank right after it is a function whose
+        // argument is a string — or a blank, then one.
+        tokens.push({ type: 'function', value: name.value, at });
+        continue;
+      }
+      // url( followed by anything else: the address itself, up to the )
+      let value = '';
+      while (i < css.length && css[i] !== ')') {
+        if (css[i] === '\\' && !isCssLineBreak(css[i + 1])) { const e = cssEscape(css, i); value += e.text; i = e.end; continue; }
+        value += css[i];
+        i += 1;
+      }
+      if (i < css.length) i += 1;
+      tokens.push({ type: 'url', value: value.trim(), at });
+      continue;
+    }
+    tokens.push({ type: 'char', value: c, at: i });
     i += 1;
   }
-  return { text, map };
-}
-
-/** The quoted strings of a CSS text as [start, end] with both quotes: what lies between them is not CSS syntax. */
-function stringSpans(text) {
-  const spans = [];
-  let i = 0;
-  while (i < text.length) {
-    const quote = text[i];
-    if (quote !== '"' && quote !== "'") { i += 1; continue; }
-    const end = text.indexOf(quote, i + 1);
-    const stop = end < 0 ? text.length : end;
-    spans.push([i, stop]);
-    i = stop + 1;
-  }
-  return spans;
-}
-
-/** What is between the `(` at `open` and the `)` that closes it, nested parentheses and quoted strings accounted for. */
-function balancedArgs(text, open) {
-  let depth = 0;
-  let quote = null;
-  for (let i = open; i < text.length; i += 1) {
-    const c = text[i];
-    if (quote !== null) {
-      if (c === quote) quote = null;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-    } else if (c === '(') {
-      depth += 1;
-    } else if (c === ')') {
-      depth -= 1;
-      if (depth === 0) return text.slice(open + 1, i);
-    }
-  }
-  return text.slice(open + 1);
+  return tokens;
 }
 
 /** How an address written in CSS refers to something: an outside site (by scheme, or protocol-relative), the site root — or nothing that concerns the audit. */
@@ -300,56 +346,92 @@ function cssAddressKind(raw) {
 
 const CODE_OF_CSS_ADDRESS = Object.freeze({ external: 'css-external-url', 'root-relative': 'css-root-relative' });
 
-/**
- * A2 and A3 for CSS (ruling AA): in a stylesheet, a <style> block or a
- * style="" attribute, @import, url() and image-set() may hold neither an
- * outside nor a root-relative address. Read in three steps, each on the
- * text the one before produced:
- *   1. comments are blanked with their length kept — a backslash inside one
- *      is no escape;
- *   2. escapes are undone (\68 ttps:// is https://), with a map back to the
- *      input for the line number;
- *   3. the addresses are looked for — outside quoted strings, which are
- *      text: content:"url(…)" is no url().
- * `at(inputOffset)` gives the position in the reported text a violation is
- * anchored at; `describe` its detail. `literalsAreCss` is for a .js file,
- * where the CSS sits inside the script's own string literals: there a
- * string is exactly where the address is written.
- * Not read as a browser would (the safe side, or rare): a quote escaped
- * inside a string ends that string early; an escaped `\@import` is
- * reported like an @import although it is a mere name to a browser.
- */
-function scanCss(css, report, at, describe, { literalsAreCss = false } = {}) {
-  const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ' '));
-  const { text, map } = decodeCssEscapes(blanked);
-  const spans = stringSpans(text);
-  const inString = literalsAreCss ? () => false : (index) => spans.some(([from, to]) => index > from && index < to);
-  const seen = new Set();
-  const hit = (index, raw) => {
-    const kind = cssAddressKind(raw);
-    if (kind === null || seen.has(index)) return;
-    seen.add(index);
-    report(at(map[index]), CODE_OF_CSS_ADDRESS[kind], describe(at(map[index])));
-  };
-  const urlSpans = [];
-  for (const m of text.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi)) {
-    urlSpans.push([m.index, m.index + m[0].length]);
-    if (!inString(m.index)) hit(m.index, m[2]);
-  }
-  for (const m of text.matchAll(/@import\s+(["'])(.*?)\1/gi)) {
-    if (!inString(m.index)) hit(m.index, m[2]);
-  }
-  for (const m of text.matchAll(/(?:-[a-z]+-)?image-set\(/gi)) {
-    const open = m.index + m[0].length - 1;
-    if (inString(open)) continue;
-    const args = balancedArgs(text, open);
-    for (const s of args.matchAll(/(["'])(.*?)\1/g)) {
-      const atString = open + 1 + s.index;
-      // image-set(url("…") 1x): that address is the url()'s, reported there already.
-      if (urlSpans.some(([from, to]) => atString > from && atString < to)) continue;
-      hit(atString, s[2]);
+/** The index of the token that closes what the function token or `(` at `open` opens; -1 when nothing does. */
+function matchingParen(tokens, open) {
+  let depth = 1;
+  for (let j = open + 1; j < tokens.length; j += 1) {
+    const t = tokens[j];
+    if (t.type === 'function' || (t.type === 'char' && t.value === '(')) depth += 1;
+    else if (t.type === 'char' && t.value === ')') {
+      depth -= 1;
+      if (depth === 0) return j;
     }
   }
+  return -1;
+}
+
+const isCssFunction = (token, name) => token.type === 'function' && token.value.toLowerCase() === name;
+const isCssChar = (token, value) => token.type === 'char' && token.value === value;
+
+/**
+ * A2, A3 and A9 for CSS: in a stylesheet, a <style> block or a style=""
+ * attribute, @import, url() and image-set() may hold neither an outside nor
+ * a root-relative address. The text is read once by tokenizeCss, and the
+ * addresses are looked for on its tokens:
+ *   url(…)     an unquoted address, or the one string inside the parentheses
+ *              (url( "…" ) included); otherwise the pieces are joined
+ *   @import    the first string after it, before the end of the at-rule;
+ *              @import url(…) is read by the line above
+ *   image-set(…)  every string of its list, an address that is a url(…)
+ *              having been read already
+ * `at(offset)` gives the position in the reported text a violation is
+ * anchored at; `describe` its detail. `literalsAreCss` is for a .js file,
+ * where the CSS sits inside the script's own string literals: there every
+ * string is read as CSS in its turn (once — what is a string inside that is
+ * an address, not CSS again).
+ */
+function scanTokens(tokens, report, at, describe, { literalsAreCss = false } = {}) {
+  const seen = new Set();
+  const hit = (offset, raw) => {
+    const kind = cssAddressKind(raw);
+    if (kind === null || seen.has(offset)) return;
+    seen.add(offset);
+    report(at(offset), CODE_OF_CSS_ADDRESS[kind], describe(at(offset)));
+  };
+  const inner = (k) => {
+    const close = matchingParen(tokens, k);
+    return { close, tokens: tokens.slice(k + 1, close < 0 ? tokens.length : close) };
+  };
+  // In two passes. Every url(…) first, remembering the string that is its
+  // address — so that image-set(url("…") 1x) does not report it a second time.
+  const addressOfUrl = new Set();
+  for (let k = 0; k < tokens.length; k += 1) {
+    const token = tokens[k];
+    if (token.type === 'string' && literalsAreCss) {
+      scanTokens(tokenizeCss(token.value), report, (offset) => at(token.at + offset), (index) => describe(at(token.at + index)));
+    } else if (token.type === 'url') {
+      hit(token.at, token.value);
+    } else if (isCssFunction(token, 'url')) {
+      const args = inner(k).tokens;
+      const strings = args.filter((t) => t.type === 'string');
+      if (strings.length === 1 && args.length === 1) {
+        addressOfUrl.add(k + 1);
+        hit(token.at, strings[0].value);
+      } else {
+        hit(token.at, args.map((t) => t.value).join(''));
+      }
+    }
+  }
+  for (let k = 0; k < tokens.length; k += 1) {
+    const token = tokens[k];
+    if (token.type === 'at-keyword' && token.value.toLowerCase() === 'import') {
+      for (let j = k + 1; j < tokens.length && !isCssChar(tokens[j], ';') && !isCssChar(tokens[j], ')') && !isCssChar(tokens[j], '{'); j += 1) {
+        if (tokens[j].type === 'string') { hit(tokens[j].at, tokens[j].value); break; }
+        if (tokens[j].type === 'url' || isCssFunction(tokens[j], 'url')) break;
+      }
+    } else if (token.type === 'function' && /(?:^|-)image-set$/.test(token.value.toLowerCase())) {
+      const { tokens: args } = inner(k);
+      args.forEach((t, n) => {
+        // anchored at the image-set( itself: the line a contributor finds it on
+        if (t.type === 'string' && !addressOfUrl.has(k + 1 + n)) hit(token.at, t.value);
+      });
+    }
+  }
+}
+
+/** A stylesheet, a <style> block or a style="" attribute: read once, then read for its addresses. */
+function scanCss(css, report, at, describe, { literalsAreCss = false } = {}) {
+  scanTokens(tokenizeCss(css), report, at, describe, { literalsAreCss });
 }
 
 /** The addresses an attribute value holds: one — or each candidate of srcset (comma separated, its first token) or of ping / archive (blank separated). */
