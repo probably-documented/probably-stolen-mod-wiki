@@ -11,6 +11,11 @@
 //       (admin/vendor/PROVENANCE.md), and the file must come out of git
 //       unconverted on every platform (.gitattributes `-text`), or that
 //       comparison would fail on a Windows checkout.
+//   index.html — the CMS page loads the one local bundle as a classic
+//       script and nothing else: no remote script or stylesheet (the shell
+//       is the only part of dist that may talk to the network, and even it
+//       must start from files the site ships), and it tells search engines
+//       not to index it.
 //
 // Everything here is offline: no registry, no CDN — the bundle is compared
 // with the digest that was written down when it was vendored.
@@ -27,8 +32,15 @@ const BUNDLE_REL = 'admin/vendor/sveltia-cms.js';
 const BUNDLE_PATH = path.join(REPO_ROOT, ...BUNDLE_REL.split('/'));
 const PROVENANCE_PATH = path.join(ADMIN_DIR, 'vendor', 'PROVENANCE.md');
 const GITATTRIBUTES_PATH = path.join(REPO_ROOT, '.gitattributes');
+const INDEX_PATH = path.join(ADMIN_DIR, 'index.html');
 
 const readText = (file) => fs.readFile(file, 'utf8');
+
+/** Values of every `src="…"` / `href="…"` attribute in an HTML document. */
+const resourceRefs = (html) => [...html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']*)["']/gi)].map((m) => m[1]);
+
+/** Has a scheme (http:, https:, data:, …) or is protocol-relative (//host/…). */
+const isRemote = (ref) => /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(ref);
 
 test('J — vendored bundle: admin/vendor/sveltia-cms.js is byte-identical to the digest recorded in PROVENANCE.md', async () => {
   const [bundle, provenance] = await Promise.all([
@@ -56,4 +68,24 @@ test('J — .gitattributes marks the bundle -text, so no platform converts its l
   assert.ok(rule !== undefined, `.gitattributes has no rule for ${BUNDLE_REL}`);
   const attrs = rule.split(/\s+/).slice(1);
   assert.ok(attrs.includes('-text'), `${BUNDLE_REL}: expected the -text attribute, got ${JSON.stringify(attrs)}`);
+});
+
+test('index.html loads only the local bundle, as a classic script — no remote script or stylesheet', async () => {
+  const html = await readText(INDEX_PATH);
+
+  const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)].map((m) => m[1]);
+  const srcOf = (attrs) => /\bsrc\s*=\s*["']([^"']*)["']/i.exec(attrs)?.[1] ?? null;
+  assert.deepEqual(scripts.map(srcOf), ['./vendor/sveltia-cms.js'],
+    'exactly one script, pointing at the vendored bundle next to this page');
+  for (const attrs of scripts) {
+    assert.doesNotMatch(attrs, /\btype\s*=/i, 'the bundle is a classic script, not an ES module');
+  }
+
+  const remote = resourceRefs(html).filter(isRemote);
+  assert.deepEqual(remote, [], 'the CMS page must not load anything over the network to get started');
+});
+
+test('index.html tells search engines not to index the CMS', async () => {
+  const html = await readText(INDEX_PATH);
+  assert.match(html, /<meta\s+name\s*=\s*["']robots["']\s+content\s*=\s*["']noindex["']\s*\/?\s*>/i);
 });
