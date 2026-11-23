@@ -1254,3 +1254,72 @@ test('ruling AC(1) — the tag name is read to its end too (300 characters): wha
   // the second line: the browser loads nothing from an unknown element; the audit reports the outside address in any attribute (ruling AA) — the safe side, as before
   assert.deepEqual(brief(violations), [`${HTML}:1 [inline-event-handler]`, `${HTML}:2 [external-url]`]);
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — Important: a string that the END OF THE TEXT closes
+//
+// The lexer dropped every string that its quote did not close — whether a
+// line break ended it (a bad string, which a browser drops too) or the text
+// itself did. CSS Syntax 3 drops only the first: at the end of the text the
+// string stands, with what was read of it. A browser requests the address in
+// it — in a <style>, in a style="" attribute, at the end of a stylesheet
+// file — and the audit said nothing.
+//
+// Each line below was tried in Chrome 152 (task-6b report, round 2), the
+// controls included: a string that a LINE BREAK ends is requested by nobody.
+// ---------------------------------------------------------------------------
+
+test('review round 2, Important — a string that the end of the text closes still holds its address: @import in a <style>, left open four ways', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>@import "https://evil.example/a.css</style>',
+      "<style>@import 'https://evil.example/b.css</style>",
+      '<style>@import "https://evil.example/c.css\\</style>', // ending in a backslash
+      '<style>@import "https://evil.example/d.css\\\r\n</style>', // a backslash, then CRLF — one line to HTML, one to CSS
+      '<style>@import "https://evil.example/e.css\\\n</style>', // a backslash, then LF
+    ),
+  });
+  // (the fourth line holds a line break of its own, so the fifth is on line 6)
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 6].map((n) => `${HTML}:${n} [css-external-url]`));
+});
+
+test('review round 2, Important — …and url(, image-set( in a <style>, a url( in a style="" attribute', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>f3{background:url("https://evil.example/f3.png</style>',
+      '<style>f5{background:image-set("https://evil.example/f5.png 1x)}</style>', // the open string swallows ` 1x)}` into the address — the browser asks for exactly that
+      '<div style="background:url(\'https://evil.example/f7.png">x</div>', // open to the end of the attribute value
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`));
+});
+
+test('review round 2, Important — the same at the end of a stylesheet file: @import and url(, each kind of address', async (t) => {
+  const cases = [
+    ['@import "https://evil.example/x.css', 'css-external-url'],
+    ['a{background:url("https://evil.example/y.png', 'css-external-url'],
+    ['@import "//evil.example/z.css', 'css-external-url'],
+    ['@import "/root.css', 'css-root-relative'],
+    ['a{background:url("data:image/png;base64,AAAA', 'css-data-url'],
+    ['@import "https://evil.example/closed.css"', 'css-external-url'], // closed, no `;`: whole to the end — a control, reported before this round too
+  ];
+  for (const [text, code] of cases) {
+    assert.deepEqual(brief(await auditOf(t, { 'css/theme.css': text })), [`css/theme.css:1 [${code}]`], text);
+  }
+});
+
+test('review round 2, Important — the controls: a string that a LINE BREAK ends is a bad string, dropped as a browser drops it; an open string with no outside address reports nothing', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>@import "https://evil.example/b1.css\nbody{color:red}</style>',
+      '<style>@import "https://evil.example/b2.css\n</style>',
+      '<style>@import "https://evil.example/b3.css\n";</style>',
+      '<style>b4{background:url("https://evil.example/b4.png\n)}</style>',
+      '<style>@import "theme-more.css</style>', // open, and a site file: asked for, allowed
+      '<style>e11{content:"just text, never closed}</style>',
+    ),
+    'css/theme.css': '@import "https://evil.example/u12.css\n', // open, then the line ends the file
+    'css/other.css': '@import "https://evil.example/b8.css\nbody{color:red}\n',
+  });
+  assert.deepEqual(violations, []);
+});

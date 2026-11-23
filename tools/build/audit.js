@@ -76,7 +76,9 @@
 //     told apart where each of them is, and the addresses are looked for on
 //     what that produced. A quoted string is text, not syntax:
 //     content:"url(…)" is no url(). A string that a line break ends before
-//     its quote is dropped, as a browser drops it.
+//     its quote is dropped, as a browser drops it; one that the end of the
+//     text closes stands with what was read of it — a browser requests the
+//     address in it, so it is read too.
 //   • An address written in running text, outside every tag, is not a
 //     violation: a contributor may write a URL in a sentence (ruling AA).
 //   • A tag's attributes are read with the scanner whatever the rule: a >
@@ -241,11 +243,12 @@ function lineText(text, index) {
  * them — is that code point (0, a surrogate or anything past U+10FFFF is
  * U+FFFD); `\c`, a backslash before any other character, is that character.
  * A backslash before a line break continues a string and stands for nothing;
- * one at the very end is a backslash. Returns the text and where it ends.
+ * one at the very end stands for nothing too — there is no character for it
+ * to escape. Returns the text and where it ends.
  */
 function cssEscape(css, i) {
   const next = css[i + 1];
-  if (next === undefined) return { text: '\\', end: i + 1 };
+  if (next === undefined) return { text: '', end: i + 1 };
   if (next === '\n' || next === '\f' || (next === '\r' && css[i + 2] !== '\n')) return { text: '', end: i + 2 };
   if (next === '\r') return { text: '', end: i + 3 };
   let digits = '';
@@ -291,8 +294,9 @@ function readCssName(css, i) {
  *   { type: 'ident',      value, at }
  *   { type: 'char',       value, at }  any other single character
  * Comments are dropped, and so is a string that a line break ends before its
- * quote (a bad string, which a browser drops too). `at` is where the token
- * starts in the text read.
+ * quote (a bad string, which a browser drops too). A string that the end of
+ * the text closes is kept, with what was read of it: a browser requests the
+ * address in it. `at` is where the token starts in the text read.
  */
 function tokenizeCss(css) {
   const tokens = [];
@@ -309,16 +313,21 @@ function tokenizeCss(css) {
       const at = i;
       i += 1;
       let value = '';
-      let closed = false;
+      let bad = false;
       while (i < css.length) {
         const d = css[i];
-        if (d === c) { i += 1; closed = true; break; }
-        if (isCssLineBreak(d)) break;
+        if (d === c) { i += 1; break; }
+        if (isCssLineBreak(d)) { bad = true; break; } // a line break before its quote: a bad string
         if (d === '\\') { const e = cssEscape(css, i); value += e.text; i = e.end; continue; }
         value += d;
         i += 1;
       }
-      if (closed) tokens.push({ type: 'string', value, at });
+      // A bad string is dropped, as a browser drops it. One that the END OF
+      // THE TEXT closes is not: it stands with what was read of it (CSS
+      // Syntax 3), and a browser requests the address in it —
+      // `<style>@import "https://…` to </style>, `url("https://…` at the
+      // end of a stylesheet file (review round 2).
+      if (!bad) tokens.push({ type: 'string', value, at });
       continue;
     }
     if (c === '@') {
