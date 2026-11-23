@@ -934,12 +934,28 @@ test('review Critical 1 — every rule reads the first of a repeated attribute, 
 // The strings below are the reviewer's.
 // ---------------------------------------------------------------------------
 
-test('review Important 1 — cause 1: a /* inside a string is text, not a comment; the rule on the next line is still CSS', async (t) => {
+test('review Important 1 — cause 1: a /* inside a string is text, not a comment; the rule after it is still CSS — with a real comment further down, as in the reviewer\'s case', async (t) => {
+  // The /* inside the string opened a "comment" for the audit before the fix,
+  // and only the */ of a REAL comment further down closed it: everything in
+  // between went unreported — b's address. (As first written this case had no
+  // real comment, and the old reading reported b's address too: it was green
+  // before the fix and proved nothing. The comment is the case.)
+  // A real comment is still a comment: nothing in it is reported.
   const violations = await auditOf(t, {
-    'css/theme.css': ['a{content:"/*"}', 'b{background:url(https://evil.example/b.png)}', ''].join('\n'),
-    [HTML]: ['<style>', 'a{content:"/*"}', 'b{background:url(https://evil.example/c.png)}', '</style>'].join('\n'),
+    'css/theme.css': [
+      'a{content:"/*"}',
+      'b{background:url(https://evil.example/b.png)}',
+      '/* a real comment: url(https://evil.example/commented.png) is text here */',
+      'c{background:url(https://evil.example/c.png)}',
+      '',
+    ].join('\n'),
+    [HTML]: ['<style>', 'a{content:"/*"}', 'b{background:url(https://evil.example/d.png)}', '/* real */', '</style>'].join('\n'),
   });
-  assert.deepEqual(brief(violations), ['css/theme.css:2 [css-external-url]', `${HTML}:3 [css-external-url]`]);
+  assert.deepEqual(brief(violations), [
+    'css/theme.css:2 [css-external-url]',
+    'css/theme.css:4 [css-external-url]',
+    `${HTML}:3 [css-external-url]`,
+  ]);
 });
 
 test('review Important 1 — cause 2: an address may run across lines — a string continued with a backslash, an escaped newline, an @import', async (t) => {
