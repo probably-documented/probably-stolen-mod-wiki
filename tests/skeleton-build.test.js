@@ -27,6 +27,22 @@
 //                 Chinese report naming the file to edit (tests/dangling-refs.test.js
 //                 for the check itself)
 //   retries     — the rm of dist asks fs.rm for retries (D2)
+//
+// Task 6b adds — the site is online and written by many contributors: every
+// failure one of them can trigger tells them what to do, and the audit sees
+// what they can write:
+//   audit       — external links are allowed; external resources,
+//                 root-relative paths and dangerous HTML (an inline <script>,
+//                 an on*= attribute, a javascript: URL …) fail the build with
+//                 a Chinese report naming the content file (C1) — or saying
+//                 it is a build or template problem when no content file is
+//                 behind it (C2). The rules themselves: tests/audit.test.js
+//   rm guard    — its refusal is a Chinese BuildError as well (C3)
+//   slugs       — an item file must declare the slug it is named after (D8);
+//                 a mechanic page's file name must be its address (D11)
+//   retries     — one policy object, the same pack.js uses (D4)
+//   dist        — inside the repo, only the repo's own dist may be removed
+//                 (D6; the pure function: tests/paths.test.js)
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
