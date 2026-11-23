@@ -1128,3 +1128,129 @@ test('ruling AB(d) — a javascript: address is refused in ANY attribute, on any
   });
   assert.deepEqual(brief(violations), [1, 2, 3, 4].map((n) => `${HTML}:${n} [script-url]`));
 });
+
+// ===========================================================================
+// Review round 2 (of fd618bc)
+// ===========================================================================
+// Critical (a regression of round 1) and ruling AC(1): the tag scanner read
+// only the first 256 characters of an attribute name, 4096 of an unquoted
+// value and 64 of a tag name. Whatever followed the cut was read as
+// something new — an attribute the browser does not have. With round 1's
+// rule "of repeated attributes only the first is kept", a name that ran
+// past the cut could make the audit drop the REAL `type` / `src` / `href`
+// as a repeat; and without any repeat, the audit could be given a `type` /
+// `src` the browser never saw. The browser executes or loads; the audit said
+// nothing — though before round 1 it reported these.
+//
+// Ruling AC(1): nothing is cut in the parse phase. Names and values are read
+// to where they really end; a length limit belongs to the snippet shown in a
+// report and nowhere else.
+//
+// Every line below was tried in Chrome 152 (task-6b report, round 2): what
+// the browser did with it is what the audit must say.
+
+const X256 = 'x'.repeat(256); // the reviewer's x×256 — no blank between it and what follows
+const X255 = 'x'.repeat(255);
+const A4096 = 'a'.repeat(4096); // the reviewer's a×4096 after `data=`
+
+test('review round 2, Critical — a name of 256 characters is one name with the `type` / `src` / `href` after it: the browser has no such attribute, and the audit reads the same (the reviewer\'s table)', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      `<script ${X256}type="application/json" type="text/javascript">alert(1)</script>`, // no `type` → runs
+      `<script ${X256}src="data.js" src="admin/vendor/cms.js"></script>`, // no `src` by that name → cms.js is the first src
+      `<a ${X256}href="ok.html" href="javascript:alert(1)">link</a>`, // the live href is the javascript: one
+      `<iframe ${X256}src="ok.html" src="https://evil.example/"></iframe>`, // the outside address is loaded
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [script-inline]`,
+    `${HTML}:2 [script-src]`,
+    `${HTML}:3 [script-url]`,
+    `${HTML}:4 [external-url]`,
+  ]);
+});
+
+test('review round 2, Critical — the controls at 255 and at 257 characters (4095 and 4097 of a value): the cut could be used only at exactly 256 (4096)', async (t) => {
+  // At exactly 256 the name ends where the old scan stopped reading, so
+  // `type` began a new "attribute" for it. One character more and the name
+  // runs past the cut: what is left of it is glued to `type`, which then is
+  // no `type` for the audit either; one less, and the name is read whole.
+  // Both were reported before this round, and must be still. The same for an
+  // unquoted value at exactly 4096.
+  const both = async (x, valueLength) => brief(await auditOf(t, {
+    [HTML]: page(
+      `<script ${x}type="application/json" type="text/javascript">alert(1)</script>`,
+      `<script ${x}src="data.js" src="admin/vendor/cms.js"></script>`,
+      `<a ${x}href="ok.html" href="javascript:alert(1)">link</a>`,
+      `<iframe ${x}src="ok.html" src="https://evil.example/"></iframe>`,
+      `<script data=${'a'.repeat(valueLength)}type=application/json>alert(1)</script>`,
+    ),
+  }));
+  const expected = [
+    `${HTML}:1 [script-inline]`, `${HTML}:2 [script-src]`, `${HTML}:3 [script-url]`, `${HTML}:4 [external-url]`, `${HTML}:5 [script-inline]`,
+  ];
+  assert.deepEqual(await both(X255, 4095), expected, '255 characters, 4095 of a value');
+  assert.deepEqual(await both('x'.repeat(257), 4097), expected, '257 characters, 4097 of a value');
+});
+
+test('ruling AC(1) — no repeated attribute needed: a `type` / `src` glued to a long name is no attribute at all, so the script runs inline', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      `<script ${X256}type="application/json">alert(1)</script>`,
+      `<script ${X256}src="data.js">alert(1)</script>`,
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [script-inline]`, `${HTML}:2 [script-inline]`]);
+});
+
+test('ruling AC(1) — an unquoted value is read to its real end: 4096 a\'s and then, with no blank, a `type` / `src` that is part of the value', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      `<script data=${A4096} type=application/json>alert(1)</script>`, // a blank: a second attribute, a data block — the browser runs nothing
+      `<script data=${A4096}type=application/json>alert(1)</script>`, // no blank: one value, no `type` — the browser runs it
+      `<script data=${A4096} src=data.js>alert(1)</script>`, // a blank: src is the first-party data.js — the browser runs the inline body not
+      `<script data=${A4096}src=data.js>alert(1)</script>`, // no blank: no `src` — the browser runs the inline body
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:2 [script-inline]`, `${HTML}:4 [script-inline]`]);
+});
+
+test('ruling AC(1) — however long a name or a value, it is read to its end: 100 000 characters, and a value with a quote in it', async (t) => {
+  const long = 'x'.repeat(100000);
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      `<script ${long}type="text/javascript">alert(1)</script>`,
+      `<img ${long}src="https://evil.example/x.png" alt="">`,
+      `<iframe data=${'a'.repeat(5000)}" src="https://evil.example/"></iframe>`, // the unquoted value ends at the blank; src is its own attribute
+      `<img src="${'a'.repeat(100000)}" alt="">`, // a quoted value that long is still one value
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [script-inline]`,
+    `${HTML}:2 [external-url]`,
+    `${HTML}:3 [external-url]`,
+  ]);
+  // the snippet of a report entry is where a length limit belongs
+  assert.ok(violations.every((v) => v.detail.length <= 160), 'no detail longer than 160 characters');
+});
+
+test('ruling AC(4) — a repeated href, both ways: the browser keeps the first, and so does the audit', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<a href="javascript:alert(1)" href="ok.html">the javascript: one is the first — the live href</a>',
+      '<a href="ok.html" href="javascript:alert(1)">ok.html is the first — the second is dropped</a>',
+      `<a ${X256}href="javascript:alert(1)" href="ok.html">the long name is not href: ok.html is the live one; the javascript: value is still reported, in any attribute</a>`,
+      `<a ${X256}href="ok.html" href="javascript:alert(1)">the long name is not href: the javascript: one is the live href</a>`,
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 3, 4].map((n) => `${HTML}:${n} [script-url]`));
+});
+
+test('ruling AC(1) — the tag name is read to its end too (300 characters): what follows it is read as before (a control)', async (t) => {
+  const name = 'x'.repeat(300);
+  const violations = await auditOf(t, {
+    [HTML]: page(`<${name} onclick="alert(1)">text</${name}>`, `<${name} src="https://evil.example/x.png">text</${name}>`),
+  });
+  // the second line: the browser loads nothing from an unknown element; the audit reports the outside address in any attribute (ruling AA) — the safe side, as before
+  assert.deepEqual(brief(violations), [`${HTML}:1 [inline-event-handler]`, `${HTML}:2 [external-url]`]);
+});

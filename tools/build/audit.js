@@ -121,11 +121,22 @@ const NAMED_REFERENCES = Object.freeze({
 // How a tag is read. HTML has exactly five whitespace characters — tab, line
 // feed, form feed, carriage return and space — and every character class
 // below names all five.
+//
+// The three are sticky (flag `y`): they match at matchAt()'s index and
+// nowhere else, on the text itself. Nothing here is cut at some number of
+// characters (ruling AC 1): a name or a value is read to where it really
+// ends, as a browser reads it. The audit once read the first 256 characters
+// of a name and the first 4096 of an unquoted value; what followed the cut
+// was read as something new — an attribute the browser never had, a `type`
+// or `href` that made the audit drop the real one. A length limit belongs
+// to the snippet a report shows, and nowhere else.
 const HTML_SPACE_RE = /[\t\n\f\r ]/;
-const TAG_NAME_RE = /^[^\t\n\f\r />]+/;
-const ATTRIBUTE_NAME_RE = /^[^\t\n\f\r =/>]+/;
+const TAG_NAME_RE = /[^\t\n\f\r />]+/y;
+const ATTRIBUTE_NAME_RE = /[^\t\n\f\r =/>]+/y;
 /** An unquoted attribute value ends at whitespace or `>`; a `/` belongs to it. */
-const UNQUOTED_VALUE_RE = /^[^\t\n\f\r >]*/;
+const UNQUOTED_VALUE_RE = /[^\t\n\f\r >]*/y;
+/** `re.exec(text)` with `re.lastIndex` set to `index`: the sticky match at that point, or null. */
+const matchAt = (re, text, index) => { re.lastIndex = index; return re.exec(text); };
 /** What may follow `</script` / `</style` for it to close the element. */
 const AFTER_END_TAG_NAME = '[\\t\\n\\f\\r />]';
 /** <script> / <style>: elements whose content is text, never markup. */
@@ -521,10 +532,17 @@ function reportUrl(index, url, attribute, tagName, report, detail, { dataUrls = 
  * A start tag at `start`: its name, its attributes (name, value — null when
  * it has none), and where it ends. Of repeated attributes only the first is
  * kept, as a browser does.
+ *
+ * The name, every attribute name and every value are read to where they
+ * really end — a name of any length is one name, with whatever is glued to
+ * it (ruling AC 1; review round 2). A quoted value may run over lines and
+ * hold a `>`; an unquoted one ends at whitespace or at `>`, a `/` belonging
+ * to it. A value that is empty (`src=>`) is `''`, not null: null is an
+ * attribute without any `=`.
  */
 function parseStartTag(text, start) {
   let i = start + 1;
-  const name = TAG_NAME_RE.exec(text.slice(i, i + 64));
+  const name = matchAt(TAG_NAME_RE, text, i);
   const tagName = name === null ? '' : name[0].toLowerCase();
   i += name === null ? 0 : name[0].length;
   const attributes = [];
@@ -532,7 +550,7 @@ function parseStartTag(text, start) {
     const c = text[i];
     if (c === '>') { i += 1; break; }
     if (HTML_SPACE_RE.test(c) || c === '/') { i += 1; continue; }
-    const attribute = ATTRIBUTE_NAME_RE.exec(text.slice(i, i + 256));
+    const attribute = matchAt(ATTRIBUTE_NAME_RE, text, i);
     if (attribute === null) { i += 1; continue; }
     const at = i;
     i += attribute[0].length;
@@ -549,8 +567,7 @@ function parseStartTag(text, start) {
         value = text.slice(j, end < 0 ? text.length : end);
         j = end < 0 ? text.length : end + 1;
       } else {
-        const bare = UNQUOTED_VALUE_RE.exec(text.slice(j, j + 4096));
-        value = bare === null ? '' : bare[0];
+        value = matchAt(UNQUOTED_VALUE_RE, text, j)[0];
         j += value.length;
       }
       i = j;
