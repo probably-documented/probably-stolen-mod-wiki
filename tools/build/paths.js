@@ -29,29 +29,38 @@ const path = require('node:path');
  * Pure (no fs access). Not covered: aliases of the same directory through
  * symlinks/junctions or 8.3 short names (that would need fs.realpath).
  *
+ * `pathImpl` is the path model both are read in — path.win32 or path.posix;
+ * this platform's own `path` when it is not given, as the build calls it. It
+ * is a parameter for the tests (tests/paths.test.js): a rule of ONE model —
+ * win32 folds case and has several drives, POSIX does neither — is checked
+ * in that model wherever the suite runs, instead of only on Windows. The
+ * same parameter goes through every guard below, so they keep reading one
+ * pair of paths the one way.
+ *
  * @param {string} dir
  * @param {string} p
+ * @param {object} [pathImpl] path.win32 / path.posix; the platform's `path` by default
  * @returns {boolean}
  */
-function isInsideDir(dir, p) {
-  const rel = path.relative(path.resolve(dir), path.resolve(p));
+function isInsideDir(dir, p, pathImpl = path) {
+  const rel = pathImpl.relative(pathImpl.resolve(dir), pathImpl.resolve(p));
   // '' → same directory. A bare relative path (not '..', not '../…', not
   // absolute) → p is underneath dir.
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathImpl.sep}`) && !pathImpl.isAbsolute(rel));
 }
 
 /**
  * Is `p` somewhere underneath `dir`, the directory itself not counting?
  * "The same directory" is asked through path.relative, so it agrees with
- * isInsideDir on win32 case folding.
+ * isInsideDir on win32 case folding. `pathImpl` as for isInsideDir.
  */
-function isStrictlyInsideDir(dir, p) {
-  return path.relative(path.resolve(dir), path.resolve(p)) !== '' && isInsideDir(dir, p);
+function isStrictlyInsideDir(dir, p, pathImpl = path) {
+  return pathImpl.relative(pathImpl.resolve(dir), pathImpl.resolve(p)) !== '' && isInsideDir(dir, p, pathImpl);
 }
 
-/** Is `p` the directory `dir` itself? Asked the way isInsideDir asks, so win32 case folding agrees. */
-function isSameDir(dir, p) {
-  return path.relative(path.resolve(dir), path.resolve(p)) === '';
+/** Is `p` the directory `dir` itself? Asked the way isInsideDir asks, so win32 case folding agrees. `pathImpl` as for isInsideDir. */
+function isSameDir(dir, p, pathImpl = path) {
+  return pathImpl.relative(pathImpl.resolve(dir), pathImpl.resolve(p)) === '';
 }
 
 /** The one directory inside the repo a build may remove: the repo's own dist. */
@@ -83,16 +92,18 @@ const DIST_DIR_NAME = 'dist';
  * @param {string} repoRoot
  * @param {string} [tmpRoot] defaults to os.tmpdir(); a parameter so the
  *   temp branch is testable with a made-up root
+ * @param {object} [pathImpl] path.win32 / path.posix; the platform's `path`
+ *   by default — as for isInsideDir
  * @returns {boolean}
  */
-function isAllowedDistDir(distDir, repoRoot, tmpRoot = os.tmpdir()) {
-  const dist = path.resolve(distDir);
+function isAllowedDistDir(distDir, repoRoot, tmpRoot = os.tmpdir(), pathImpl = path) {
+  const dist = pathImpl.resolve(distDir);
   // The repo, or a directory that contains it → never (repoRoot inside dist).
-  if (isInsideDir(dist, repoRoot)) return false;
+  if (isInsideDir(dist, repoRoot, pathImpl)) return false;
   // Inside the repo: the repo's dist directory, and nothing else.
-  if (isInsideDir(repoRoot, dist)) return isSameDir(path.join(repoRoot, DIST_DIR_NAME), dist);
+  if (isInsideDir(repoRoot, dist, pathImpl)) return isSameDir(pathImpl.join(repoRoot, DIST_DIR_NAME), dist, pathImpl);
   // Inside the system temp directory, but not that directory itself.
-  return isStrictlyInsideDir(tmpRoot, dist);
+  return isStrictlyInsideDir(tmpRoot, dist, pathImpl);
 }
 
 module.exports = { isInsideDir, isAllowedDistDir };
