@@ -243,11 +243,12 @@ test('packSite: a fresh build + one zip that holds exactly dist minus admin/ and
   const root = await tmpDir(t, 'pack');
   const distDir = path.join(root, 'dist');
   const zipPath = path.join(root, 'offline-wiki-test.zip');
-  // An admin/ tree the audit would reject: it must reach dist (injected after
-  // the audit) and must NOT reach the zip.
+  // An admin/ tree the audit would reject (it loads an outside image; an
+  // outside <a href> stopped being a violation with task 6b A1): it must
+  // reach dist (injected after the audit) and must NOT reach the zip.
   const adminDir = path.join(root, 'admin');
   await fs.mkdir(path.join(adminDir, 'vendor'), { recursive: true });
-  await fs.writeFile(path.join(adminDir, 'index.html'), '<a href="https://example.com/login">sign in</a>');
+  await fs.writeFile(path.join(adminDir, 'index.html'), '<a href="https://example.com/login">sign in</a><img src="https://example.com/logo.png" alt=""/>');
   await fs.writeFile(path.join(adminDir, 'vendor', 'cms.js'), '// cms\n');
   await fs.writeFile(zipPath, 'stale zip from an earlier pack');
 

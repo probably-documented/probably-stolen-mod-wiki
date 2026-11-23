@@ -41,8 +41,11 @@ const {
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
-const { auditExternalLinks, BWIKI_CREDIT_URL } = require('../tools/build/audit.js');
+const { auditExternalLinks } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
+
+/** The footer credit link templates.js writes on every page (templates.js keeps its own copy). */
+const BWIKI_CREDIT_URL = 'https://wiki.biligame.com/probablystolen';
 
 const REPO_ROOT = path.join(__dirname, '..');
 const REPO_CONTENT = path.join(REPO_ROOT, 'content');
@@ -161,8 +164,9 @@ test('buildSkeleton renders the fixture site to distDir', async (t) => {
   // 1) dist/index.html exists and is a real HTML document
   const index = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
   assert.match(index, /<title>/);
-  // The whitelisted BWIKI footer credit is on every page — and the build is
-  // still audit-clean, i.e. the whitelist really is a whitelist.
+  // The BWIKI footer credit — an external link — is on every page, and the
+  // build is still audit-clean: since task 6b A1 an external link is allowed
+  // and there is no whitelist (tests/audit.test.js pins the rule).
   assert.ok(index.includes(`href="${BWIKI_CREDIT_URL}"`), 'footer credit href present');
   await assert.rejects(fs.access(path.join(distDir, 'stale.html')), 'stale file removed by rm dist');
 
@@ -924,10 +928,12 @@ test('E5 — "required asset missing" reads the same wherever it is found: the p
 // without admin/ until Task 6 creates it.
 // ---------------------------------------------------------------------------
 
-test('buildSkeleton injects adminDir into dist/admin after the audit — an external link there must not fail the build', async (t) => {
+test('buildSkeleton injects adminDir into dist/admin after the audit — an external resource there must not fail the build', async (t) => {
   const distDir = await tmpDir(t, 'admin');
   const adminDir = await tmpDir(t, 'admin-src');
-  const shell = '<!doctype html>\n<a href="https://example.com/login">sign in</a>\n';
+  // An image from outside: still a violation after task 6b A1 (an external
+  // <a href> no longer is), and exactly what the online shell is full of.
+  const shell = '<!doctype html>\n<a href="https://example.com/login">sign in</a>\n<img src="https://example.com/logo.png" alt=""/>\n';
   await fs.writeFile(path.join(adminDir, 'index.html'), shell);
   await fs.writeFile(path.join(adminDir, 'config.yml'), 'backend: { name: github }\n');
   await fs.mkdir(path.join(adminDir, 'vendor'), { recursive: true });
@@ -936,7 +942,7 @@ test('buildSkeleton injects adminDir into dist/admin after the audit — an exte
   // What the audit says about that tree on its own — i.e. what would happen
   // to the build if admin/ were ever copied in before the audit ran.
   const standalone = await auditExternalLinks(adminDir);
-  assert.deepEqual(standalone.map((v) => `${v.file}:${v.code}`), ['index.html:href-http']);
+  assert.deepEqual(standalone.map((v) => `${v.file}:${v.line} [${v.code}]`), ['index.html:3 [src-http]']);
 
   const { exitCode, before } = await capturingExitCode(() =>
     buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));

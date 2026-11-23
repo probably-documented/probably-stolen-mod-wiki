@@ -22,9 +22,10 @@
 // then on disk, but never deployed (non-zero exit).
 //
 // Failure discipline: any lint/render/write/asset/admin-copy failure, a
-// dangling reference or an external-link audit violation throws with
-// process.exitCode = 1, so a broken build can never deploy silently
-// (file:// offline discipline).
+// dangling reference or a site-audit violation (audit.js: external resources,
+// root-relative paths, dangerous HTML) throws with process.exitCode = 1, so
+// a broken build can never deploy silently (file:// offline discipline —
+// and, now that any contributor can write a page, nothing dangerous either).
 //
 // Contributor-facing failures (BuildError): the CMS lets contributors edit
 // and delete pages, so several checks exist only to tell THEM what to fix.
@@ -254,8 +255,8 @@ async function resolveAdminSource(adminDir, distDir) {
 }
 
 /**
- * Copy the CMS shell into distDir/admin — strictly AFTER the external-link
- * audit. The shell is online-only by design (OAuth callbacks, a vendored
+ * Copy the CMS shell into distDir/admin — strictly AFTER the site audit
+ * (audit.js). The shell is online-only by design (OAuth callbacks, a vendored
  * bundle that talks to the network), so it is exactly what the audit must
  * never see; being left out of the audit on purpose is also why the offline
  * zip leaves it out (tools/pack.js).
@@ -295,8 +296,8 @@ async function injectAdmin(adminSource, distDir) {
  *   `<item.id>.md`, when an asset source is missing, when more than one
  *   mechanics page declares a top-nav label (`nav_label`), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
- *   stylesheet references a file dist does not ship, or on an external-link
- *   audit violation; process.exitCode is set to 1 before the throw.
+ *   stylesheet references a file dist does not ship, or on a site-audit
+ *   violation; process.exitCode is set to 1 before the throw.
  *   Contributor-facing failures (id lint, nav_label conflict, dangling
  *   references) are BuildErrors whose message names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
@@ -393,11 +394,12 @@ async function buildSkeleton({
       }));
     }
 
-    // 7. External-link audit (offline discipline): any violation fails the build.
+    // 7. Site audit (audit.js): external resources, root-relative paths,
+    //    dangerous HTML. Any violation fails the build.
     const violations = await auditExternalLinks(distPath);
     if (violations.length > 0) {
       const lines = violations.map((v) => `  ${v.file}:${v.line} [${v.code}] ${v.detail}`);
-      throw new Error(`[audit] FAIL — ${violations.length} external-link violation(s):\n${lines.join('\n')}`);
+      throw new Error(`[audit] FAIL — ${violations.length} audit violation(s):\n${lines.join('\n')}`);
     }
 
     // 8. CMS shell → dist/admin. Strictly the step after the audit: the shell
@@ -419,7 +421,7 @@ async function main() {
   }
   console.log(`[build:skeleton] rendered ${result.pages} files → dist/`);
   console.log(`[build:skeleton] assets copied: ${result.assetsCopied} → dist/`);
-  console.log('[audit] OK — no external-link violations');
+  console.log('[audit] OK — no violations (external resources, root-relative paths, dangerous HTML)');
   console.log(result.adminInjected
     ? '[build:skeleton] admin: injected → dist/admin/ (after the audit)'
     : '[build:skeleton] admin: none found, skipped');
