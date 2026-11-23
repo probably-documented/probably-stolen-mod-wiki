@@ -72,10 +72,15 @@
 //     <style>'s content is read as CSS. A browser keeps a script element open
 //     past a nested <script> that follows <!--; the audit stops at the first
 //     </script> — so that one case is over-reported, never under-reported.
-//   • Inside <svg> / <math> that content IS markup: there <script/> and
-//     <style/> are self-closing, and what follows them is read like the rest
-//     of the page (the audit counts the <svg> / <math> it has seen opened and
-//     not closed — the safe side of the browser's own rule: see scanHtml).
+//   • That holds until the first <svg> or <math> that does not close itself.
+//     Inside foreign content the content of a <script> or <style> IS markup,
+//     and <script/> and <style/> are self-closing. A browser leaves foreign
+//     content at more places than a count can tell — an element that breaks
+//     out, an HTML integration point — and at fewer: a </svg> inside a
+//     comment, a CDATA section or a processing instruction is no token and
+//     leaves nowhere (review round 3). So from that <svg> on the audit reads
+//     the rest of the page as markup, skipping nothing, and reads the CSS of
+//     every <style> it meets: it can only over-report (see scanHtml).
 //   • CSS is read in one pass: a string with its escaped quotes and
 //     continued lines, a comment and an escape (\68 ttps:// is https://) are
 //     told apart where each of them is, and the addresses are looked for on
@@ -173,15 +178,19 @@ const UNQUOTED_VALUE_RE = /[^\t\n\f\r >]*/y;
 const matchAt = (re, text, index) => { re.lastIndex = index; return re.exec(text); };
 /** What may follow `</script` / `</style` for it to close the element. */
 const AFTER_END_TAG_NAME = '[\\t\\n\\f\\r />]';
-/** <script> / <style>: elements whose content is text, never markup. */
+/** <script> / <style>: elements whose content is text in HTML, never markup. */
 const RAW_TEXT = new Set(['script', 'style']);
+/** `</name`, followed by what may follow a tag name or by the end of the text: there the content of an HTML <script> / <style> ends. */
+const RAW_TEXT_END = Object.freeze({
+  script: new RegExp(`</script(?=${AFTER_END_TAG_NAME}|$)`, 'gi'),
+  style: new RegExp(`</style(?=${AFTER_END_TAG_NAME}|$)`, 'gi'),
+});
 /**
- * The elements that open foreign content (SVG, MathML). Inside it a
- * `<script/>` or `<style/>` is self-closing, and what follows is markup
- * again — an HTML `<script/>` is not (see scanHtml).
+ * The elements that open foreign content (SVG, MathML). From the first one
+ * that does not close itself on, the audit reads a page as markup throughout
+ * (see scanHtml).
  */
 const FOREIGN_ROOTS = new Set(['svg', 'math']);
-const END_TAG_NAME_RE = /[a-z][a-z0-9-]*/iy;
 const EVENT_ATTRIBUTE = /^on[a-z]+$/;
 
 /**
@@ -820,29 +829,37 @@ function checkTag(text, start, tag, report) {
  * A page. `detailOf(index)` gives the line of the text that holds `index` (for what a <style> reports).
  *
  * The content of an HTML <script> or <style> is text: the scanner skips it to
- * the matching end tag. Inside foreign content it is not — there `<script/>`
- * and `<style/>` are self-closing, and what follows them is markup that the
- * browser acts on. The audit keeps count of the <svg> / <math> it has seen
- * opened and not seen closed, and while the count is above zero it reads the
- * content of a <script> or <style> as markup (a <style>'s also as CSS, which
- * the browser applies). The count is the safe side of the browser's own rule:
- * the browser leaves foreign content at more places than the count does (an
- * HTML element that breaks out, a <desc> or <foreignObject>, which are HTML
- * integration points), so where the two differ the audit reads MORE markup
- * than the browser does, and can only over-report. It used to read less: one
- * `<svg><script/></svg>` with no `</script>` after it made the rest of the
- * file the text of that script, and nothing in it was checked.
+ * the matching end tag. That is so until the first <svg> or <math> that does
+ * not close itself. From there on the page is read as markup throughout:
+ * inside foreign content the content of a <script> or <style> is markup, and
+ * `<script/>` and `<style/>` are self-closing. A browser leaves foreign
+ * content at more places than a count can tell — an HTML element that breaks
+ * out, a <desc> or <foreignObject>, which are HTML integration points — and
+ * at fewer: a </svg> or </math> that is not a token leaves nowhere, and one
+ * inside a comment, a CDATA section or a processing instruction is none. The
+ * audit used to keep a count and leave at every </svg>. A count that is
+ * wrong in that direction reads LESS than the browser does: the data block
+ * after such a comment was skipped as the text of an HTML <script>, and the
+ * <img onerror> in it ran unreported (review round 3, the Critical). No
+ * count reads more. What that costs is on the safe side: the body of an
+ * HTML <script> that follows an <svg> is read as markup too, so a
+ * tag-looking string in it is reported beside the script itself — which is
+ * a violation in its own right.
+ *
+ * A <style>'s content is read as CSS wherever the <style> stands — in
+ * foreign content the browser applies it too: to the first `</style` that
+ * ends an HTML <style>, also after a `<style/>`, which closes itself only
+ * in foreign content.
  */
 function scanHtml(text, report, detailOf) {
   let i = 0;
-  let foreign = 0;
+  let foreign = false;
+  let cssReadTo = 0; // in foreign reading: where the CSS of the <style>s read so far ends
   while (i < text.length) {
     const lt = text.indexOf('<', i);
     if (lt < 0) return;
     const next = text[lt + 1];
     if (next === '/') { // an end tag has nothing to check
-      const name = matchAt(END_TAG_NAME_RE, text, lt + 2);
-      if (name !== null && FOREIGN_ROOTS.has(name[0].toLowerCase()) && foreign > 0 && afterNameIs(text, lt + 2 + name[0].length)) foreign -= 1;
       const gt = text.indexOf('>', lt + 2);
       i = gt < 0 ? text.length : gt + 1;
       continue;
@@ -855,30 +872,32 @@ function scanHtml(text, report, detailOf) {
     checkTag(text, lt, tag, report);
     i = tag.end;
     if (FOREIGN_ROOTS.has(tag.name)) {
-      if (!tag.selfClosing) foreign += 1;
+      if (!tag.selfClosing) foreign = true;
       continue;
     }
     if (!RAW_TEXT.has(tag.name)) continue;
-    if (foreign > 0 && tag.selfClosing) continue; // `<script/>`, `<style/>` in foreign content: an empty element
-    const close = new RegExp(`</${tag.name}(?=${AFTER_END_TAG_NAME}|$)`, 'ig');
+    const close = RAW_TEXT_END[tag.name];
     close.lastIndex = tag.end;
     const found = close.exec(text);
     if (tag.name === 'style') {
       // The content is read as written: the CSS scanner keeps a map back to
-      // it, so the line number is the line a contributor finds it on.
-      const contentEnd = found === null ? text.length : found.index;
-      const contentStart = tag.end;
-      scanCss(text.slice(contentStart, contentEnd), report, (offset) => contentStart + offset, detailOf);
+      // it, so the line number is the line a contributor finds it on. In
+      // foreign reading a <style> may stand inside one whose CSS was read
+      // already — a `<style/>` there is read like an HTML one, on to the
+      // next </style> —: what was read once is not read twice.
+      const from = tag.end;
+      if (!foreign || from >= cssReadTo) {
+        const to = found === null ? text.length : found.index;
+        scanCss(text.slice(from, to), report, (offset) => from + offset, detailOf);
+        if (foreign) cssReadTo = to;
+      }
     }
-    if (foreign > 0) continue; // its content is markup too, read on below
+    if (foreign) continue; // its content is markup too, read on below
     if (found === null) return;
     const gt = text.indexOf('>', found.index);
     i = gt < 0 ? text.length : gt + 1;
   }
 }
-
-/** Is what follows a tag's name at `index` what may follow a tag name — whitespace, `/`, `>` — or the end of the text? */
-const afterNameIs = (text, index) => text[index] === undefined || HTML_SPACE_RE.test(text[index]) || text[index] === '/' || text[index] === '>';
 
 /** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption — and no slot for a data: image either, so A9 is not applied here. `detailOf(index)`: the line that holds `index`. */
 function scanScriptText(text, report, detailOf) {
