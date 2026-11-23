@@ -851,6 +851,57 @@ test('copyAssets says "required asset missing" only for a genuinely missing sour
   assert.equal(exitCode, 1);
 });
 
+test('E5 — "required asset missing" reads the same wherever it is found: the pre-flight and the copy report one source, one dist path, one format', async (t) => {
+  const MESSAGE = /^required asset missing: (.+) → (assets\/bwiki\/bg\.png) \(.+\)$/;
+  const assetsDir = await tmpDir(t, 'asset-format');
+  await fs.cp(REPO_ASSETS, assetsDir, { recursive: true });
+  const source = path.join(assetsDir, ...'bwiki/bg.png'.split('/'));
+  const restore = () => fs.copyFile(path.join(REPO_ASSETS, ...'bwiki/bg.png'.split('/')), source);
+
+  // Found by the pre-flight: the source is gone before anything runs.
+  await fs.rm(source);
+  const preflightDist = await tmpDir(t, 'asset-format-precheck-dist');
+  const preflight = await capturingExitCode(() =>
+    build({ distDir: preflightDist, contentDir: null, assetsDir, warn: noop }));
+  assert.ok(preflight.err instanceof Error, `expected the missing source to throw, got ${preflight.err}`);
+  const preflightMatch = MESSAGE.exec(preflight.err.message);
+  assert.ok(preflightMatch !== null, `pre-flight message format, got: ${preflight.err.message}`);
+  assert.equal(toPosix(preflightMatch[1]), toPosix(source), 'names the source that is missing');
+  assert.equal(preflight.exitCode, 1);
+
+  // Found by the copy: the same source, this time passing the pre-flight
+  // and disappearing between then and its turn to be copied.
+  await restore();
+  const realCopyFile = fs.copyFile;
+  let armed = true;
+  fs.copyFile = async (src, dest, ...rest) => {
+    if (armed && toPosix(String(src)).endsWith('/bwiki/emblem.jpg')) { // copied right before bg.png (ASSET_MAP order)
+      armed = false;
+      await fs.rm(source);
+    }
+    return realCopyFile(src, dest, ...rest);
+  };
+  t.after(() => { fs.copyFile = realCopyFile; });
+  const copyDist = await tmpDir(t, 'asset-format-copy-dist');
+  const copy = await capturingExitCode(() =>
+    build({ distDir: copyDist, contentDir: null, assetsDir, warn: noop }));
+  assert.ok(copy.err instanceof Error, `expected the copy-time missing source to throw, got ${copy.err}`);
+  assert.equal(armed, false, 'sanity: the source was removed during the copy phase');
+  assert.equal(copy.exitCode, 1);
+  const copyMatch = MESSAGE.exec(copy.err.message);
+  assert.ok(copyMatch !== null, `copy-time message format, got: ${copy.err.message}`);
+
+  // One format: identical up to the underlying error in parentheses.
+  assert.equal(copyMatch[1], preflightMatch[1], 'same source');
+  assert.equal(copyMatch[2], preflightMatch[2], 'same dist path');
+  assert.equal(
+    copy.err.message.replace(/\([^)]*\)$/, ''),
+    preflight.err.message.replace(/\([^)]*\)$/, ''),
+    'the two places build the message the same way',
+  );
+  assert.notEqual(copy.err.message, preflight.err.message, '…while the underlying error still is the real one (access vs copyfile)');
+});
+
 // ---------------------------------------------------------------------------
 // Task 5 E — admin/ injection
 //

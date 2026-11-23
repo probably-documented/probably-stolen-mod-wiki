@@ -124,6 +124,14 @@ async function validateItemContentIds(contentItemsDir, validIds) {
 const assetSource = (assetsDir, src) => path.join(assetsDir, ...src.split('/'));
 
 /**
+ * "required asset missing" — the sentence lives here, once (task 5b E5: the
+ * pre-flight and the copy each used to build their own copy, free to drift).
+ * `cause` is the error that established it; its message is quoted.
+ */
+const missingAssetError = (from, dest, cause) =>
+  new Error(`required asset missing: ${from} → ${dest} (${cause.message})`, { cause });
+
+/**
  * Fail now — before anything is rendered, let alone removed — when an
  * ASSET_MAP source is absent. A missing source is a certain build failure
  * (copyAssets needs every entry), so it must not cost the previous dist
@@ -136,7 +144,7 @@ async function assertAssetSources(assetsDir) {
     try {
       await fs.access(from);
     } catch (err) {
-      if (isMissing(err)) throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+      if (isMissing(err)) throw missingAssetError(from, dest, err);
       throw err;
     }
   }
@@ -171,7 +179,7 @@ async function copyAssets(assetsDir, distDir) {
       // "Missing" is a claim about the SOURCE, and ENOENT alone does not
       // establish it: copyFile reports ENOENT for a broken target path too.
       if (isMissing(err) && await sourceIsMissing(from)) {
-        throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+        throw missingAssetError(from, dest, err);
       }
       throw err;
     }
