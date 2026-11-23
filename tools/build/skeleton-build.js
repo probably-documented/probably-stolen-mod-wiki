@@ -42,6 +42,7 @@ const { dropMissingIcons } = require('./item-textures.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
+const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
@@ -135,6 +136,44 @@ async function validateItemContentIds(contentItemsDir, validIds) {
     if (/\.md$/i.test(entry.name) && !legalFiles.has(entry.name)) violations.push(entry.name);
   }
   return violations.sort();
+}
+
+/**
+ * Lint content/items/ a second time (task 6b D8): every `<item.id>.md` must
+ * declare `slug` in its front matter, equal to the file name without .md.
+ * In the CMS the 物品 dropdown is what an item file is NAMED after, and
+ * render.js names the page after the FILE whatever the front matter says —
+ * so a slug that disagrees with the file name usually means the wrong item
+ * was picked while editing, and nothing would say so. A missing slug counts
+ * the same as a disagreeing one. Runs right after validateItemContentIds,
+ * in the same pre-flight.
+ * @param {string} contentItemsDir the content/items directory
+ * @returns {Promise<Array<{ file: string, slug: string|null }>>} offending
+ *   file names with the slug each declares (null = none, or not a string),
+ *   sorted. Empty when every entry file declares its own name, when the
+ *   directory does not exist, or when it holds only non-.md files and
+ *   directories.
+ * @throws {Error} rethrown as is when a file cannot be read.
+ */
+async function validateItemContentSlugs(contentItemsDir) {
+  let entries;
+  try {
+    entries = await fs.readdir(contentItemsDir, { withFileTypes: true });
+  } catch (err) {
+    if (isMissing(err)) return [];
+    throw err;
+  }
+  const violations = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.md$/i.test(entry.name)) continue;
+    const expected = entry.name.replace(/\.md$/i, '');
+    const source = await fs.readFile(path.join(contentItemsDir, entry.name), 'utf8');
+    const { slug } = splitFrontmatter(source).fm;
+    if (typeof slug !== 'string' || slug !== expected) {
+      violations.push({ file: entry.name, slug: typeof slug === 'string' ? slug : null });
+    }
+  }
+  return violations.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 }
 
 /** Absolute path of an ASSET_MAP source inside assetsDir. */
@@ -479,20 +518,31 @@ async function buildSkeleton({
     //    before step 7 reads it); missing → nothing to inject; not a
     //    directory → refused (fs.cp would copy that file to dist/admin).
     const adminSource = await resolveAdminSource(adminDir, distPath);
-    //    id lint (the CMS can create content/items files under any slug).
+    //    id lint (the CMS can create content/items files under any slug),
+    //    then the slug lint (task 6b D8): what a file declares in its front
+    //    matter must be the item it is named after.
     if (contentDir != null) {
-      const violations = await validateItemContentIds(
-        path.join(contentDir, 'items'), FIXTURE_DATA.items.map((it) => it.id));
-      if (violations.length > 0) {
+      const itemsPath = path.join(contentDir, 'items');
+      const idViolations = await validateItemContentIds(itemsPath, FIXTURE_DATA.items.map((it) => it.id));
+      if (idViolations.length > 0) {
         // Paths from the real contentDir (a contributor is told where the
         // file is), in Chinese, one actionable hint last — like the other
         // contributor-facing reports.
-        const itemsDir = toPosix(path.join(contentDir, 'items'));
+        const itemsDir = toPosix(itemsPath);
         throw new BuildError(
-          `[lint] FAIL — ${violations.length} 个文件的文件名不是真实物品的 ID`
+          `[lint] FAIL — ${idViolations.length} 个文件的文件名不是真实物品的 ID`
           + '(只有「<物品ID>.md」会被渲染成该物品页的「详解」,其它文件名会被静默忽略):\n'
-          + violations.map((v) => `  ${itemsDir}/${v}`).join('\n')
+          + idViolations.map((v) => `  ${itemsDir}/${v}`).join('\n')
           + '\n提示:请把文件改名为真实物品的 ID(物品详情页的「物品ID」一栏可以查到),扩展名保持 .md;不需要的文件请删除。');
+      }
+      const slugViolations = await validateItemContentSlugs(itemsPath);
+      if (slugViolations.length > 0) {
+        const itemsDir = toPosix(itemsPath);
+        throw new BuildError(
+          `[slug] FAIL — ${slugViolations.length} 个物品详解文件的 slug 与文件名不一致:\n`
+          + slugViolations.map((v) => `  ${itemsDir}/${v.file}(${v.slug === null ? '开头没有 slug' : `开头写的是 slug: ${v.slug}`})`).join('\n')
+          + '\n提示:slug 必须与文件名相同(去掉 .md)。这通常是在编辑器里编辑时选错了物品:'
+          + '请打开文件,把开头 slug: 后面改成和文件名一样的物品 ID;不需要的文件请删除。');
       }
     }
     //    asset sources: a missing one is a certain failure, known right now.
@@ -592,4 +642,6 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY };
+module.exports = {
+  buildSkeleton, validateItemContentIds, validateItemContentSlugs, formatAuditViolations, RETRY,
+};

@@ -37,7 +37,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY,
+  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY, validateItemContentSlugs,
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
@@ -578,6 +578,7 @@ test('buildSkeleton throws and sets exitCode 1 when the audit finds an external 
     path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`),
     [
       '---',
+      `slug: ${FIXTURE_ITEM_ID}`, // (D8) an entry file must declare the item it is named after
       '---',
       '',
       '```html',
@@ -1251,4 +1252,95 @@ test('C3 — the CLI:rm guard 的拒绝也是中文,提示是 stderr 的最后�
   }
   assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
   assert.deepEqual(await snapshotTree(standIn), before, 'nothing inside the repo copy was removed');
+});
+
+// ---------------------------------------------------------------------------
+// Task 6b D8 — an item content file must declare the slug it is named after
+//
+// In the CMS the 物品 dropdown is what an item file is NAMED after. render.js
+// names the page after the FILE, whatever the front matter says — so a file
+// whose front matter `slug` disagrees with its name usually means the wrong
+// item was picked while editing, and nothing would say so. Both a missing
+// slug and one that is not the file name are violations; the check sits next
+// to the id lint, in the same pre-flight, and is a BuildError like it.
+// ---------------------------------------------------------------------------
+
+test('validateItemContentSlugs: a file whose front matter declares its own file name → no violations; a missing directory has nothing to violate', async (t) => {
+  const itemsDir = path.join(await tmpDir(t, 'slug-ok'), 'items');
+  await fs.mkdir(itemsDir, { recursive: true });
+  for (const it of FIXTURE_DATA.items) {
+    await fs.writeFile(path.join(itemsDir, `${it.id}.md`), `---\ntitle: 详解\nslug: ${it.id}\n---\n\n正文。\n`);
+  }
+
+  assert.deepEqual(await validateItemContentSlugs(itemsDir), []);
+  assert.deepEqual(await validateItemContentSlugs(path.join(itemsDir, '..', 'no-such-dir')), []);
+});
+
+test('validateItemContentSlugs: no slug at all, another item\'s slug, a non-string slug — each is reported as { file, slug }; non-entry files are ignored', async (t) => {
+  const itemsDir = path.join(await tmpDir(t, 'slug-bad'), 'items');
+  await fs.mkdir(itemsDir, { recursive: true });
+  const [fine, wrongItem, noSlug, noFrontMatter, numeric] = FIXTURE_DATA.items.map((it) => it.id);
+  await fs.writeFile(path.join(itemsDir, `${fine}.md`), `---\nslug: ${fine}\n---\n\n正文。\n`);
+  await fs.writeFile(path.join(itemsDir, `${wrongItem}.md`), `---\nslug: ${noSlug}\n---\n\n正文。\n`); // the "wrong item picked" case
+  await fs.writeFile(path.join(itemsDir, `${noSlug}.md`), '---\ntitle: 没有 slug\n---\n\n正文。\n');
+  await fs.writeFile(path.join(itemsDir, `${noFrontMatter}.md`), '正文,没有 frontmatter。\n');
+  await fs.writeFile(path.join(itemsDir, `${numeric}.md`), '---\nslug: 123\n---\n\n正文。\n');
+  await fs.writeFile(path.join(itemsDir, 'notes.txt'), 'not an entry file');
+  await fs.mkdir(path.join(itemsDir, 'drafts'));
+  await fs.writeFile(path.join(itemsDir, 'drafts', 'nested.md'), 'a directory entry is not an entry file');
+
+  assert.deepEqual(await validateItemContentSlugs(itemsDir), [
+    { file: `${wrongItem}.md`, slug: noSlug },
+    { file: `${noSlug}.md`, slug: null },
+    { file: `${noFrontMatter}.md`, slug: null },
+    { file: `${numeric}.md`, slug: null },
+  ].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0)), 'sorted by file name; slug = what the file declares, null when nothing readable');
+});
+
+test('D8 — slug 与文件名不一致、或缺 slug → 构建失败(exitCode 1),中文报错逐个指出文件,并说明 slug 必须与文件名相同;上一个 dist 保留', async (t) => {
+  const distDir = await tmpDir(t, 'slug-fail');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  const contentDir = await tmpDir(t, 'slug-fail-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  // A legal entry (the repo's own fixture, which declares its slug) next to two that do not.
+  await fs.copyFile(
+    path.join(REPO_CONTENT, 'items', `${FIXTURE_ITEM_ID}.md`),
+    path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`),
+  );
+  const [wrongItem, noSlug] = FIXTURE_DATA.items.filter((it) => it.id !== FIXTURE_ITEM_ID);
+  await fs.writeFile(path.join(contentDir, 'items', `${wrongItem.id}.md`), `---\nslug: ${noSlug.id}\n---\n\n按标题编辑时选错了物品。\n`);
+  await fs.writeFile(path.join(contentDir, 'items', `${noSlug.id}.md`), '---\ntitle: 没有 slug\n---\n\n另一个。\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the slug lint to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  assert.ok(contentDir.endsWith('slug-fail-content') || !toPosix(contentDir).endsWith('content'), 'sanity: this content dir is NOT the default "content"');
+  const itemsDir = toPosix(path.join(contentDir, 'items'));
+  const says = { [wrongItem.id]: `开头写的是 slug: ${noSlug.id}`, [noSlug.id]: '开头没有 slug' };
+  const lines = err.message.split('\n');
+  assert.match(lines[0], /^\[slug\] FAIL — 2 个物品详解文件的 slug 与文件名不一致:$/, 'a heading in Chinese, with the count');
+  assert.deepEqual(lines.slice(1, -1), [wrongItem.id, noSlug.id].sort().map((id) => `  ${itemsDir}/${id}.md(${says[id]})`),
+    'one line per offending file: its real path, and what its front matter says');
+  assert.match(lines.at(-1), /^提示:.*slug 必须与文件名相同.*[\u4e00-\u9fff]。$/, 'the report ends with the rule, as a hint');
+  for (const line of lines) assert.ok(hasChinese(line), `in Chinese: ${line}`);
+  assert.doesNotMatch(err.message, new RegExp(`${FIXTURE_ITEM_ID}\\.md`), 'the legal entry is not listed');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (a pre-flight check, before rm dist)');
+});
+
+test('D8 — the CLI:stderr 是中文清单加提示,提示是最后一行,后面没有堆栈', async (t) => {
+  const cwd = await tmpDir(t, 'slug-cli');
+  await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
+  const other = FIXTURE_DATA.items.find((it) => it.id !== FIXTURE_ITEM_ID);
+  await fs.writeFile(path.join(cwd, 'content', 'items', `${other.id}.md`), '正文,没有 frontmatter。\n');
+
+  const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
+  assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
+  assert.match(run.stderr, /fatal: \[slug\] FAIL — 1 个物品详解文件的 slug 与文件名不一致:/);
+  assert.ok(run.stderr.includes(`  content/items/${other.id}.md(开头没有 slug)`), run.stderr);
+  const lines = run.stderr.trim().split(/\r?\n/);
+  assert.match(lines.at(-1), /^提示:.*slug 必须与文件名相同/, `the last stderr line is the hint, got: ${lines.at(-1)}`);
+  assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
 });
