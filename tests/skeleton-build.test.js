@@ -8,15 +8,25 @@
 // Two rules are pinned here on top of the flow itself (controller rulings):
 //   A — repo-shipped static assets land at the exact paths the pages reference
 //   B — dist never references a file it does not ship (icons degrade to the
-//       无图 fallback, the 关于本站 nav target exists as a mechanic page)
+//       无图 fallback) — since Task 5b the build itself checks it (step 6)
 //
 // Task 5 adds (same file: they extend the same build entry):
 //   C — content/items/<name>.md is only accepted for real item ids (CMS
 //       contributors can rename a file to any slug; a fake id never renders)
-//   D — the recursive rm of distDir refuses the repo root and its ancestors
+//   D — the recursive rm of distDir only hits a directory inside the repo or
+//       inside the temp dir (task 5b D1; the pure function: tests/paths.test.js)
 //   E — admin/ is copied into dist AFTER the external-link audit
 //   F — failures discoverable up front (id lint, missing asset source) hit
 //       before rm dist, so the previous dist survives them
+//
+// Task 5b adds — the build as a contributor meets it (the CMS will let them
+// edit and delete pages):
+//   nav_label   — the top-nav 关于本站 entry is declared by a mechanic page;
+//                 delete the page and the entry is gone, the build still passes
+//   dangling    — a link to a file dist does not ship fails the build with a
+//                 Chinese report naming the file to edit (tests/dangling-refs.test.js
+//                 for the check itself)
+//   retries     — the rm of dist asks fs.rm for retries (D2)
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

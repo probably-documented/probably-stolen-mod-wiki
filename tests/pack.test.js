@@ -9,6 +9,11 @@
 //   H — the zip is named after package.json's version, path-safe or refused
 //   I — size gate (< 100 MB) and the self-inclusion guard are kept
 //   J — zip entries are clean relative paths, cover dist, and never admin/
+//
+// Task 5b adds (task 5 review minors + ruling P): J's "clean" is asserted on
+// bsdtar's RAW listing (E1); the missing-bsdtar branch (E2) and "every failed
+// pack exits 1" (E3) are tested without needing bsdtar; the rm/rename retry
+// policy (D2).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

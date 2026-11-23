@@ -288,10 +288,10 @@ async function injectAdmin(adminSource, distDir) {
  *   one inside the system temp directory (in particular the repo root or
  *   one of its ancestors — paths.js isAllowedDistDir), when adminDir lies
  *   inside distDir or is not a directory (all three refused before anything
- *   is removed), when a content/items markdown
- *   file is not named `<item.id>.md`, when an asset source is missing, when
- *   more than one mechanics page declares a top-nav label (`nav_label`), on
- *   any render/write/asset-copy/admin-copy failure, when a page or the
+ *   is removed), when a content/items markdown file is not named
+ *   `<item.id>.md`, when an asset source is missing, when more than one
+ *   mechanics page declares a top-nav label (`nav_label`), on any
+ *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on an external-link
  *   audit violation; process.exitCode is set to 1 before the throw.
  *   Contributor-facing failures (id lint, nav_label conflict, dangling
