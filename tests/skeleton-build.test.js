@@ -1535,15 +1535,24 @@ test('ruling AB(d) — a javascript: address: the fix says that an attribute val
   }
 });
 
-test('修复轮 2·文案 — a <script/> that closes itself (inside an <svg> it does) has no </script>: its fix does not send the contributor after one', () => {
-  // Since the audit reads a <script/> inside <svg> / <math> as an element (review-fix round 2), an empty one is reported
-  // like any <script> — with a snippet that is the whole tag: <script/>
-  const selfClosing = fixLine('script-inline', '<script/>');
-  assert.match(selfClosing, /^     怎么改:删掉这个 <script\/> 标签本身/, selfClosing);
-  assert.ok(!selfClosing.includes('删掉从 <script> 到'), 'it is not told to delete up to an end tag there is none of');
-  assert.match(selfClosing, /没有 <\/script>/, 'and it is told why: the tag closes itself');
-  assert.match(fixLine('script-inline', '<script src="x.js"/>'), /^     怎么改:删掉这个 <script\/> 标签本身/);
-  // …and one with an end tag is still told the whole span
-  assert.match(fixLine('script-inline', '<script>alert(1)</script>'), /^     怎么改:删掉从 <script> 到 <\/script> 的全部内容。/);
-  assert.match(fixLine('script-inline', '<script>alert(1)'), /^     怎么改:删掉从 <script> 到 <\/script> 的全部内容。/);
+test('修复轮 3·文案 — what to do about a <script> is true whether or not the tag closes itself, and is not read off the tail of the snippet', () => {
+  // A <script/> closes itself only inside an <svg> or <math>. In HTML it does not: the `/` before `>` is nothing
+  // there, and what follows is the script's text up to </script>. After an <svg> the audit reads the two alike — it
+  // cannot tell them apart (audit.js, scanHtml; review-fix round 3) — so one wording says both. It is the same for a
+  // tag longer than the 160 characters of a snippet: a `/>` at its end is cut away, so nothing is read off that tail.
+  // (Round 2 said of a <script/> that it closes itself and there is no </script>: untrue in HTML, and read off a tail
+  // that a long tag loses.)
+  const long = `<script type="application/json" data-x="${'a'.repeat(200)}"/>`.slice(0, 160); // as the audit shows it: a snippet is at most 160 characters, and the `/>` at the end of this tag is cut away
+  const details = ['<script/>', '<script src="x.js"/>', long, '<script>alert(1)</script>', '<script>alert(1)'];
+  const fixes = details.map((detail) => fixLine('script-inline', detail));
+  assert.equal(new Set(fixes).size, 1, `one wording for all of them, the long tag included:\n${fixes.join('\n')}`);
+  const fix = fixes[0];
+  assert.match(fix, /^     怎么改:[^\n]+。$/, fix);
+  assert.ok(!fix.includes('后面没有 </script>'), 'it does not say that there is no </script>: in HTML there is one');
+  assert.ok(fix.includes('<svg>') && fix.includes('<math>'), 'it says where a <script/> closes itself');
+  assert.ok(fix.includes('反引号'), 'and what to do with code that is meant to be shown');
+  // …and the advice is still this code's alone
+  for (const code of ['external-url', 'script-src', 'inline-event-handler']) {
+    assert.ok(!fixLine(code, '<script src="https://evil.example/x.js"></script>').includes('<svg>'), `${code}: that is another matter`);
+  }
 });
