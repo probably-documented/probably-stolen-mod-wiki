@@ -37,6 +37,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const { buildSkeleton } = require('./build/skeleton-build.js');
+const { isInsideDir } = require('./build/paths.js');
 
 const execFileP = promisify(execFile);
 
@@ -117,12 +118,6 @@ function assertUnderSizeLimit(size) {
 
 /** The one top-level dist entry the offline zip never carries. */
 const EXCLUDED_TOP_LEVEL = 'admin';
-
-/** Is `p` `dir` itself or somewhere underneath it (both resolved first)? */
-function isInsideDir(dir, p) {
-  const rel = path.relative(path.resolve(dir), path.resolve(p));
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
-}
 
 /**
  * Self-inclusion guard: the zip must live OUTSIDE dist. bsdtar archives while

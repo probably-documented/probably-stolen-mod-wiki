@@ -25,6 +25,7 @@ const path = require('node:path');
 const { renderSite } = require('./render.js');
 const { auditExternalLinks } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
+const { isInsideDir } = require('./paths.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
@@ -60,20 +61,6 @@ const ASSET_MAP = Object.freeze([
 const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-builds');
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
-
-/**
- * Is `p` `dir` itself or somewhere underneath it? Both sides are resolved
- * first, so `.`, `..`, trailing separators and `x/..` segments all normalize
- * before the comparison. path.relative compares case-insensitively on win32,
- * like the file system; a `p` on another drive comes back as an absolute
- * path and is never "inside".
- */
-function isInsideDir(dir, p) {
-  const rel = path.relative(path.resolve(dir), path.resolve(p));
-  // '' → same directory. A bare relative path (not '..', not '../…', not
-  // absolute) → p is underneath dir.
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
-}
 
 /**
  * Would the recursive `rm distDir` take the repo with it? True when the
