@@ -30,9 +30,9 @@
 //         starts with /; css-root-relative: the same in CSS. Dead under
 //         file://, and pointing past the site on a GitHub Pages project site.
 //   A4  in *.html only:
-//         an executable inline <script> (no src, and no type or a JavaScript
-//         one); a script block whose type is not executable is a data block
-//         and is allowed
+//         an executable inline <script>: any script block but one whose
+//         type is exactly application/json, text/plain or application/ld+json
+//         (the data-block allow-list, ruling AB a)
 //         a <script src> that is not one of ALLOWED_SCRIPT_SRC
 //         an on<name>= event attribute
 //         a javascript: or vbscript: URL
@@ -181,14 +181,18 @@ function readUrl(raw) {
 const isScriptUrl = (raw) => /^(?:javascript|vbscript):/i.test(readUrl(raw));
 
 /**
- * Does a browser run a <script> with this `type`? It runs one with no type,
- * with `module`, and with any JavaScript (or the old VBScript) MIME type —
- * parameters included. Everything else is a data block it never executes.
+ * The types a <script> block is a mere data block for (ruling AB a) — the
+ * allow-list. Compared exactly, without case: "application/json;
+ * charset=utf-8" or " application/json " are not on it. To a browser
+ * (HTML Standard, "prepare the script element") those are data blocks too,
+ * so refusing them only over-reports; what matters is the other way round:
+ * `module`, `importmap` and `speculationrules` are types the browser ACTS
+ * on, and so is anything that is a JavaScript MIME type — so nothing but
+ * these three is let through.
  */
-function isExecutableScriptType(raw) {
-  const essence = readUrl(raw.split(';')[0]).toLowerCase();
-  return essence === '' || essence === 'module' || /(?:java|ecma|live|j|vb)script/.test(essence);
-}
+const DATA_BLOCK_TYPES = Object.freeze(new Set(['application/json', 'text/plain', 'application/ld+json']));
+
+const isDataBlockType = (raw) => DATA_BLOCK_TYPES.has(decodeCharacterReferences(raw).toLowerCase());
 
 // ---------------------------------------------------------------------------
 // Scanning
@@ -469,7 +473,7 @@ function checkTag(text, start, tag, report) {
       // what is left is a site path — allowed only for the first-party list.
       const url = readUrl(src);
       if (!url.startsWith('/') && !/https?:\/\//i.test(url) && !ALLOWED_SCRIPT_SRC.includes(url)) report(start, 'script-src', snippet());
-    } else if (type === null || isExecutableScriptType(type)) {
+    } else if (type === null || !isDataBlockType(type)) {
       report(start, 'script-inline', snippet());
     }
   }

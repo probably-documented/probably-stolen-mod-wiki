@@ -313,18 +313,33 @@ test('A4 — an executable inline <script> is always a violation (script-inline)
   assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6, 7, 9, 10].map((n) => `${HTML}:${n} [script-inline]`));
 });
 
-test('A4 — a script block whose type is not executable is a data block and is allowed; its content is not read as markup', async (t) => {
+test('A4 — a script block is a data block for THREE types only (ruling AB a): application/json, text/plain, application/ld+json — case-insensitive; its content is not read as markup', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<script type="application/json">{"a": 1}</script>',
       '<script type="application/ld+json">{"@context": "https://schema.org", "url": "https://example.com/x"}</script>',
-      '<script type="importmap">{"imports": {"x": "/x.js"}}</script>',
-      '<script type="text/template"><div onclick="x()">&amp;</div></script>',
-      '<script type=\'APPLICATION/JSON\'>{}</script>',
       '<script type="text/plain">not a script to any browser</script>',
+      '<script type=\'APPLICATION/JSON\'>{}</script>',
+      '<script type="Application/LD+JSON">{}</script>',
+      '<script type="Text/Plain">x</script>',
     ),
   });
   assert.deepEqual(violations, []);
+});
+
+test('ruling AB(a) — every other type is a script the audit refuses: the reviewer\'s speculationrules line, importmap, text/template, an unknown type, a parameter, blanks', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script type="speculationrules">{"prefetch":[{"url":"https://evil.example/x"}]}</script>',
+      '<script type="importmap">{"imports": {"x": "/x.js"}}</script>',
+      '<script type="text/template"><div>x</div></script>',
+      '<script type="application/speculation+json">{"prefetch":[{"url":"https://evil.example/x"}]}</script>',
+      '<script type="foo/bar">x</script>',
+      '<script type="application/json; charset=utf-8">{"a": 1}</script>', // a parameter: the browser runs nothing — and it is not on the list
+      '<script type=" application/json ">{"a": 1}</script>', // blanks: not on the list either
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6, 7].map((n) => `${HTML}:${n} [script-inline]`));
 });
 
 test('A4 — a script block ends at its first </script> for the audit — a browser keeps going past a nested <script> after <!--, so this one case is over-reported, on the safe side', async (t) => {
