@@ -1,0 +1,1 @@
+{ "name": "probably-stolen-mod-wiki", "version": "0.1.0", "private": false, "scripts": { "test": "node --test tests/", "build": "node tools/build/skeleton-build.js", "pack": "node tools/pack.js" } }
