@@ -9,6 +9,14 @@
 //   A — repo-shipped static assets land at the exact paths the pages reference
 //   B — dist never references a file it does not ship (icons degrade to the
 //       无图 fallback, the 关于本站 nav target exists as a mechanic page)
+//
+// Task 5 adds (same file: they extend the same build entry):
+//   C — content/items/<name>.md is only accepted for real item ids (CMS
+//       contributors can rename a file to any slug; a fake id never renders)
+//   D — the recursive rm of distDir refuses the repo root and its ancestors
+//   E — admin/ is copied into dist AFTER the external-link audit
+//   F — failures discoverable up front (id lint, missing asset source) hit
+//       before rm dist, so the previous dist survives them
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,7 +24,9 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { buildSkeleton } = require('../tools/build/skeleton-build.js');
+const {
+  buildSkeleton, validateItemContentIds, isUnsafeDistDir,
+} = require('../tools/build/skeleton-build.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 const { BWIKI_CREDIT_URL } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
@@ -43,6 +53,14 @@ const EXPECTED_ASSETS = [
 ];
 
 const noop = () => {};
+
+/**
+ * buildSkeleton with the admin injection switched off, for every test that is
+ * not about admin/. buildSkeleton's default adminDir is the repo's `admin`
+ * (relative to cwd); once Task 6 ships it, tests that did not ask for it must
+ * not gain a dist/admin/ (and its extra .html files) behind their back.
+ */
+const build = (options) => buildSkeleton({ adminDir: null, ...options });
 
 async function tmpDir(t, label) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `skeleton-${label}-`));
@@ -77,6 +95,20 @@ async function listFiles(dir) {
     else out.push(full);
   }
   return out.sort();
+}
+
+/**
+ * Everything about a directory tree that "rm + recreate" would change: the
+ * top directory's identity (ino) and mtime, plus every file's relative path
+ * and bytes. Used to prove a failed build left the previous dist untouched.
+ */
+async function snapshotTree(dir) {
+  const { ino, mtimeMs } = await fs.stat(dir);
+  const files = [];
+  for (const file of await listFiles(dir)) {
+    files.push([toPosix(path.relative(dir, file)), await fs.readFile(file)]);
+  }
+  return { ino, mtimeMs, files };
 }
 
 /** Rendered pages + data.js (i.e. what buildSkeleton's `pages` counts). */
@@ -129,7 +161,7 @@ test('buildSkeleton renders the fixture site to distDir', async (t) => {
   await fs.writeFile(path.join(distDir, 'stale.html'), '<title>stale</title>');
 
   const { result, exitCode, before } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: null, warn: noop }));
+    build({ distDir, contentDir: null, warn: noop }));
 
   // 1) dist/index.html exists and is a real HTML document
   const index = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
@@ -205,7 +237,7 @@ test('fixture content entry follows the brief Step 4 shape', async () => {
 test('buildSkeleton merges the content/items hand-written layer into item pages', async (t) => {
   const distDir = await tmpDir(t, 'content');
 
-  const result = await buildSkeleton({ distDir, contentDir: REPO_CONTENT, warn: noop });
+  const result = await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
 
   const page = await fs.readFile(path.join(distDir, 'item', `${FIXTURE_ITEM_ID}.html`), 'utf8');
   assert.match(page, /<h2 class="sec">详解<\/h2>/, 'hand-written body lands in the 详解 section');
@@ -233,7 +265,7 @@ test('buildSkeleton merges the content/items hand-written layer into item pages'
 
 test('content/mechanics/*.md become mechanic pages (nav 关于本站 → mechanics/install-compat.html)', async (t) => {
   const distDir = await tmpDir(t, 'mechanics');
-  await buildSkeleton({ distDir, contentDir: REPO_CONTENT, warn: noop });
+  await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
 
   // The nav is the hard-coded NAV_ITEMS list in templates.js; its only target
   // outside the fixture data is mechanics/install-compat.html.
@@ -273,7 +305,7 @@ test('content/mechanics: same-slug file replaces the fixture entry; title falls 
   await fs.writeFile(path.join(dir, `${replaced.slug}.md`), '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n'); // no fm title → first h1
   await fs.writeFile(path.join(dir, 'bare.md'), '无标题页正文。\n'); // no fm, no h1 → slug
 
-  await buildSkeleton({ distDir, contentDir, warn: noop });
+  await build({ distDir, contentDir, warn: noop });
 
   const replacedPage = await fs.readFile(path.join(distDir, 'mechanics', `${replaced.slug}.html`), 'utf8');
   assert.match(replacedPage, /<h1 class="page-title">手写替换标题<\/h1>/, 'title from the first h1');
@@ -293,7 +325,7 @@ test('content/mechanics: same-slug file replaces the fixture entry; title falls 
 test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no texture source)', async (t) => {
   const distDir = await tmpDir(t, 'icons');
   const warnings = [];
-  await buildSkeleton({ distDir, contentDir: null, warn: (m) => warnings.push(m) });
+  await build({ distDir, contentDir: null, warn: (m) => warnings.push(m) });
 
   // every item page: no <img> pointing at an unshipped texture, 无图 shown
   for (const item of FIXTURE_DATA.items) {
@@ -322,7 +354,7 @@ test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no t
 
 test('dist never references a file it does not ship (html href/src + css url)', async (t) => {
   const distDir = await tmpDir(t, 'dangling');
-  await buildSkeleton({ distDir, contentDir: REPO_CONTENT, warn: noop });
+  await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
 
   const dangling = await findDanglingRefs(distDir);
   assert.deepEqual(dangling, [], 'every relative href/src/url() in dist must resolve to a shipped file');
@@ -375,7 +407,7 @@ test('buildSkeleton throws and sets exitCode 1 when the audit finds an external 
   );
 
   const { err, exitCode } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir, warn: noop }));
+    build({ distDir, contentDir, warn: noop }));
 
   assert.ok(err instanceof Error, `expected the audit violation to throw, got ${err}`);
   assert.match(err.message, /\[audit\] FAIL/);
@@ -398,7 +430,7 @@ test('buildSkeleton throws, sets exitCode 1 and keeps the previous dist when ren
   await fs.mkdir(path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`), { recursive: true });
 
   const { err, exitCode } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir, warn: noop }));
+    build({ distDir, contentDir, warn: noop }));
 
   assert.ok(err instanceof Error, `expected the render failure to throw, got ${err}`);
   assert.equal(err.code, 'EISDIR');
@@ -413,9 +445,172 @@ test('buildSkeleton throws and sets exitCode 1 when a required asset is missing'
   const assetsDir = await tmpDir(t, 'assets-empty'); // ships nothing
 
   const { err, exitCode } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: null, assetsDir, warn: noop }));
+    build({ distDir, contentDir: null, assetsDir, warn: noop }));
 
   assert.ok(err instanceof Error, `expected the missing asset to throw, got ${err}`);
   assert.match(err.message, /required asset missing/);
   assert.equal(exitCode, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Task 5 C — content/items id lint
+//
+// CMS contributors may create or rename content/items/<slug>.md. renderSite
+// only ever reads content/items/<item.id>.md, so a file named after anything
+// else is accepted by the CMS and then silently never renders. The lint turns
+// that silent loss into a red build. The legal set is the item ids — aliases
+// are not: nothing reads content/items/<alias>.md either.
+// ---------------------------------------------------------------------------
+
+test('validateItemContentIds: a file per real item id → no violations; a missing directory has nothing to violate', async (t) => {
+  const itemsDir = path.join(await tmpDir(t, 'lint-ok'), 'items');
+  await fs.mkdir(itemsDir, { recursive: true });
+  for (const it of FIXTURE_DATA.items) {
+    await fs.writeFile(path.join(itemsDir, `${it.id}.md`), '---\n---\n\n正文。\n');
+  }
+  const validIds = FIXTURE_DATA.items.map((it) => it.id);
+
+  assert.deepEqual(await validateItemContentIds(itemsDir, validIds), []);
+  assert.deepEqual(
+    await validateItemContentIds(path.join(itemsDir, '..', 'no-such-dir'), validIds), [],
+    'no content/items directory → no entry files → no violations',
+  );
+});
+
+test('validateItemContentIds: a file whose name is not a real item id is reported by file name', async (t) => {
+  const itemsDir = path.join(await tmpDir(t, 'lint-bad'), 'items');
+  await fs.mkdir(itemsDir, { recursive: true });
+  const legal = FIXTURE_DATA.items[0];
+  const withAlias = FIXTURE_DATA.items.find((it) => (it.aliases ?? []).length > 0);
+  assert.ok(withAlias != null, 'fixture has an aliased item (needed for the alias case)');
+  const aliasFile = `${withAlias.aliases[0]}.md`;
+  // A second real id, without a lower-case twin: on a case-insensitive file
+  // system <id>.MD would overwrite <id>.md, so the variant needs its own id.
+  const upperCased = FIXTURE_DATA.items.find((it) => it !== legal && it !== withAlias).id;
+
+  await fs.writeFile(path.join(itemsDir, `${legal.id}.md`), 'legal'); // real id → fine
+  await fs.writeFile(path.join(itemsDir, 'fake_id.md'), 'nope'); // the brief's fake id
+  await fs.writeFile(path.join(itemsDir, aliasFile), 'nope'); // an alias is not an id: render.js reads <id>.md only
+  await fs.writeFile(path.join(itemsDir, 'FAKE_UPPER.MD'), 'nope'); // case-variant suffix: nothing reads it on a case-sensitive fs
+  await fs.writeFile(path.join(itemsDir, `${upperCased}.MD`), 'nope'); // real id, case-variant suffix: renders on Windows, silently lost on Linux
+  await fs.writeFile(path.join(itemsDir, '.DS_Store'), 'ignored'); // not an .md entry file
+  await fs.writeFile(path.join(itemsDir, 'notes.txt'), 'ignored');
+  await fs.mkdir(path.join(itemsDir, 'drafts')); // a directory is not an entry file either
+
+  const violations = await validateItemContentIds(itemsDir, FIXTURE_DATA.items.map((it) => it.id));
+
+  assert.deepEqual(violations, ['FAKE_UPPER.MD', 'fake_id.md', aliasFile, `${upperCased}.MD`].sort());
+  assert.ok(violations.includes('fake_id.md'), 'violations carry the offending file name');
+  assert.ok(!violations.includes(`${legal.id}.md`), 'legal files are not reported');
+});
+
+test('buildSkeleton throws, sets exitCode 1 and keeps the previous dist when content/items holds a file that is not a real item id', async (t) => {
+  const distDir = await tmpDir(t, 'lint-fail');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  const contentDir = await tmpDir(t, 'lint-fail-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  // One legal entry (the repo's own fixture entry) next to a slug nobody renders.
+  await fs.copyFile(
+    path.join(REPO_CONTENT, 'items', `${FIXTURE_ITEM_ID}.md`),
+    path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`),
+  );
+  await fs.writeFile(path.join(contentDir, 'items', 'fake_id.md'), '---\n---\n\n按标题生成的 slug,不是真实物品。\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the id lint violation to throw, got ${err}`);
+  assert.match(err.message, /fake_id\.md/, 'the offending file is named in the error');
+  assert.doesNotMatch(err.message, new RegExp(`\\b${FIXTURE_ITEM_ID}\\b`), 'legal entry files are not listed as violations');
+  assert.doesNotMatch(err.message, /\[audit\]/, 'fails at the lint, long before the audit');
+  assert.equal(exitCode, 1);
+  // Ruling 4(a): the lint is a pre-rm check — the previous dist is untouched.
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched');
+});
+
+test('buildSkeleton with contentDir: null has no content/items to lint and builds as before', async (t) => {
+  const distDir = await tmpDir(t, 'lint-skip');
+  const { exitCode, before, result } = await capturingExitCode(() => build({ distDir, contentDir: null, warn: noop }));
+
+  assert.equal(result.pages, await countRenderedFiles(distDir));
+  assert.equal(exitCode, before);
+});
+
+// ---------------------------------------------------------------------------
+// Task 5 D — rm guard
+//
+// buildSkeleton removes distDir recursively. `buildSkeleton({ distDir: '.' })`
+// run from the repo root would wipe the repo. The judgement is a pure function
+// so the tests never hand the REAL repo root (nor any of its real ancestors)
+// to buildSkeleton: a stand-in tree inside a temp dir plays the repo.
+// ---------------------------------------------------------------------------
+
+test('isUnsafeDistDir: the repo root and its ancestors are refused; subdirectories and unrelated dirs are allowed', async (t) => {
+  const tmp = await tmpDir(t, 'rm-guard');
+  const repoRoot = path.join(tmp, 'repo'); // stand-in repo root (never created, never removed)
+  const parent = path.dirname(repoRoot);
+  const cases = [
+    [repoRoot, true, 'the repo root itself'],
+    [path.join(repoRoot, 'dist', '..'), true, 'a path that normalizes back to the repo root'],
+    [`${repoRoot}${path.sep}`, true, 'trailing separator'],
+    [parent, true, 'parent of the repo root'],
+    [path.dirname(parent), true, 'grandparent of the repo root'],
+    [path.parse(repoRoot).root, true, 'filesystem root'],
+    [path.join(repoRoot, 'dist'), false, 'ordinary subdirectory'],
+    [path.join(repoRoot, 'out', 'nested', 'deeper'), false, 'nested subdirectory'],
+    [path.join(parent, 'dist'), false, 'sibling directory'],
+    [path.join(parent, `${path.basename(repoRoot)}-copy`), false, "sibling whose name extends the repo's"],
+  ];
+  for (const [distDir, expected, what] of cases) {
+    assert.equal(isUnsafeDistDir(distDir, repoRoot), expected, what);
+  }
+  assert.equal(isUnsafeDistDir(await tmpDir(t, 'rm-guard-unrelated'), repoRoot), false, 'an unrelated temp dir');
+
+  if (process.platform === 'win32') {
+    assert.equal(isUnsafeDistDir(repoRoot.toUpperCase(), repoRoot), true, 'win32 paths compare case-insensitively');
+  }
+});
+
+test('isUnsafeDistDir: "." (and "", "..") from inside the repo resolve against cwd and are refused too', async (t) => {
+  const cwd = process.cwd();
+  const repoRoot = path.join(await tmpDir(t, 'rm-guard-cwd'), 'repo');
+  await fs.mkdir(repoRoot);
+  process.chdir(repoRoot);
+  try {
+    assert.equal(isUnsafeDistDir('.', repoRoot), true, '"." from the repo root is the repo root');
+    assert.equal(isUnsafeDistDir('', repoRoot), true, '"" resolves to cwd as well');
+    assert.equal(isUnsafeDistDir('..', repoRoot), true, '".." from the repo root is its parent');
+    assert.equal(isUnsafeDistDir('dist', repoRoot), false, 'a relative subdirectory is fine');
+  } finally {
+    process.chdir(cwd); // before tmpDir's cleanup: cwd must not sit inside the dir being removed
+  }
+});
+
+test('buildSkeleton refuses a distDir that is the repo root or one of its ancestors, before touching anything', async (t) => {
+  // A throwaway copy of the build's own inputs stands in for the repo: the
+  // copy's tools/build/skeleton-build.js computes ITS repo root from ITS own
+  // location, so the guard fires on the copy — the real repo root is never
+  // passed to buildSkeleton (ruling 3). Worst case if the guard were broken:
+  // a temp dir gets emptied.
+  const copyRoot = await tmpDir(t, 'rm-guard-wiring');
+  const standIn = path.join(copyRoot, 'repo');
+  for (const dir of ['tools', 'data', 'assets-src', 'content']) {
+    await fs.cp(path.join(REPO_ROOT, dir), path.join(standIn, dir), { recursive: true });
+  }
+  await fs.writeFile(path.join(standIn, 'package.json'), '{ "version": "0.0.0" }\n');
+  const { buildSkeleton: buildStandIn } = require(path.join(standIn, 'tools', 'build', 'skeleton-build.js'));
+  const before = await snapshotTree(standIn);
+  const parentBefore = (await fs.readdir(copyRoot)).sort();
+
+  for (const [target, what] of [[standIn, 'the repo root'], [copyRoot, 'its parent directory']]) {
+    const { err, exitCode } = await capturingExitCode(() =>
+      buildStandIn({ distDir: target, contentDir: null, warn: noop }));
+
+    assert.ok(err instanceof Error, `expected buildSkeleton to refuse ${what}, got ${err}`);
+    assert.match(err.message, /refus/i);
+    assert.equal(exitCode, 1, `exitCode after refusing ${what}`);
+  }
+
+  assert.deepEqual(await snapshotTree(standIn), before, 'nothing inside the repo was removed');
+  assert.deepEqual((await fs.readdir(copyRoot)).sort(), parentBefore, 'nothing inside its parent was removed');
 });

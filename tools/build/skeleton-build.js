@@ -5,14 +5,15 @@
 //
 // Unlike modwiki's full builder this never touches the game directory or the
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
-// plus the hand-written content/ layer. Flow (task contract + ruling C):
-//   drop missing icons → merge content/mechanics → renderSite
-//   → rm dist → write files → copy repo assets → auditExternalLinks(dist)
-// Rendering comes BEFORE the old dist is removed, so a failed build leaves
-// the previous output in place.
+// plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
+//   0. pre-flight, nothing on disk touched: rm guard → id lint
+//   1. drop missing icons → merge content/mechanics → renderSite
+//   2. rm dist → write files → copy repo assets → auditExternalLinks(dist)
+// Step 0 and the rendering in step 1 come BEFORE the old dist is removed, so
+// every failure they can spot leaves the previous output in place.
 //
-// Failure discipline: any render/write/asset failure or external-link audit
-// violation throws with process.exitCode = 1, so a broken build can never
+// Failure discipline: any lint/render/write/asset failure or external-link
+// audit violation throws with process.exitCode = 1, so a broken build can never
 // deploy silently (file:// offline discipline).
 
 const fs = require('node:fs/promises');
@@ -25,6 +26,9 @@ const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
+
+/** The repo this builder ships in — the tree `rm -rf distDir` must never eat. */
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Repo-shipped static assets → dist path. Each dest is exactly the path the
@@ -53,6 +57,70 @@ const ASSET_MAP = Object.freeze([
 const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-builds');
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+
+/**
+ * Would the recursive `rm distDir` take the repo with it? True when the
+ * resolved distDir is the repo root itself or one of its ancestors.
+ *
+ * Pure (no fs access) so it can be unit-tested against a stand-in repo root —
+ * the real one must never be passed to buildSkeleton to prove the guard.
+ * Both paths are resolved first, so `.`, `..`, `''` (all cwd-relative),
+ * trailing separators and `dist/..` segments normalize before the comparison:
+ * `distDir: '.'` run from the repo root IS the repo root. The question asked
+ * is literally the dangerous one — does repoRoot lie inside distDir — so a
+ * sibling whose name merely extends the repo's (`<repo>-copy`) stays allowed.
+ * path.relative compares case-insensitively on win32, like the file system.
+ *
+ * Not covered: aliases of the same directory through symlinks/junctions or
+ * 8.3 short names (that would need fs.realpath, i.e. I/O).
+ *
+ * @param {string} distDir
+ * @param {string} repoRoot
+ * @returns {boolean}
+ */
+function isUnsafeDistDir(distDir, repoRoot) {
+  const dist = path.resolve(distDir);
+  const rel = path.relative(dist, path.resolve(repoRoot));
+  // '' → same directory. A bare relative path (not '..', not '../…', and not
+  // absolute — which is what another drive comes back as) → repoRoot is
+  // underneath distDir.
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/**
+ * Lint content/items/: every markdown file there must be named exactly
+ * `<item.id>.md`. render.js reads content/items/<item.id>.md and nothing
+ * else, so a file with any other name (a slug the CMS derived from a title,
+ * an alias, a typo, a case-variant suffix) is committed happily and then
+ * silently never renders. The build goes red instead.
+ * @param {string} contentItemsDir the content/items directory
+ * @param {Iterable<string>} validIds the real item ids (aliases are not ids)
+ * @returns {Promise<string[]>} offending file names, sorted. Empty when every
+ *   markdown file is named after an id, when the directory does not exist, or
+ *   when it holds only non-.md files / directories (not id claims).
+ * @throws {Error} rethrown as is when the directory cannot be listed for a
+ *   reason other than "missing" (e.g. EACCES).
+ */
+async function validateItemContentIds(contentItemsDir, validIds) {
+  const legalFiles = new Set([...validIds].map((id) => `${id}.md`));
+  let entries;
+  try {
+    entries = await fs.readdir(contentItemsDir, { withFileTypes: true });
+  } catch (err) {
+    if (isMissing(err)) return [];
+    throw err;
+  }
+  const violations = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    // Byte-for-byte "<id>.md" or it is a violation. A case-variant suffix
+    // (.MD) counts too, even behind a real id: render.js opens <id>.md, which
+    // finds that file on Windows (case-insensitive) and misses it on Linux
+    // (CI), so the site would silently differ per platform.
+    if (/\.md$/i.test(entry.name) && !legalFiles.has(entry.name)) violations.push(entry.name);
+  }
+  return violations.sort();
+}
 
 /** frontmatter `title` > first ATX h1 > slug (modwiki merge.js readMechanics order). */
 function mechanicTitle(source, slug) {
@@ -121,8 +189,12 @@ async function copyAssets(assetsDir, distDir) {
  *   dropped-icon notices (defaults to console.warn).
  * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number}>}
  *   pages = rendered pages + data.js (assets are not pages).
- * @throws {Error} on any render/write/asset failure or external-link audit
- *   violation; process.exitCode is set to 1 before the throw.
+ * @throws {Error} when distDir resolves to the repo root or one of its
+ *   ancestors (nothing is removed), when a content/items markdown file is not
+ *   named `<item.id>.md`, on any render/write/asset failure, or on an
+ *   external-link audit violation; process.exitCode is set to 1 before the
+ *   throw. The rm-guard, id-lint and render failures happen before the old
+ *   dist is removed, which therefore stays as it was.
  */
 async function buildSkeleton({
   distDir = 'dist',
@@ -131,6 +203,23 @@ async function buildSkeleton({
   warn = console.warn,
 } = {}) {
   try {
+    // 0. Pre-flight — nothing on disk has changed yet.
+    //    rm guard: the recursive rm in step 3 must never eat the repo.
+    const distPath = path.resolve(distDir);
+    if (isUnsafeDistDir(distPath, REPO_ROOT)) {
+      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it is the repo root or one of its ancestors`);
+    }
+    //    id lint (CMS can create content/items files under any slug).
+    if (contentDir != null) {
+      const violations = await validateItemContentIds(
+        path.join(contentDir, 'items'), FIXTURE_DATA.items.map((it) => it.id));
+      if (violations.length > 0) {
+        throw new Error(`[lint] FAIL — ${violations.length} content/items file(s) not named after a real item id `
+          + '(only content/items/<item.id>.md is rendered, the rest would silently never appear):\n'
+          + violations.map((v) => `  content/items/${v}`).join('\n'));
+      }
+    }
+
     // 1. Data prep — touches only a private clone of the frozen literal.
     const data = structuredClone(FIXTURE_DATA);
     const iconsDropped = await dropMissingIcons(data.items, { modsDir: NO_TEXTURES_DIR, warn });
@@ -140,20 +229,20 @@ async function buildSkeleton({
     const rendered = await renderSite(data, { contentDir });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
-    await fs.rm(distDir, { recursive: true, force: true });
+    await fs.rm(distPath, { recursive: true, force: true });
 
     // 4. Write pages (posix rel paths from renderSite → platform paths).
     for (const [rel, content] of rendered) {
-      const dest = path.join(distDir, ...rel.split('/'));
+      const dest = path.join(distPath, ...rel.split('/'));
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, content);
     }
 
     // 5. Repo assets → the paths the pages reference.
-    const assetsCopied = await copyAssets(assetsDir, distDir);
+    const assetsCopied = await copyAssets(assetsDir, distPath);
 
     // 6. External-link audit (offline discipline): any violation fails the build.
-    const violations = await auditExternalLinks(distDir);
+    const violations = await auditExternalLinks(distPath);
     if (violations.length > 0) {
       const lines = violations.map((v) => `  ${v.file}:${v.line} [${v.code}] ${v.detail}`);
       throw new Error(`[audit] FAIL — ${violations.length} external-link violation(s):\n${lines.join('\n')}`);
@@ -183,4 +272,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildSkeleton };
+module.exports = { buildSkeleton, validateItemContentIds, isUnsafeDistDir };
