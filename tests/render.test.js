@@ -236,13 +236,24 @@ test('items.html:概述文案、品类/来源 chips、按 mod 分区、卡片 da
   assert.ok(html.includes('data-mod="lewd_meme" data-category="饮料 食物"')
     || html.includes('data-mod="lewd_meme" data-category="饮料 食物"'));
   assert.ok(html.includes('href="item/wondrous_milk.html"'));
-  // chips 过滤交互(Ruling 8):脚本标记 + 状态位 + 两维 chip 挂载
-  assert.ok(html.includes('/* item-filter:'), 'filter script marker');
+  // chips 过滤交互(Ruling 8)+ A8(task 6b):过滤脚本不再是页面里的内联
+  // <script>,而是站点自带的文件 assets/js/item-filter.js,在原来的位置引用
+  // (不带 defer/async 的经典脚本,执行时机才与内联时一致)。
   assert.ok(html.includes('id="item-filter-status"'));
-  assert.ok(html.includes("querySelectorAll('span.item-inline[data-' + dim + ']')"));
-  assert.ok(html.includes("querySelectorAll('section[data-mod]')"));
+  assert.ok(html.includes('<script src="assets/js/item-filter.js"></script>'),
+    'the filter script is loaded from the file the site ships');
+  assert.equal((html.match(/<script\b/gi) || []).length, 1,
+    'exactly one <script> on the page, and it is the external one: nothing executable is inline');
+  assert.match(html,
+    /\r?\n<\/section>\r?\n<script src="assets\/js\/item-filter\.js"><\/script>\r?\n<\/div>\r?\n<div class="wiki-footer">/,
+    'right where the inline script used to be: after the last section, still inside the content box');
+  // The script itself moved; what it does is pinned on the file now.
+  const script = fs.readFileSync(path.join(__dirname, '..', 'assets-src', 'item-filter.js'), 'utf8');
+  assert.ok(script.includes('/* item-filter:'), 'filter script marker');
+  assert.ok(script.includes("querySelectorAll('span.item-inline[data-' + dim + ']')"));
+  assert.ok(script.includes("querySelectorAll('section[data-mod]')"));
   // Minor 9:取消筛选(再点同一 chip)后,「全部」chip 恢复高亮
-  assert.ok(html.includes('span.item-inline[data-\' + dim + \'=""]'),
+  assert.ok(script.includes('span.item-inline[data-\' + dim + \'=""]'),
     '取消筛选时「全部」chip 重新高亮');
 });
 

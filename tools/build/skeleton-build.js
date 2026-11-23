@@ -60,14 +60,17 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 /**
  * Repo-shipped static assets → dist path. Each dest is exactly the path the
  * rendered pages or theme.css reference (templates.js layout, render.js
- * search.html, theme.css @font-face + body background): dist must ship every
- * file it points at (rulings A + B). Every entry is required — the pages
- * reference it, so a missing one is a dangling reference, never a graceful
- * degradation.
+ * search.html + items.html, theme.css @font-face + body background): dist
+ * must ship every file it points at (rulings A + B). Every entry is required
+ * — the pages reference it, so a missing one is a dangling reference, never a
+ * graceful degradation. item-filter.js is the chip filter of items.html: it
+ * used to be an inline <script> there until task 6b A8 moved it into a file
+ * (the audit now refuses executable inline scripts, audit.js A4).
  */
 const ASSET_MAP = Object.freeze([
   ['theme.css', 'css/theme.css'],
   ['search.js', 'assets/js/search.js'],
+  ['item-filter.js', 'assets/js/item-filter.js'],
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'],
   ['bwiki/bg.png', 'assets/bwiki/bg.png'],
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'],

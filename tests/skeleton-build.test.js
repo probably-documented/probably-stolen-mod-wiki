@@ -58,6 +58,7 @@ const DATA_JS_PREFIX = 'window.WIKI_DATA = ';
 const EXPECTED_ASSETS = [
   ['theme.css', 'css/theme.css'], // layout: <link rel="stylesheet" href="…css/theme.css">
   ['search.js', 'assets/js/search.js'], // search.html: <script src="assets/js/search.js">
+  ['item-filter.js', 'assets/js/item-filter.js'], // items.html: <script src="assets/js/item-filter.js"> (task 6b A8)
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'], // layout: .ps-site__emblem <img src>
   ['bwiki/bg.png', 'assets/bwiki/bg.png'], // theme.css: body background url(../assets/bwiki/bg.png)
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'], // theme.css @font-face
@@ -816,7 +817,7 @@ test('buildSkeleton removes the old dist with fs.rm retries (maxRetries / retryD
 //        missing; permission/disk/target failures propagate unchanged
 // ---------------------------------------------------------------------------
 
-test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 7 sources, checked before rm dist', async (t) => {
+test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 8 sources, checked before rm dist', async (t) => {
   const base = await tmpDir(t, 'asset-precheck');
   let i = 0;
   for (const [src, dest] of EXPECTED_ASSETS) {
