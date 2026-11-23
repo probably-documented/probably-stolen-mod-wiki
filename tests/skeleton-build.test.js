@@ -702,6 +702,33 @@ test('buildSkeleton with contentDir: null has no content/items to lint and build
   assert.equal(exitCode, before);
 });
 
+test('E4 — id 校验的报错面向贡献者:中文,按实际 contentDir 逐个列出违规文件的完整路径,末尾一句可执行的提示;无堆栈', async (t) => {
+  const distDir = await tmpDir(t, 'lint-message');
+  const contentDir = await tmpDir(t, 'lint-message-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'items', 'zzz_fake.md'), '---\n---\n\n按标题生成的 slug。\n');
+  await fs.writeFile(path.join(contentDir, 'items', 'aaa_fake.md'), '---\n---\n\n另一个。\n');
+  await fs.copyFile(
+    path.join(REPO_CONTENT, 'items', `${FIXTURE_ITEM_ID}.md`),
+    path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`),
+  ); // a legal entry next to them: not listed
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the id lint violation to throw, got ${err}`);
+  assert.equal(exitCode, 1);
+  const itemsDir = toPosix(path.join(contentDir, 'items'));
+  assert.ok(!contentDir.endsWith('content') && toPosix(contentDir) !== 'content', 'sanity: this content dir is NOT the default "content"');
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 4, err.message);
+  assert.match(lines[0], /^\[lint\] FAIL — 2 个文件的文件名不是真实物品的 ID[^\n]*:$/, 'a heading in Chinese, with the count');
+  assert.equal(lines[1], `  ${itemsDir}/aaa_fake.md`, 'the real content dir, sorted');
+  assert.equal(lines[2], `  ${itemsDir}/zzz_fake.md`);
+  assert.match(lines[3], /^提示:.*[\u4e00-\u9fff]。$/, 'the report ends with one actionable hint');
+  assert.doesNotMatch(err.message, /\bcontent\/items\b/, 'the path is computed from contentDir, not hard-coded');
+  assert.doesNotMatch(err.message, new RegExp(`\\b${FIXTURE_ITEM_ID}\\b`), 'the legal entry file is not listed');
+});
+
 // ---------------------------------------------------------------------------
 // Task 5 D → Task 5b D1 — rm guard
 //

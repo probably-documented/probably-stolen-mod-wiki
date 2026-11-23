@@ -286,8 +286,8 @@ async function injectAdmin(adminSource, distDir) {
  *   any render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on an external-link
  *   audit violation; process.exitCode is set to 1 before the throw.
- *   Contributor-facing failures (nav_label conflict, dangling references)
- *   are BuildErrors whose message names the files to edit.
+ *   Contributor-facing failures (id lint, nav_label conflict, dangling
+ *   references) are BuildErrors whose message names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
  *   old dist is removed, which therefore stays as it was; the dangling-
  *   reference and audit failures need the written site and come after.
@@ -319,9 +319,15 @@ async function buildSkeleton({
       const violations = await validateItemContentIds(
         path.join(contentDir, 'items'), FIXTURE_DATA.items.map((it) => it.id));
       if (violations.length > 0) {
-        throw new Error(`[lint] FAIL — ${violations.length} content/items file(s) not named after a real item id `
-          + '(only content/items/<item.id>.md is rendered, the rest would silently never appear):\n'
-          + violations.map((v) => `  content/items/${v}`).join('\n'));
+        // Paths from the real contentDir (a contributor is told where the
+        // file is), in Chinese, one actionable hint last — like the other
+        // contributor-facing reports.
+        const itemsDir = toPosix(path.join(contentDir, 'items'));
+        throw new BuildError(
+          `[lint] FAIL — ${violations.length} 个文件的文件名不是真实物品的 ID`
+          + '(只有「<物品ID>.md」会被渲染成该物品页的「详解」,其它文件名会被静默忽略):\n'
+          + violations.map((v) => `  ${itemsDir}/${v}`).join('\n')
+          + '\n提示:请把文件改名为真实物品的 ID(物品详情页的「物品ID」一栏可以查到),扩展名保持 .md;不需要的文件请删除。');
       }
     }
     //    asset sources: a missing one is a certain failure, known right now.
