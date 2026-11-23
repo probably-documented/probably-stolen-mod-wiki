@@ -949,6 +949,12 @@ test('review Important 1 — cause 2: an address may run across lines — a stri
       '.png")}',
       'b{background:url("https://evil.example/b\\a .png")}', // \a is a line feed inside the string
       'c{background:url("https://evil.example/c\\d .png")}', // …and \d a carriage return
+      // The audit reports the last three addresses where Chromium 152 fetches
+      // nothing: the two @imports — after a rule an @import is ignored — and
+      // d — `screen` is no value of the background shorthand, so that
+      // declaration is dropped. The address is read all the same, on the safe
+      // side (seen in the browser; task-6b report, Fix Report). The first
+      // three it does fetch.
       '@import "https://evil.example/x\\',
       '.css";',
       "@import 'https://evil.example/y\\",
