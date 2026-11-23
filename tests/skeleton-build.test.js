@@ -777,12 +777,24 @@ test('buildSkeleton refuses a distDir that is the repo root or one of its ancest
   const before = await snapshotTree(standIn);
   const parentBefore = (await fs.readdir(copyRoot)).sort();
 
-  for (const [target, what] of [[standIn, 'the repo root'], [copyRoot, 'its parent directory']]) {
+  // (D6, task 6b) a directory inside the repo that is not dist is refused too —
+  // nothing is created there, the guard decides on the path alone.
+  const insideRepo = path.join(standIn, 'content', 'drafts');
+  for (const [target, what] of [[standIn, 'the repo root'], [copyRoot, 'its parent directory'], [insideRepo, 'a directory inside the repo that is not dist']]) {
     const { err, exitCode } = await capturingExitCode(() =>
       buildStandIn({ distDir: target, contentDir: null, warn: noop }));
 
     assert.ok(err instanceof Error, `expected buildSkeleton to refuse ${what}, got ${err}`);
-    assert.match(err.message, /refus/i);
+    // C3 (task 6b): the refusal is a BuildError — Chinese, saying what the
+    // build does clean, with one hint as its last line.
+    assert.equal(err.name, 'BuildError', `${what}: a refusal meant for a human being`);
+    assert.match(err.message, /^\[dist\] FAIL — /, `${what}: a heading`);
+    assert.ok(err.message.includes(target), `${what}: names the directory it refused`);
+    assert.match(err.message, /dist/, `${what}: says what the build does clean`);
+    assert.match(err.message, /临时目录/, `${what}: …and what else`);
+    const lines = err.message.split('\n');
+    assert.match(lines.at(-1), /^提示:/, `${what}: the last line is a hint, got: ${lines.at(-1)}`);
+    for (const line of lines) assert.ok(hasChinese(line), `${what}: in Chinese: ${line}`);
     assert.equal(exitCode, 1, `exitCode after refusing ${what}`);
   }
 
@@ -1208,4 +1220,36 @@ test('C1 — 读不出来的文件:不是内容文件能改的——不写行号
   const report = formatAuditViolations([{ file: 'x.html', line: 0, code: 'unreadable', detail: 'EACCES: permission denied' }], { sourceOf: () => 'content/mechanics/x.md' });
   assert.equal(report.split('\n')[1], '  1. 文件:(构建生成的)x.html');
   assert.equal(report.split('\n')[3], '     怎么改:这不是内容文件里能改的:这是构建或模板的问题,请联系维护者。');
+});
+
+test('C3 — the CLI:rm guard 的拒绝也是中文,提示是 stderr 的最后一行,后面没有堆栈', async (t) => {
+  // The guard is decided on paths alone, and the CLI takes no output-directory
+  // argument: its default is `dist`, relative to the cwd. So the one way a
+  // real `node tools/build/skeleton-build.js` runs into the guard is a cwd
+  // whose `dist` directory contains the repo. A throwaway copy of the build's
+  // inputs plays the repo, placed inside a directory called dist — the real
+  // repo root is never passed to buildSkeleton.
+  const outer = await tmpDir(t, 'rm-guard-cli');
+  const standIn = path.join(outer, 'dist', 'repo');
+  for (const dir of ['tools', 'data', 'assets-src']) {
+    await fs.cp(path.join(REPO_ROOT, dir), path.join(standIn, dir), { recursive: true });
+  }
+  await fs.writeFile(path.join(standIn, 'package.json'), '{ "version": "0.0.0" }\n');
+  const before = await snapshotTree(standIn);
+
+  const run = spawnSync(process.execPath, [path.join(standIn, 'tools', 'build', 'skeleton-build.js')], {
+    cwd: outer, encoding: 'utf8',
+  });
+
+  assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
+  assert.match(run.stderr, /fatal: \[dist\] FAIL — /, run.stderr);
+  assert.ok(run.stderr.includes(path.join(outer, 'dist')), 'names the directory it refused');
+  assert.match(run.stderr, /临时目录/, 'says what else the build does clean');
+  const lines = run.stderr.trim().split(/\r?\n/);
+  assert.match(lines.at(-1), /^提示:/, `the last stderr line is the hint, got: ${lines.at(-1)}`);
+  for (const line of lines.filter((l) => l.includes('[dist]') || /^(构建|提示)/.test(l))) {
+    assert.ok(hasChinese(line), `in Chinese: ${line}`);
+  }
+  assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
+  assert.deepEqual(await snapshotTree(standIn), before, 'nothing inside the repo copy was removed');
 });

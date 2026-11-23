@@ -422,19 +422,19 @@ async function injectAdmin(adminSource, distDir) {
  *   adminInjected: boolean}>}
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   adminInjected = whether an admin tree was copied into dist.
- * @throws {Error} when distDir is neither a directory inside the repo nor
- *   one inside the system temp directory (in particular the repo root or
- *   one of its ancestors — paths.js isAllowedDistDir), when adminDir lies
- *   inside distDir or is not a directory (all three refused before anything
+ * @throws {Error} when distDir is neither the repo's own dist directory nor
+ *   one inside the system temp directory (in particular the repo root, one
+ *   of its ancestors, or any other directory inside the repo — paths.js
+ *   isAllowedDistDir), when adminDir lies inside distDir or is not a directory (all three refused before anything
  *   is removed), when a content/items markdown file is not named
  *   `<item.id>.md`, when an asset source is missing, when more than one
  *   mechanics page declares a top-nav label (`nav_label`), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on a site-audit
  *   violation; process.exitCode is set to 1 before the throw.
- *   Contributor-facing failures (id lint, nav_label conflict, dangling
- *   references, the site audit) are BuildErrors whose message names the
- *   files to edit.
+ *   Contributor-facing failures (the rm guard's refusal, id lint, nav_label
+ *   conflict, dangling references, the site audit) are BuildErrors whose
+ *   message says what to do and names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
  *   old dist is removed, which therefore stays as it was; the dangling-
  *   reference and audit failures need the written site and come after.
@@ -454,9 +454,15 @@ async function buildSkeleton({
     //    ancestors, or any other directory inside the repo (task 6b D6).
     const distPath = path.resolve(distDir);
     if (!isAllowedDistDir(distPath, REPO_ROOT)) {
-      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: the build only ever removes the repo's own dist directory `
-        + `(${path.join(REPO_ROOT, 'dist')}) or a directory inside the system temp directory (${os.tmpdir()}) — `
-        + 'never the repo root, one of its ancestors, or any other directory inside the repo');
+      // A refusal meant for a human being (task 6b C3): what the build does
+      // clean, what it never touches, and what to do — no English internals.
+      throw new BuildError(
+        `[dist] FAIL — 构建拒绝清理这个目录:${distPath}\n`
+        + `构建只会清理两类目录:仓库自己的 dist 文件夹(${path.join(REPO_ROOT, 'dist')}),`
+        + `或者系统临时目录之下的目录(${os.tmpdir()})。`
+        + '仓库本身、仓库的上级目录、以及仓库里的其它文件夹(比如 content、tools、.git)都不会被清理。\n'
+        + '提示:这是在保护仓库里的文件。请在仓库根目录直接运行 npm run build(不要指定别的输出目录);'
+        + '如果什么都没有改却看到这条消息,请把它告诉站点维护者。');
     }
     //    CMS shell source — all three answers known up front (see
     //    resolveAdminSource): inside dist → refused (step 3 would delete it
