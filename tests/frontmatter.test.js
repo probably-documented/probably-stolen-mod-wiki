@@ -160,3 +160,45 @@ test('parseFrontmatter 只取数据;parseFrontmatterScalar 标量语义', () => 
   assert.equal(parseFrontmatterScalar('plain'), 'plain');
   assert.deepEqual(parseFrontmatterScalar('["a"]'), ['a'], 'JSON 优先保留');
 });
+
+// ---------- 引号字符串的转义(task 6 Ruling W)----------
+//
+// Sveltia CMS 保存条目时用 yaml 库写出 frontmatter:需要引号的字符串默认用
+// 单引号,内部的 `'` 按 YAML 规定写成两个;双引号字符串则用 `\"` 与 `\\`。
+// 修复前解析器只是去掉首尾引号,这些转义原样留在值里(页面标题多出一个
+// 单引号,或冒出一个反斜杠)。
+
+test('单引号字符串:内部的两个单引号还原为一个', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`'Don''t stop'`), "Don't stop");
+  assert.equal(parseFrontmatterScalar(String.raw`''''`), "'", '内容只有一个单引号');
+  assert.equal(parseFrontmatterScalar(String.raw`'a''b''c'`), "a'b'c", '多处');
+  assert.equal(parseFrontmatterScalar("''"), '', '空串不变');
+  assert.equal(parseFrontmatterScalar("'安装与兼容性'"), '安装与兼容性', '没有转义时行为不变');
+});
+
+test('双引号字符串:转义的引号和反斜杠还原为本身', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`"say \"hi\""`), 'say "hi"');
+  assert.equal(parseFrontmatterScalar(String.raw`"C:\\path\\"`), 'C:\\path\\');
+  assert.equal(parseFrontmatterScalar(String.raw`"\""`), '"', '内容只有一个双引号');
+  assert.equal(parseFrontmatterScalar('""'), '', '空串不变');
+  // 一次扫描:\\" 是「反斜杠 + 引号」,先替换 \" 再替换 \\ 会把它解错
+  assert.equal(parseFrontmatterScalar(String.raw`"x\\"y"`), String.raw`x\"y`);
+  // \ 后接其它字符的转义序列(\n、\t、\uXXXX …)不在本解析器的子集里:保持原样
+  assert.equal(parseFrontmatterScalar(String.raw`"a\nb"`), String.raw`a\nb`);
+});
+
+test('引号转义:经 splitFrontmatter 读取 CMS 写出的 frontmatter,键值与列表项都还原', () => {
+  const { fm, body } = splitFrontmatter(String.raw`---
+title: 'Don''t stop'
+path: "C:\\dir\\"
+tags:
+  - 'it''s'
+  - "a\"b"
+---
+正文 [[tentacle_body]]
+`);
+  assert.equal(fm.title, "Don't stop");
+  assert.equal(fm.path, 'C:\\dir\\');
+  assert.deepEqual(fm.tags, ["it's", 'a"b']);
+  assert.equal(body, '正文 [[tentacle_body]]\n');
+});

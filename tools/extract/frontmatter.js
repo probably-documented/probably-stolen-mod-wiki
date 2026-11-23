@@ -20,21 +20,44 @@
 // 依赖方向保持 build → extract,不引入倒依赖。
 
 /**
+ * YAML 双引号字符串(已去首尾引号)里的 `\"` 与 `\\`。必须一次扫描:
+ * `\\"` 是「反斜杠 + 引号」,先替换 `\"` 再替换 `\\` 会把它解错。
+ * 其它转义序列(`\n`、`\t`、`\uXXXX` …)不在本解析器的子集里,原样保留。
+ */
+function unescapeDoubleQuoted(inner) {
+  let out = '';
+  for (let i = 0; i < inner.length; i += 1) {
+    const ch = inner[i];
+    const next = inner[i + 1];
+    if (ch === '\\' && (next === '"' || next === '\\')) {
+      out += next;
+      i += 1;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
  * Scalar frontmatter value.
  *
  * 旧方言(Task 2 迁移):去引号字符串、单行 JSON 数组/对象。
  * 新方言(Task 3,CMS 原生 YAML 子集):裸 true/false 布尔、数字、
  * flow 列表 `[a, b]`(JSON.parse 失败后的宽容解析)。
+ * 引号字符串的转义(task 6 Ruling W):单引号内的 `''` 还原为 `'`;
+ * 双引号内的 `\"` 还原为 `"`、`\\` 还原为 `\`——Sveltia CMS 保存条目时
+ * 用 yaml 库写出的就是这两种形态。
  * 明确不实现(超集,遇到保持原样/跳过,不抛错):
  * 列表对象项、多级嵌套。
  */
 function parseFrontmatterScalar(raw) {
   if (raw === '') return '';
-  if (
-    (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) ||
-    (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2)
-  ) {
-    return raw.slice(1, -1);
+  if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
+    return raw.slice(1, -1).replace(/''/g, "'");
+  }
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return unescapeDoubleQuoted(raw.slice(1, -1));
   }
   if (raw[0] === '[' || raw[0] === '{') {
     try {
