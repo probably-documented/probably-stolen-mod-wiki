@@ -1,20 +1,23 @@
 'use strict';
 
 // Task 4 + Task 5: fixture-only build entry — what `npm run build` (and
-// therefore GitHub Actions) runs.
+// therefore GitHub Actions) runs. Task 6b widened its checks for the online,
+// many-contributor site: every failure a contributor can trigger is a
+// BuildError that tells them which file to edit and how.
 //
 // Unlike modwiki's full builder this never touches the game directory or the
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
-//      rm guard → CMS shell source → id lint → asset sources
+//      rm guard → CMS shell source → item id lint → item slug lint → mechanic
+//      page name lint → asset sources
 //   1. data prep (drop missing icons, merge content/mechanics — mechanics.js,
 //      at most one page declaring the top-nav about entry)
 //   2. render
 //   3. rm dist → 4. write files → 5. copy repo assets
 //   6. dangling references (dangling-refs.js: pages + stylesheet must only
 //      link at files dist ships; admin/ is not the site's own)
-//   7. auditExternalLinks(dist)
+//   7. site audit (audit.js)
 //   8. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
 // Steps 0–2 come BEFORE the old dist is removed (step 3), so every failure
 // they can spot leaves the previous output in place. Steps 6–7 need the
@@ -28,9 +31,13 @@
 // and, now that any contributor can write a page, nothing dangerous either).
 //
 // Contributor-facing failures (BuildError): the CMS lets contributors edit
-// and delete pages, so several checks exist only to tell THEM what to fix.
-// Their message is the whole report — the files, and what to do — and main()
-// prints it without a stack trace.
+// and delete pages, so many checks exist only to tell THEM what to fix —
+// the rm guard's refusal, a content/items file that is not named after an
+// item or does not declare the slug it is named after, a mechanic page
+// with a file name that is not its address, two pages declaring the
+// top-nav label, a dangling link, an audit violation. Their message is the
+// whole report — in Chinese: the files, what is wrong, what to do — and
+// main() prints it without a stack trace.
 
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -174,6 +181,39 @@ async function validateItemContentSlugs(contentItemsDir) {
     }
   }
   return violations.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+}
+
+/** A mechanic page's slug (its file name without .md): lowercase ASCII letters, digits, single hyphens between words. */
+const MECHANIC_SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * Lint content/mechanics/ (task 6b D11): a page's slug is its file name
+ * without .md, and it becomes mechanics/<slug>.html — the page's address on
+ * the site. Only ^[a-z0-9]+(-[a-z0-9]+)*$ is allowed. In the CMS the file is
+ * named after the title, so a contributor can end up with 安装指南.md.
+ * Same pre-flight as the item lints, next to them.
+ * @param {string} contentMechanicsDir the content/mechanics directory
+ * @returns {Promise<string[]>} offending file names, sorted. Empty when
+ *   every page has a legal name, when the directory does not exist, or when
+ *   it holds only non-.md files / directories.
+ * @throws {Error} rethrown as is when the directory cannot be listed for a
+ *   reason other than "missing".
+ */
+async function validateMechanicSlugs(contentMechanicsDir) {
+  let entries;
+  try {
+    entries = await fs.readdir(contentMechanicsDir, { withFileTypes: true });
+  } catch (err) {
+    if (isMissing(err)) return [];
+    throw err;
+  }
+  // The files mergeMechanicsContent reads are the pages it judges: an .md
+  // file of any suffix case (a .MD is a page too), by the name without it.
+  return entries
+    .filter((entry) => entry.isFile() && /\.md$/i.test(entry.name))
+    .map((entry) => entry.name)
+    .filter((name) => !MECHANIC_SLUG_RE.test(name.replace(/\.md$/i, '')))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** Absolute path of an ASSET_MAP source inside assetsDir. */
@@ -476,14 +516,17 @@ async function injectAdmin(adminSource, distDir) {
  *   of its ancestors, or any other directory inside the repo — paths.js
  *   isAllowedDistDir), when adminDir lies inside distDir or is not a directory (all three refused before anything
  *   is removed), when a content/items markdown file is not named
- *   `<item.id>.md`, when an asset source is missing, when more than one
+ *   `<item.id>.md`, when such a file does not declare `slug` equal to its
+ *   own name (D8), when a content/mechanics file name is not a legal page
+ *   slug (D11), when an asset source is missing, when more than one
  *   mechanics page declares a top-nav label (`nav_label`), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on a site-audit
  *   violation; process.exitCode is set to 1 before the throw.
- *   Contributor-facing failures (the rm guard's refusal, id lint, nav_label
- *   conflict, dangling references, the site audit) are BuildErrors whose
- *   message says what to do and names the files to edit.
+ *   Contributor-facing failures (the rm guard's refusal, the item id and
+ *   slug lints, the mechanic page name lint, the nav_label conflict,
+ *   dangling references, the site audit) are BuildErrors whose message
+ *   says what to do and names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
  *   old dist is removed, which therefore stays as it was; the dangling-
  *   reference and audit failures need the written site and come after.
@@ -543,6 +586,17 @@ async function buildSkeleton({
           + slugViolations.map((v) => `  ${itemsDir}/${v.file}(${v.slug === null ? '开头没有 slug' : `开头写的是 slug: ${v.slug}`})`).join('\n')
           + '\n提示:slug 必须与文件名相同(去掉 .md)。这通常是在编辑器里编辑时选错了物品:'
           + '请打开文件,把开头 slug: 后面改成和文件名一样的物品 ID;不需要的文件请删除。');
+      }
+      //    Mechanic page names (task 6b D11): a page's file name is its
+      //    address on the site — lowercase English words joined by hyphens.
+      const badPageNames = await validateMechanicSlugs(path.join(contentDir, 'mechanics'));
+      if (badPageNames.length > 0) {
+        const mechanicsDir = toPosix(path.join(contentDir, 'mechanics'));
+        throw new BuildError(
+          `[slug] FAIL — ${badPageNames.length} 个机制页的文件名不合规:\n`
+          + badPageNames.map((name) => `  ${mechanicsDir}/${name}`).join('\n')
+          + '\n提示:机制页的文件名就是它在网站上的地址,只能用小写英文字母、数字和短横线。'
+          + '请把文件名改成小写英文单词,单词之间用短横线,例如 `install-compat`。');
       }
     }
     //    asset sources: a missing one is a certain failure, known right now.
@@ -643,5 +697,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildSkeleton, validateItemContentIds, validateItemContentSlugs, formatAuditViolations, RETRY,
+  buildSkeleton, validateItemContentIds, validateItemContentSlugs, validateMechanicSlugs,
+  formatAuditViolations, RETRY,
 };

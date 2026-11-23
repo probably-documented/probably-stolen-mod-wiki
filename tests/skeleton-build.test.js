@@ -37,7 +37,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY, validateItemContentSlugs,
+  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY,
+  validateItemContentSlugs, validateMechanicSlugs,
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
@@ -1342,5 +1343,90 @@ test('D8 — the CLI:stderr 是中文清单加提示,提示是最后一行,后�
   assert.ok(run.stderr.includes(`  content/items/${other.id}.md(开头没有 slug)`), run.stderr);
   const lines = run.stderr.trim().split(/\r?\n/);
   assert.match(lines.at(-1), /^提示:.*slug 必须与文件名相同/, `the last stderr line is the hint, got: ${lines.at(-1)}`);
+  assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
+});
+
+// ---------------------------------------------------------------------------
+// Task 6b D11 — a mechanic page's file name is its address on the site
+//
+// slug = the file name without .md, and it becomes mechanics/<slug>.html.
+// Only lowercase ASCII letters, digits and single hyphens between words are
+// allowed: ^[a-z0-9]+(-[a-z0-9]+)*$. In the CMS the file is named after the
+// title, so a contributor can end up with 安装指南.md. Checked in the same
+// pre-flight as the item lints, and a BuildError like them.
+// ---------------------------------------------------------------------------
+
+test('validateMechanicSlugs: lowercase letters, digits and single hyphens pass; capitals, underscores, Chinese, doubled or edge hyphens, dots and spaces do not', async (t) => {
+  const dir = path.join(await tmpDir(t, 'mech-slug'), 'mechanics');
+  await fs.mkdir(dir, { recursive: true });
+  const fine = ['install-compat.md', 'a.md', 'night-settlement.md', 'b2b.md', 'a-1-b.md', '2026.md', 'install-compat.MD'];
+  // None of these shares its lower-cased name with one of `fine`: on a
+  // case-insensitive file system (win32) that would be the same file.
+  const bad = [
+    'Guide.md', // a capital
+    'install_compat.md', // an underscore
+    '安装指南.md', // Chinese
+    'install--compat.md', // a doubled hyphen
+    '-install.md', // a leading hyphen
+    'install-.md', // a trailing hyphen
+    'a.b.md', // a dot
+    'a b.md', // a space
+    '安装-compat.md', // Chinese and ASCII mixed
+    'a+b.md', // a symbol
+  ];
+  for (const name of [...fine, ...bad]) await fs.writeFile(path.join(dir, name), '正文。\n');
+  await fs.writeFile(path.join(dir, 'notes.txt'), 'not a page');
+  await fs.mkdir(path.join(dir, 'drafts'));
+  await fs.writeFile(path.join(dir, 'drafts', 'Not a page either.md'), 'a directory entry is not a page');
+
+  assert.deepEqual(await validateMechanicSlugs(dir), [...bad].sort(),
+    'every offending file name, sorted; .MD is a page too (mergeMechanicsContent reads it), and judged by the same rule');
+  assert.deepEqual(await validateMechanicSlugs(path.join(dir, '..', 'no-such-dir')), []);
+});
+
+test('D11 — 机制页文件名不合规 → 构建失败(exitCode 1),中文提示逐个指出该文件,并说明改成小写英文短横线;上一个 dist 保留', async (t) => {
+  const distDir = await tmpDir(t, 'mech-slug-fail');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  // A copy of the repo's content/ (install-compat.md is a legal page) with two
+  // files a contributor could end up with in the CMS.
+  const contentDir = await tmpDir(t, 'mech-slug-fail-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'mechanics', '安装指南.md'), '---\ntitle: 安装指南\n---\n\n正文。\n');
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'New_Page.md'), '---\ntitle: 新页面\n---\n\n正文。\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the mechanic slug lint to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  const mechanicsDir = toPosix(path.join(contentDir, 'mechanics'));
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 4, err.message);
+  assert.match(lines[0], /^\[slug\] FAIL — 2 个机制页的文件名不合规:$/, 'a heading in Chinese, with the count');
+  assert.deepEqual(lines.slice(1, -1), ['New_Page.md', '安装指南.md'].sort().map((name) => `  ${mechanicsDir}/${name}`),
+    'one line per offending file, by its real path');
+  assert.match(lines[3], /^提示:/);
+  for (const word of ['小写英文单词', '短横线', 'install-compat']) {
+    assert.ok(lines[3].includes(word), `the hint says it: ${word}`);
+  }
+  // The heading and the hint are prose, in Chinese; the two lines between are paths.
+  assert.ok(hasChinese(lines[0]) && hasChinese(lines[3]), 'in Chinese');
+  assert.ok(!err.message.includes('install-compat.md'), 'the legal page is not listed');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (a pre-flight check, before rm dist)');
+  await assert.rejects(fs.access(path.join(distDir, 'mechanics')), 'nothing was built');
+});
+
+test('D11 — the CLI:中文文件名的机制页 → 非零退出,stderr 是中文提示,最后一行说明怎么改,后面没有堆栈', async (t) => {
+  const cwd = await tmpDir(t, 'mech-slug-cli');
+  await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
+  await fs.rename(path.join(cwd, 'content', 'mechanics', 'install-compat.md'), path.join(cwd, 'content', 'mechanics', '安装与兼容性.md'));
+
+  const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
+  assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
+  assert.match(run.stderr, /fatal: \[slug\] FAIL — 1 个机制页的文件名不合规:/);
+  assert.ok(run.stderr.includes('  content/mechanics/安装与兼容性.md'), run.stderr);
+  const lines = run.stderr.trim().split(/\r?\n/);
+  assert.match(lines.at(-1), /^提示:.*请把文件名改成小写英文单词,单词之间用短横线,例如 `install-compat`。$/, `the last stderr line says how to rename, got: ${lines.at(-1)}`);
   assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
 });
