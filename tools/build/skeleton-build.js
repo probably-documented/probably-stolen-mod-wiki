@@ -1,20 +1,21 @@
 'use strict';
 
-// Task 4: fixture-only build entry — what `npm run build` (and therefore
-// GitHub Actions) runs.
+// Task 4 + Task 5: fixture-only build entry — what `npm run build` (and
+// therefore GitHub Actions) runs.
 //
 // Unlike modwiki's full builder this never touches the game directory or the
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched: rm guard → id lint → asset sources
-//   1. drop missing icons → merge content/mechanics → renderSite
+//   1. data prep (drop missing icons, merge content/mechanics) → render
 //   2. rm dist → write files → copy repo assets → auditExternalLinks(dist)
+//   3. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
 // Step 0 and the rendering in step 1 come BEFORE the old dist is removed, so
 // every failure they can spot leaves the previous output in place.
 //
-// Failure discipline: any lint/render/write/asset failure or external-link
-// audit violation throws with process.exitCode = 1, so a broken build can never
-// deploy silently (file:// offline discipline).
+// Failure discipline: any lint/render/write/asset/admin-copy failure or
+// external-link audit violation throws with process.exitCode = 1, so a broken
+// build can never deploy silently (file:// offline discipline).
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -223,27 +224,63 @@ async function copyAssets(assetsDir, distDir) {
 }
 
 /**
+ * Copy the CMS shell (adminDir) into distDir/admin — strictly AFTER the
+ * external-link audit. The shell is online-only by design (OAuth callbacks,
+ * a vendored bundle that talks to the network), so it is exactly what the
+ * audit must never see; being left out of the audit on purpose is also why
+ * the offline zip leaves it out (tools/pack.js).
+ *
+ * A missing adminDir is not an error — the repo ships without admin/ until
+ * Task 6 creates it — and null skips the injection on purpose. Every other
+ * failure (unreadable directory, a full disk) fails the build: a deployed
+ * site whose /admin/ silently went missing is worse than a red build.
+ * @returns {Promise<boolean>} whether an admin tree was injected
+ */
+async function injectAdmin(adminDir, distDir) {
+  if (adminDir == null) return false;
+  let stat;
+  try {
+    stat = await fs.stat(adminDir);
+  } catch (err) {
+    if (isMissing(err)) return false;
+    throw err;
+  }
+  if (!stat.isDirectory()) {
+    // fs.cp would happily copy that file to dist/admin, and /admin/ would 404.
+    throw new Error(`[build:skeleton] adminDir is not a directory: ${adminDir}`);
+  }
+  await fs.cp(adminDir, path.join(distDir, 'admin'), { recursive: true });
+  return true;
+}
+
+/**
  * Render the fixture site into distDir.
  * @param {{distDir?: string, contentDir?: string|null, assetsDir?: string,
- *   warn?: (message: string) => void}} [options]
+ *   adminDir?: string|null, warn?: (message: string) => void}} [options]
  *   contentDir supplies the hand-written content/items/<id>.md and
  *   content/mechanics/<slug>.md layers (null skips both).
  *   assetsDir is the repo's assets-src/ tree; warn receives the
  *   dropped-icon notices (defaults to console.warn).
- * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number}>}
- *   pages = rendered pages + data.js (assets are not pages).
+ *   adminDir is the CMS shell, copied to distDir/admin after the audit
+ *   (relative paths resolve against cwd, like distDir/contentDir). A missing
+ *   directory skips the injection; null skips it on purpose.
+ * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number,
+ *   adminInjected: boolean}>}
+ *   pages = rendered pages + data.js (assets and admin/ are not pages).
+ *   adminInjected = whether an admin tree was copied into dist.
  * @throws {Error} when distDir resolves to the repo root or one of its
  *   ancestors (nothing is removed), when a content/items markdown file is not
  *   named `<item.id>.md`, when an asset source is missing, on any
- *   render/write/asset-copy failure, or on an external-link audit violation;
- *   process.exitCode is set to 1 before the throw. The rm-guard, id-lint,
- *   missing-asset-source and render failures happen before the old dist is
- *   removed, which therefore stays as it was.
+ *   render/write/asset-copy/admin-copy failure, or on an external-link audit
+ *   violation; process.exitCode is set to 1 before the throw. The rm-guard,
+ *   id-lint, missing-asset-source and render failures happen before the old
+ *   dist is removed, which therefore stays as it was.
  */
 async function buildSkeleton({
   distDir = 'dist',
   contentDir = 'content',
   assetsDir = DEFAULT_ASSETS_DIR,
+  adminDir = 'admin',
   warn = console.warn,
 } = {}) {
   try {
@@ -294,7 +331,11 @@ async function buildSkeleton({
       throw new Error(`[audit] FAIL — ${violations.length} external-link violation(s):\n${lines.join('\n')}`);
     }
 
-    return { pages: rendered.size, iconsDropped, assetsCopied };
+    // 7. CMS shell → dist/admin. Strictly the step after the audit: the shell
+    //    is online-only and would fail it by design (see injectAdmin).
+    const adminInjected = await injectAdmin(adminDir, distPath);
+
+    return { pages: rendered.size, iconsDropped, assetsCopied, adminInjected };
   } catch (err) {
     process.exitCode = 1;
     throw err;
@@ -309,6 +350,9 @@ async function main() {
   console.log(`[build:skeleton] rendered ${result.pages} files → dist/`);
   console.log(`[build:skeleton] assets copied: ${result.assetsCopied} → dist/`);
   console.log('[audit] OK — no external-link violations');
+  console.log(result.adminInjected
+    ? '[build:skeleton] admin: injected → dist/admin/ (after the audit)'
+    : '[build:skeleton] admin: none found, skipped');
 }
 
 if (require.main === module) {

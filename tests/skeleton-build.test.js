@@ -28,7 +28,7 @@ const {
   buildSkeleton, validateItemContentIds, isUnsafeDistDir,
 } = require('../tools/build/skeleton-build.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
-const { BWIKI_CREDIT_URL } = require('../tools/build/audit.js');
+const { auditExternalLinks, BWIKI_CREDIT_URL } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -667,4 +667,67 @@ test('copyAssets says "required asset missing" only for a genuinely missing sour
   assert.ok(['EISDIR', 'EPERM', 'EACCES'].includes(err.code), `original error code kept, got ${err.code}`);
   assert.equal(err.cause, undefined, 'rethrown as is, not wrapped');
   assert.equal(exitCode, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Task 5 E — admin/ injection
+//
+// The CMS shell under admin/ is online-only by design (OAuth callbacks, and
+// the vendored bundle talks to the network), while dist must stay
+// double-clickable via file://. So admin/ is copied into dist AFTER the
+// external-link audit — never before — and the offline zip leaves it out
+// (tests/pack.test.js). A missing adminDir is not an error: the repo ships
+// without admin/ until Task 6 creates it.
+// ---------------------------------------------------------------------------
+
+test('buildSkeleton injects adminDir into dist/admin after the audit — an external link there must not fail the build', async (t) => {
+  const distDir = await tmpDir(t, 'admin');
+  const adminDir = await tmpDir(t, 'admin-src');
+  const shell = '<!doctype html>\n<a href="https://example.com/login">sign in</a>\n';
+  await fs.writeFile(path.join(adminDir, 'index.html'), shell);
+  await fs.writeFile(path.join(adminDir, 'config.yml'), 'backend: { name: github }\n');
+  await fs.mkdir(path.join(adminDir, 'vendor'), { recursive: true });
+  await fs.writeFile(path.join(adminDir, 'vendor', 'cms.js'), '// vendored bundle\n');
+
+  // What the audit says about that tree on its own — i.e. what would happen
+  // to the build if admin/ were ever copied in before the audit ran.
+  const standalone = await auditExternalLinks(adminDir);
+  assert.deepEqual(standalone.map((v) => `${v.file}:${v.code}`), ['index.html:href-http']);
+
+  const { exitCode, before } = await capturingExitCode(() =>
+    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));
+
+  assert.equal(exitCode, before, 'the build passes: dist/admin did not exist yet when the audit ran');
+  assert.equal(await fs.readFile(path.join(distDir, 'admin', 'index.html'), 'utf8'), shell);
+  const injected = (await listFiles(path.join(distDir, 'admin')))
+    .map((f) => toPosix(path.relative(path.join(distDir, 'admin'), f))).sort();
+  assert.deepEqual(injected, ['config.yml', 'index.html', 'vendor/cms.js'], 'the whole tree, nested directories included');
+});
+
+test('buildSkeleton skips the admin injection when adminDir does not exist (or is null)', async (t) => {
+  const distDir = await tmpDir(t, 'no-admin');
+  const adminDir = path.join(await tmpDir(t, 'no-admin-src'), 'admin'); // never created
+
+  for (const [option, what] of [[adminDir, 'a path that does not exist'], [null, 'null']]) {
+    const { exitCode, before, result } = await capturingExitCode(() =>
+      buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir: option, warn: noop }));
+
+    assert.ok(result != null, `${what}: expected the build to pass`);
+    assert.equal(exitCode, before, `${what}: a skipped injection is not a failure`);
+    await assert.rejects(fs.access(path.join(distDir, 'admin')), `${what}: no dist/admin is created`);
+  }
+});
+
+test('buildSkeleton fails loudly when adminDir exists but is not a directory (instead of copying a file to dist/admin)', async (t) => {
+  const distDir = await tmpDir(t, 'admin-file');
+  const adminDir = path.join(await tmpDir(t, 'admin-file-src'), 'admin');
+  await fs.writeFile(adminDir, 'not a directory');
+
+  const { err, exitCode } = await capturingExitCode(() =>
+    buildSkeleton({ distDir, contentDir: null, adminDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the non-directory adminDir to throw, got ${err}`);
+  assert.match(err.message, /adminDir is not a directory/);
+  assert.equal(exitCode, 1);
+  await assert.rejects(fs.access(path.join(distDir, 'admin')), 'nothing is copied');
 });
