@@ -76,9 +76,8 @@ test('A6 — the exported CODES is exactly what the rules report: one input per 
       '<meta http-equiv="refresh" content="1">',
       '<iframe srcdoc="x"></iframe>',
       '<iframe src="data:text/html,x"></iframe>', // A9
-      'fetch("/x")',
-      'XMLHttpRequest',
     ),
+    'assets/js/x.js': 'fetch("/x");\nXMLHttpRequest', // a page is not scanned for these (ruling AB c)
     'css/theme.css': page(
       'a{background:url(https://evil.example/a.png)}',
       'b{background:url(//cdn.example.com/b.png)}',
@@ -237,9 +236,17 @@ test('A2 — protocol-relative references (src="//…", href="//…", url(//…)
   ]);
 });
 
-test('A2 — a fetch( call and XMLHttpRequest are violations, in a page, in a script, in a stylesheet', async (t) => {
+test('ruling AB(c) — a page is not scanned for the words fetch( and XMLHttpRequest: in a page they can only be text; a .js file and a stylesheet still are', async (t) => {
+  // The reviewer's sentence: with A4 closing every way to run a script, this
+  // is a sentence — and the report used to fail the build on it, telling the
+  // contributor to "delete this code".
   const violations = await auditOf(t, {
-    [HTML]: '<p>fetch( in running text counts too</p>\n<p>and so does XMLHttpRequest</p>',
+    [HTML]: page(
+      '<p>本站页面不使用 fetch( 请求网络。</p>',
+      '<p>也不使用 XMLHttpRequest。</p>',
+      '<div title="fetch( and XMLHttpRequest">nor in an attribute</div>',
+      '<script type="application/json">{"note": "fetch( is a word here"}</script>',
+    ),
     'assets/js/x.js': 'window.fetch ("/x");\nfunction prefetch(x) {}\nnew XMLHttpRequest();',
     'css/theme.css': '/* a stylesheet is not expected to call fetch( — counted anyway */',
   });
@@ -247,8 +254,6 @@ test('A2 — a fetch( call and XMLHttpRequest are violations, in a page, in a sc
     'assets/js/x.js:1 [fetch]',
     'assets/js/x.js:3 [xhr]', // prefetch( is not fetch(
     'css/theme.css:1 [fetch]',
-    `${HTML}:1 [fetch]`,
-    `${HTML}:2 [xhr]`,
   ]);
 });
 

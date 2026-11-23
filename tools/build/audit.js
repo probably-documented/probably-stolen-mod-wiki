@@ -24,7 +24,9 @@
 //         css-external-url — in CSS (a stylesheet, a <style> block, a
 //         style="" attribute), an outside address of @import, url() or
 //         image-set(): by scheme, or protocol-relative
-//         a fetch( call, the word XMLHttpRequest
+//         a fetch( call, the word XMLHttpRequest — not in a page (ruling AB
+//         c): there they can be nothing but text. In the .js files and the
+//         stylesheets they are still read as before
 //   A3  root-relative-url: a URL-bearing attribute (URL_ATTRIBUTES — <a href>
 //         included, and each candidate of srcset) holds an address that
 //         starts with /; css-root-relative: the same in CSS. Dead under
@@ -650,7 +652,7 @@ function scanScriptText(text, report) {
   scanCss(text, report, (offset) => offset, (index) => lineText(text, index), { literalsAreCss: true, dataUrls: false });
 }
 
-/** fetch( calls and XMLHttpRequest, wherever they are written. */
+/** fetch( calls and XMLHttpRequest — not looked for in a page (see auditExternalLinks). */
 function scanCalls(text, report) {
   for (const m of text.matchAll(/\bfetch\s*\(/g)) report(m.index, 'fetch', lineText(text, m.index));
   for (const m of text.matchAll(/XMLHttpRequest/g)) report(m.index, 'xhr', lineText(text, m.index));
@@ -686,7 +688,12 @@ async function auditExternalLinks(dir) {
     if (/\.html$/i.test(file)) scanHtml(text, report);
     else if (/\.css$/i.test(file)) scanCss(text, report, (offset) => offset, (index) => lineText(text, index));
     else scanScriptText(text, report);
-    scanCalls(text, report);
+    // fetch( and XMLHttpRequest are not looked for in a page (ruling AB c):
+    // there they can be nothing but text — A4 leaves no way to run a script —
+    // and reporting them failed the build on a sentence. The .js files are
+    // still read for them, and so is a stylesheet, as before: the ruling
+    // names pages only.
+    if (!/\.html$/i.test(file)) scanCalls(text, report);
     for (const { index, code, detail } of found.sort((a, b) => a.index - b.index)) {
       let line = 1;
       for (let k = index - 1; k >= 0; k -= 1) if (text.charCodeAt(k) === 10) line += 1;
