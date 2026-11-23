@@ -200,3 +200,34 @@ test('D3 — the hint is short, and no path is written into it: the only paths i
   assert.ok(lines[2].length <= 130, `short enough to read at a glance: ${lines[2].length} characters`);
   for (const word of ['删除', '恢复', '修正', '自动生成', '维护者']) assert.ok(lines[2].includes(word), `the hint still mentions ${word}`);
 });
+
+// D5 (task 6b): listSiteFiles' comment said "the skipped top-level trees",
+// its code skipped an entry named `admin` at EVERY depth. Only the top-level
+// admin/ of dist is the CMS shell; an `admin` deeper down is the site's own
+// file, and a broken link in it must not slip through.
+
+test('D5 — only the TOP-LEVEL admin/ is skipped: an `admin` deeper down is the site\'s own and takes part', async (t) => {
+  const dist = await tree(t, 'admin-nested', {
+    'index.html': null,
+    'items.html': null,
+    'mechanics/admin.html': '<a href="missing-in-mechanics.html">a page merely NAMED admin, deeper down</a>',
+    'item/admin/panel.html': '<a href="missing-in-nested-admin.html">inside a nested admin directory</a>',
+    'item/admin/ADMIN/DEEPER.html': '<a href="missing-deeper.html">at any depth</a>',
+    'css/admin/theme.css': 'a{background:url(missing-in-nested-admin.png)}',
+    // the shell itself, and everything under it, is still left out
+    'admin/index.html': '<a href="missing-in-shell.html">the shell</a>',
+    'admin/item/admin/panel.html': '<a href="missing.html">…all of it</a>',
+    'ADMIN/index.html': '<a href="missing-in-shell.html">ADMIN is admin at the top level too</a>',
+  });
+
+  const result = await findDanglingRefs(dist);
+
+  assert.deepEqual(result.dangling, [
+    { file: 'css/admin/theme.css', ref: 'css/admin/missing-in-nested-admin.png' },
+    { file: 'item/admin/ADMIN/DEEPER.html', ref: 'item/admin/ADMIN/missing-deeper.html' },
+    { file: 'item/admin/panel.html', ref: 'item/admin/missing-in-nested-admin.html' },
+    { file: 'mechanics/admin.html', ref: 'mechanics/missing-in-mechanics.html' },
+  ]);
+  assert.equal(result.scanned, 6,
+    'index.html, items.html, mechanics/admin.html, item/admin/panel.html, item/admin/ADMIN/DEEPER.html, css/admin/theme.css — nothing under the top-level admin/');
+});

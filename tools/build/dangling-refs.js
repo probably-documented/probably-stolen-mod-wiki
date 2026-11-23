@@ -26,7 +26,8 @@
 // host the site is deployed to).
 //
 // admin/ — the online-only CMS shell, injected after the checks — is not the
-// site's own content and never takes part.
+// site's own content and never takes part. That is the top-level admin/ of
+// dist and nothing else: an `admin` deeper down is the site's own (D5).
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -41,13 +42,26 @@ const NOT_A_SITE_FILE_RE = /^(?:[a-z][a-z0-9+.-]*:|\/|#)/i;
 
 const toPosix = (p) => p.split(path.sep).join('/');
 
-/** Every file under dir (absolute, sorted), without the skipped top-level trees. */
-async function listSiteFiles(dir) {
+/**
+ * Every file under dir (absolute, sorted) — except the CMS shell.
+ *
+ * What is left out is exactly the TOP-LEVEL entry of dir named `admin`
+ * (matched case-insensitively: on win32 `ADMIN/` is `admin/`), whole tree
+ * included: the online-only shell, copied in after the checks. An `admin`
+ * anywhere deeper down (`item/admin/`, `css/admin/`) is the site's own
+ * file like any other and takes part. (Task 6b D5: the code used to skip an
+ * `admin` at every depth, while this comment said "top-level" — a broken
+ * link under a nested `admin` went unnoticed.)
+ * @param {string} dir
+ * @param {boolean} [isRoot] false below the first level — internal
+ * @returns {Promise<string[]>}
+ */
+async function listSiteFiles(dir, isRoot = true) {
   const out = [];
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    if (entry.name.toLowerCase() === SKIPPED_TOP_LEVEL) continue;
+    if (isRoot && entry.name.toLowerCase() === SKIPPED_TOP_LEVEL) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await listSiteFiles(full)));
+    if (entry.isDirectory()) out.push(...(await listSiteFiles(full, false)));
     else out.push(full);
   }
   return out.sort();
