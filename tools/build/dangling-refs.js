@@ -127,6 +127,11 @@ async function findDanglingRefs(distDir) {
  * actionable hint as the last line. `sourceOf` maps a dist page to the file
  * a contributor edits to change its links (null = the build generates the
  * page); it is shown in brackets after the line.
+ *
+ * The hint names no path (task 6b D3): every path of the report is the one
+ * sourceOf put in the brackets. It used to spell a page-to-file mapping into
+ * itself, with `content/` written in — a path that could disagree with the
+ * contentDir the build was actually given.
  * @param {{ dangling: Array<{ file: string, ref: string }> }} result
  * @param {{ sourceOf?: (file: string) => string|null }} [options]
  * @returns {string}
@@ -139,12 +144,9 @@ function formatDanglingRefs({ dangling }, { sourceOf = () => null } = {}) {
   return [
     `[links] FAIL — ${dangling.length} 处链接指向不存在的文件:`,
     ...lines,
-    '提示:被链接的页面或资源可能已经被删除。想保留这条链接,请把对应的文件恢复到原处'
-    + '(mechanics/<名字>.html 对应内容文件 content/mechanics/<名字>.md,item/<物品ID>.html 对应 content/items/<物品ID>.md);'
-    + '不需要这条链接了,请打开上面括号里的文件,删掉或修正对应的链接。'
-    + '没有括号的页面由构建自动生成,样式表和资源文件来自仓库:'
-    + '它们断链说明被链接的页面或资源已被删除或缺失,恢复那个文件即可'
-    + '(括号里的文件不存在时也是如此:那条链接不是你写下的,请告诉站点维护者)。',
+    '提示:被链接的页面或资源可能已经被删除。想保留这条链接,请把被链接的文件恢复到原处;'
+    + '不需要了,请打开上面括号里的文件,删掉或修正对应的链接。'
+    + '没有括号的页面由构建自动生成,它的断链不是内容文件能改的,请联系站点维护者。',
   ].join('\n');
 }
 
