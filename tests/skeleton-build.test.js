@@ -1534,3 +1534,16 @@ test('ruling AB(d) — a javascript: address: the fix says that an attribute val
     assert.ok(!fixLine('external-url', detail).includes('javascript:'), `${detail}: that is another matter`);
   }
 });
+
+test('修复轮 2·文案 — a <script/> that closes itself (inside an <svg> it does) has no </script>: its fix does not send the contributor after one', () => {
+  // Since the audit reads a <script/> inside <svg> / <math> as an element (review-fix round 2), an empty one is reported
+  // like any <script> — with a snippet that is the whole tag: <script/>
+  const selfClosing = fixLine('script-inline', '<script/>');
+  assert.match(selfClosing, /^     怎么改:删掉这个 <script\/> 标签本身/, selfClosing);
+  assert.ok(!selfClosing.includes('删掉从 <script> 到'), 'it is not told to delete up to an end tag there is none of');
+  assert.match(selfClosing, /没有 <\/script>/, 'and it is told why: the tag closes itself');
+  assert.match(fixLine('script-inline', '<script src="x.js"/>'), /^     怎么改:删掉这个 <script\/> 标签本身/);
+  // …and one with an end tag is still told the whole span
+  assert.match(fixLine('script-inline', '<script>alert(1)</script>'), /^     怎么改:删掉从 <script> 到 <\/script> 的全部内容。/);
+  assert.match(fixLine('script-inline', '<script>alert(1)'), /^     怎么改:删掉从 <script> 到 <\/script> 的全部内容。/);
+});

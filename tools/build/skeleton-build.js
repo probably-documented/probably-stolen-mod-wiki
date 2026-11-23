@@ -374,7 +374,10 @@ const AUDIT_ADVICE = Object.freeze({
   },
   'script-inline': {
     problem: '有一段可以执行的 <script> 脚本。页面里不允许出现脚本:任何编辑者都能写入,会影响所有读者。',
-    fix: '删掉从 <script> 到 </script> 的全部内容。想展示一段代码,请把它写成普通文字(用反引号包起来)。',
+    // A <script/> that closes itself (inside an <svg> or <math> it does) has no </script>: the fix must not send the contributor after one
+    fix: (detail) => (/\/\s*>$/.test(detail ?? '')
+      ? '删掉这个 <script/> 标签本身(它自己闭合,后面没有 </script>)。想展示一段代码,请把它写成普通文字(用反引号包起来)。'
+      : '删掉从 <script> 到 </script> 的全部内容。想展示一段代码,请把它写成普通文字(用反引号包起来)。'),
   },
   'script-src': {
     problem: '引用了一个本站没有的脚本文件(<script src="…">)。页面里不允许引用清单之外的脚本。',
