@@ -20,7 +20,7 @@ const { promisify } = require('node:util');
 
 const {
   resolveBsdtar, BSDTAR, readVersion, zipName, MAX_ZIP_BYTES, assertUnderSizeLimit,
-  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
+  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, runBsdtar,
 } = require('../tools/pack.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -52,6 +52,18 @@ test('resolveBsdtar: one bsdtar command, the executable resolved per platform', 
   // Defaults follow the running process.
   assert.equal(resolveBsdtar(), BSDTAR);
   assert.equal(resolveBsdtar(process.platform, process.env), BSDTAR);
+});
+
+test('runBsdtar: a missing executable is an explicit, actionable error, not a raw ENOENT (task 5b E2)', async () => {
+  // Built as a string, never created — under a directory that does not exist.
+  const nowhere = path.join(os.tmpdir(), 'task5b-no-such-dir', 'bsdtar-nowhere');
+  await assert.rejects(runBsdtar(nowhere, ['--version']), (err) => {
+    assert.match(err.message, /^\[pack\] bsdtar not found: /);
+    assert.ok(err.message.includes(nowhere), `names the executable that was tried, got: ${err.message}`);
+    assert.match(err.message, /libarchive-tools/, '…and what to install');
+    assert.equal(err.cause?.code, 'ENOENT', 'the original error is kept as the cause');
+    return true;
+  });
 });
 
 // ---------- H — zip name from package.json ----------
@@ -294,20 +306,59 @@ test('packSite: a failed build aborts packing — no zip is written and a previo
   await assert.rejects(fs.access(path.join(root, 'dist')), 'dist was not even created');
 });
 
-test('packSite: a zip path inside dist is refused before the build — the previous dist is left alone', async (t) => {
+test('packSite: a zip path inside dist is refused before the build — the previous dist is left alone, exitCode 1', async (t) => {
   const root = await tmpDir(t, 'pack-guard');
   const distDir = path.join(root, 'dist');
   await fs.mkdir(distDir, { recursive: true });
   const sentinel = path.join(distDir, 'sentinel-from-previous-build.html');
   await fs.writeFile(sentinel, '<title>previous build</title>');
 
-  await assert.rejects(
-    packSite({ distDir, zipPath: path.join(distDir, 'offline-wiki-test.zip'), contentDir: null, adminDir: null, warn: noop }),
-    /outside dist/,
-    'the self-inclusion guard fires',
-  );
+  // E3: every packSite failure sets process.exitCode, like buildSkeleton's.
+  const { err, exitCode } = await capturingExitCode(() => packSite(
+    { distDir, zipPath: path.join(distDir, 'offline-wiki-test.zip'), contentDir: null, adminDir: null, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the self-inclusion guard to throw, got ${err}`);
+  assert.match(err.message, /outside dist/, 'the self-inclusion guard fires');
+  assert.equal(exitCode, 1, 'refusing is a failed pack, never a silent skip');
   assert.equal(await fs.readFile(sentinel, 'utf8'), '<title>previous build</title>', 'refused before the build touched dist');
   assert.deepEqual((await fs.readdir(distDir)).sort(), ['sentinel-from-previous-build.html'], 'dist otherwise untouched');
+});
+
+// ---------- Task 5b E2 + E3 — the missing-bsdtar branch, and a failed pack always exits 1 ----------
+
+test('packSite: no bsdtar → "[pack] bsdtar not found", exitCode 1, the previous zip untouched, no temp zip left', async (t) => {
+  const root = await tmpDir(t, 'pack-no-bsdtar');
+  const zipPath = path.join(root, 'offline-wiki-test.zip');
+  await fs.writeFile(zipPath, 'previous zip');
+  // The executable is injectable, so the branch is testable on a machine
+  // that HAS bsdtar — and this test does not depend on having it.
+  const executable = path.join(root, 'no-such-dir', 'bsdtar');
+  const distDir = path.join(root, 'dist');
+
+  const { err, exitCode } = await capturingExitCode(() =>
+    packSite({ distDir, zipPath, contentDir: null, adminDir: null, warn: noop, executable }));
+
+  assert.ok(err instanceof Error, `expected the missing bsdtar to fail the pack, got ${err}`);
+  assert.match(err.message, /^\[pack\] bsdtar not found: /);
+  assert.ok(err.message.includes(executable), `names the executable, got: ${err.message}`);
+  assert.equal(exitCode, 1, 'E3: a pack-stage failure sets process.exitCode, as buildSkeleton does');
+  assert.equal(await fs.readFile(zipPath, 'utf8'), 'previous zip', 'the previous zip was not replaced');
+  assert.deepEqual((await fs.readdir(root)).filter((n) => n.endsWith('.zip')), ['offline-wiki-test.zip'], 'no temp zip left behind');
+  await assert.doesNotReject(fs.access(path.join(distDir, 'index.html')), 'the build itself had succeeded — only the packing failed');
+});
+
+test('packSite: an unreadable package.json is a failed pack too — exitCode 1, nothing built or written', async (t) => {
+  const root = await tmpDir(t, 'pack-bad-package');
+  const packageJsonPath = path.join(root, 'package.json');
+  await fs.writeFile(packageJsonPath, '{ not json');
+
+  const { err, exitCode } = await capturingExitCode(() =>
+    packSite({ distDir: path.join(root, 'dist'), packageJsonPath, contentDir: null, adminDir: null, warn: noop }));
+
+  assert.ok(err instanceof SyntaxError, `expected the JSON error, got ${err}`);
+  assert.equal(exitCode, 1);
+  await assert.rejects(fs.access(path.join(root, 'dist')), 'no dist was built');
+  assert.deepEqual((await fs.readdir(root)).filter((n) => n.endsWith('.zip')), [], 'no zip was written');
 });
 
 // ---------- Task 5b D2 — retries ----------

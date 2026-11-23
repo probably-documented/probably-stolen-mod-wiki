@@ -133,14 +133,18 @@ function assertZipOutsideDist(distDir, zipPath) {
 
 /**
  * Run bsdtar; a missing executable becomes an explicit, actionable error.
+ * `executable` is a parameter (default BSDTAR at the call sites) so that the
+ * missing-executable branch is testable on a machine that has bsdtar.
+ * @param {string} executable
+ * @param {string[]} args
  * @returns {Promise<{stdout: string, stderr: string}>}
  */
-async function runBsdtar(args) {
+async function runBsdtar(executable, args) {
   try {
-    return await execFileP(BSDTAR, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+    return await execFileP(executable, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true });
   } catch (err) {
     if (err.code === 'ENOENT') {
-      throw new Error(`[pack] bsdtar not found: ${BSDTAR} (install libarchive-tools on Debian/Ubuntu)`, { cause: err });
+      throw new Error(`[pack] bsdtar not found: ${executable} (install libarchive-tools on Debian/Ubuntu)`, { cause: err });
     }
     throw err;
   }
@@ -159,8 +163,11 @@ async function runBsdtar(args) {
  *   - zipPath must live OUTSIDE distDir (assertZipOutsideDist)
  *   - at least one entry must remain; with no operands some bsdtar builds fall
  *     back to archiving the whole -C directory, admin/ included
+ * @param {string} distDir
+ * @param {string} zipPath
+ * @param {{executable?: string}} [options] the bsdtar to run (default: the platform's)
  */
-async function createZip(distDir, zipPath) {
+async function createZip(distDir, zipPath, { executable = BSDTAR } = {}) {
   const dist = path.resolve(distDir);
   const zip = path.resolve(zipPath);
   assertZipOutsideDist(dist, zip);
@@ -178,17 +185,19 @@ async function createZip(distDir, zipPath) {
     throw new Error(`[pack] nothing to pack: ${dist} holds no entries besides ${EXCLUDED_TOP_LEVEL}/`);
   }
   // `--` ends the options: an entry name may never be read as a flag.
-  await runBsdtar(['-a', '-c', '-f', zip, '-C', dist, '--', ...entries]);
+  await runBsdtar(executable, ['-a', '-c', '-f', zip, '-C', dist, '--', ...entries]);
 }
 
 /**
  * Entries of an archive as bsdtar lists them, normalized: `./` prefixes
  * dropped, posix separators, blank lines removed. Directory entries keep
  * their trailing `/`.
+ * @param {string} zipPath
+ * @param {{executable?: string}} [options] the bsdtar to run (default: the platform's)
  * @returns {Promise<string[]>}
  */
-async function listZipEntries(zipPath) {
-  const { stdout } = await runBsdtar(['-tf', path.resolve(zipPath)]);
+async function listZipEntries(zipPath, { executable = BSDTAR } = {}) {
+  const { stdout } = await runBsdtar(executable, ['-tf', path.resolve(zipPath)]);
   return stdout
     .split(/\r?\n/)
     .map((entry) => entry.replace(/^\.\//, '').replace(/\\/g, '/'))
@@ -275,18 +284,31 @@ const DEFAULT_PACKAGE_JSON = path.join(ROOT, 'package.json');
  *
  * @param {{distDir?: string, zipPath?: string, packageJsonPath?: string,
  *   contentDir?: string|null, assetsDir?: string, adminDir?: string|null,
- *   warn?: (message: string) => void}} [options]
+ *   warn?: (message: string) => void, executable?: string}} [options]
  *   zipPath defaults to `<dir of package.json>/offline-wiki-<version>.zip`,
  *   i.e. the repo root — outside dist. The other options go to buildSkeleton
- *   unchanged (assetsDir undefined = the repo's assets-src).
+ *   unchanged (assetsDir undefined = the repo's assets-src). executable is
+ *   the bsdtar to run (default: the platform's).
  * @returns {Promise<{zipPath: string, size: number, entries: string[],
  *   build: {pages: number, iconsDropped: number, assetsCopied: number,
  *   adminInjected: boolean}}>}
- * @throws {Error} on a failed build, a zip path inside dist, a leaked admin/
- *   entry, or a zip that is not under 100 MB; process.exitCode is 1 when the
- *   cause is a failed build.
+ * @throws {Error} on a failed build, a zip path inside dist, a missing
+ *   bsdtar, a leaked admin/ entry, or a zip that is not under 100 MB;
+ *   process.exitCode is 1 on EVERY failure (task 5b E3 — it used to be set
+ *   only when the cause was a failed build), then the error is rethrown.
  */
-async function packSite({
+async function packSite(options) {
+  try {
+    return await pack(options);
+  } catch (err) {
+    // Same discipline as buildSkeleton: a pack that did not produce its
+    // zip is a failed command and must not exit 0.
+    process.exitCode = 1;
+    throw err;
+  }
+}
+
+async function pack({
   distDir = 'dist',
   zipPath,
   packageJsonPath = DEFAULT_PACKAGE_JSON,
@@ -294,6 +316,7 @@ async function packSite({
   assetsDir,
   adminDir = 'admin',
   warn = console.warn,
+  executable = BSDTAR,
 } = {}) {
   const version = readVersion(await fs.readFile(packageJsonPath, 'utf8'));
   const zip = path.resolve(zipPath ?? path.join(path.dirname(path.resolve(packageJsonPath)), zipName(version)));
@@ -306,8 +329,8 @@ async function packSite({
   // 2. Pack to a temporary name, verify, then put it under the final name.
   const tmpZip = `${zip}.tmp.zip`;
   try {
-    await createZip(distDir, tmpZip);
-    const entries = await listZipEntries(tmpZip);
+    await createZip(distDir, tmpZip, { executable });
+    const entries = await listZipEntries(tmpZip, { executable });
     const leaked = leakedAdminEntries(entries);
     if (leaked.length > 0) {
       throw new Error(`[pack] FAIL — the offline zip carries admin/ (${leaked.length} entr${leaked.length === 1 ? 'y' : 'ies'}, e.g. ${leaked[0]})`);
@@ -345,5 +368,5 @@ if (require.main === module) {
 
 module.exports = {
   BSDTAR, MAX_ZIP_BYTES, resolveBsdtar, readVersion, zipName, assertUnderSizeLimit,
-  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
+  runBsdtar, createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
 };
