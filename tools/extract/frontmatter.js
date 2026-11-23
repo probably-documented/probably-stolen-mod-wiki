@@ -62,7 +62,9 @@ function parseFlowList(raw) {
 
 const KV_LINE_RE = /^([A-Za-z][\w-]*)\s*:\s?(.*)$/;
 const LIST_ITEM_RE = /^\s+-\s*(.*)$/;
-const KVISH_RE = /^[A-Za-z][\w-]*\s*:/; // `- key: value` 对象项形态(超集,不实现)
+// 真对象项形态:`key:` 后须空格或行尾(YAML mapping)。冒号后紧跟非空
+// (如 http://x、draft:AI)是 plain scalar,不得误判为对象项而静默丢弃。
+const KVISH_RE = /^[A-Za-z][\w-]*\s*:(\s|$)/;
 
 /**
  * frontmatter 行 → data(kv 之外的行跳过,空行不可能是 kv)。

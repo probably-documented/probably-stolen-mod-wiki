@@ -96,6 +96,22 @@ test('超集:列表对象项(- key: value 续行)不解析成对象,不抛错', 
   assert.ok(ok, '对象列表项不得被解析成对象');
 });
 
+test('含冒号的裸标量项是 YAML plain scalar,保留在列表(fix: KVISH 误判)', () => {
+  // 冒号后无空格(http://x、draft:AI)是 plain scalar,属"标量列表"子集,
+  // 不得误判为对象项而静默丢弃(丢弃时值退化为 '',构建不红、数据丢失)
+  const { fm } = splitFrontmatter(
+    '---\nlinks:\n  - http://example.com\n  - draft:AI\n---\nb');
+  assert.deepEqual(fm.links, ['http://example.com', 'draft:AI']);
+});
+
+test('真对象项仍跳过:KVISH 收紧为冒号后须空格或行尾', () => {
+  const { fm } = splitFrontmatter(
+    '---\nmixed:\n  - type: use\n  - http://x\n  - key:\n---\nb');
+  // `- type: use`(冒号后空格)与 `- key:`(冒号后行尾)是真对象项形态 → 跳过;
+  // `- http://x` 是 plain scalar → 保留
+  assert.deepEqual(fm.mixed, ['http://x']);
+});
+
 test('超集:多级嵌套行按现有跳过行为处理,不抛错', () => {
   const { fm } = splitFrontmatter(
     '---\nouter:\n  - a\n    nested: v\n---\nb');
