@@ -208,6 +208,50 @@ function leakedAdminEntries(entries) {
 }
 
 // ---------------------------------------------------------------------------
+// Retries (task 5b D2, ruling P)
+// ---------------------------------------------------------------------------
+
+/**
+ * fs.rm's own retry options (3 tries, 100 ms, linear backoff), as the tests'
+ * cleanup already uses them: on Windows an operation on a file that was just
+ * written can answer EBUSY/EPERM/ENOTEMPTY while a handle is still being
+ * released.
+ */
+const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
+
+/** The error codes Node's fs.rm retries — the same set, for the rename below. */
+const RETRYABLE_RENAME_ERRORS = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']);
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * fs.rename with fs.rm's retry policy. fs.rename takes no maxRetries /
+ * retryDelay of its own (it is not a recursive removal), and the one rename
+ * in packSite — the verified temporary zip moved onto the delivered name,
+ * replacing the previous zip — is exactly the kind of operation that meets a
+ * handle another process still holds on Windows. So the policy is applied
+ * by hand: the error codes fs.rm retries, a linear backoff of
+ * retryDelay × attempt, at most maxRetries extra attempts, then the error is
+ * thrown as it was.
+ * @param {string} from
+ * @param {string} to
+ * @param {{maxRetries?: number, retryDelay?: number,
+ *   rename?: (from: string, to: string) => Promise<void>,
+ *   pause?: (ms: number) => Promise<void>}} [options] rename and pause are
+ *   injectable for the tests; production uses fs.rename and a real timer.
+ */
+async function renameWithRetries(from, to, { maxRetries = RETRY.maxRetries, retryDelay = RETRY.retryDelay, rename = fs.rename, pause = sleep } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await rename(from, to);
+    } catch (err) {
+      if (!RETRYABLE_RENAME_ERRORS.has(err?.code) || attempt >= maxRetries) throw err;
+      await pause((attempt + 1) * retryDelay);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Entry
 // ---------------------------------------------------------------------------
 
@@ -225,7 +269,9 @@ const DEFAULT_PACKAGE_JSON = path.join(ROOT, 'package.json');
  * (it has to end in `.zip`: bsdtar -a picks the format from the extension),
  * read back, and only then renamed into place. So nothing is ever delivered
  * under the final name unless it passed: no admin/ entry, under 100 MB. The
- * temporary file is removed whatever happens.
+ * temporary file is removed whatever happens. Both the removal and the
+ * rename retry on the transient errors Windows answers while a handle is
+ * still held (task 5b D2).
  *
  * @param {{distDir?: string, zipPath?: string, packageJsonPath?: string,
  *   contentDir?: string|null, assetsDir?: string, adminDir?: string|null,
@@ -268,10 +314,14 @@ async function packSite({
     }
     const size = (await fs.stat(tmpZip)).size;
     assertUnderSizeLimit(size);
-    await fs.rename(tmpZip, zip);
+    await renameWithRetries(tmpZip, zip);
     return { zipPath: zip, size, entries, build };
   } finally {
-    await fs.rm(tmpZip, { force: true });
+    // recursive: true is what switches Node's retries on for a single file
+    // too (maxRetries is ignored without it) — Windows may still hold a
+    // handle on the freshly written zip (EBUSY/EPERM), as in the tests'
+    // own cleanup.
+    await fs.rm(tmpZip, { force: true, recursive: true, ...RETRY });
   }
 }
 
@@ -295,5 +345,5 @@ if (require.main === module) {
 
 module.exports = {
   BSDTAR, MAX_ZIP_BYTES, resolveBsdtar, readVersion, zipName, assertUnderSizeLimit,
-  createZip, listZipEntries, leakedAdminEntries, packSite,
+  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
 };

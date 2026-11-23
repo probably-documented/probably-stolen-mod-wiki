@@ -20,7 +20,7 @@ const { promisify } = require('node:util');
 
 const {
   resolveBsdtar, BSDTAR, readVersion, zipName, MAX_ZIP_BYTES, assertUnderSizeLimit,
-  createZip, listZipEntries, leakedAdminEntries, packSite,
+  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
 } = require('../tools/pack.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -289,4 +289,93 @@ test('packSite: a zip path inside dist is refused before the build — the previ
   );
   assert.equal(await fs.readFile(sentinel, 'utf8'), '<title>previous build</title>', 'refused before the build touched dist');
   assert.deepEqual((await fs.readdir(distDir)).sort(), ['sentinel-from-previous-build.html'], 'dist otherwise untouched');
+});
+
+// ---------- Task 5b D2 — retries ----------
+//
+// Windows answers EBUSY/EPERM/ENOTEMPTY to a file operation while another
+// process (or a just-exited one) still holds a handle — the tests' own
+// cleanup ran into it (task 5 report). Those transient failures cannot be
+// produced deterministically, let alone portably, so what is pinned here is
+// the policy: the options the build hands to fs.rm, and the retry loop
+// around the one rename.
+
+/** A rename that fails the first `failures` calls with `code`, then works. Counts its calls. */
+function flakyRename(failures, code) {
+  let left = failures;
+  const calls = [];
+  return {
+    calls,
+    rename: async (from, to) => {
+      calls.push([from, to]);
+      if (left > 0) {
+        left -= 1;
+        throw Object.assign(new Error(`${code}: busy`), { code });
+      }
+    },
+  };
+}
+
+test('renameWithRetries: EBUSY/EPERM/ENOTEMPTY… are retried with a linear backoff (fs.rm\'s policy); other codes, or too many, are thrown as is', async () => {
+  const pauses = [];
+  const pause = async (ms) => { pauses.push(ms); };
+
+  for (const code of ['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']) {
+    pauses.length = 0;
+    const flaky = flakyRename(2, code);
+    await renameWithRetries('tmp.zip', 'final.zip', { rename: flaky.rename, pause });
+    assert.deepEqual(flaky.calls, [['tmp.zip', 'final.zip'], ['tmp.zip', 'final.zip'], ['tmp.zip', 'final.zip']], `${code}: recovers on the 3rd attempt`);
+    assert.deepEqual(pauses, [100, 200], `${code}: retryDelay × attempt, like fs.rm`);
+  }
+
+  pauses.length = 0;
+  const hopeless = flakyRename(99, 'EBUSY');
+  await assert.rejects(renameWithRetries('a', 'b', { rename: hopeless.rename, pause }), { code: 'EBUSY' });
+  assert.equal(hopeless.calls.length, 4, 'maxRetries 3 → at most 4 attempts');
+  assert.deepEqual(pauses, [100, 200, 300]);
+
+  pauses.length = 0;
+  const gone = flakyRename(99, 'ENOENT');
+  await assert.rejects(renameWithRetries('a', 'b', { rename: gone.rename, pause }), { code: 'ENOENT' });
+  assert.equal(gone.calls.length, 1, 'an error fs.rm would not retry either is not retried');
+  assert.deepEqual(pauses, [], '…and costs no waiting');
+});
+
+test('renameWithRetries: underneath it is fs.rename — a real file moves, once, with nothing to retry', async (t) => {
+  const root = await tmpDir(t, 'rename-real');
+  const from = path.join(root, 'from.txt');
+  const to = path.join(root, 'to.txt');
+  await fs.writeFile(from, 'x');
+  let attempts = 0;
+  const realRename = fs.rename;
+  fs.rename = async (a, b) => { attempts += 1; return realRename(a, b); };
+  t.after(() => { fs.rename = realRename; });
+
+  await renameWithRetries(from, to, { pause: async () => { assert.fail('a working rename never waits'); } });
+
+  assert.equal(attempts, 1);
+  assert.equal(await fs.readFile(to, 'utf8'), 'x');
+  await assert.rejects(fs.access(from));
+});
+
+test('packSite: the temporary zip is renamed onto the final name through the retrying rename, and cleaned up with fs.rm retries', { skip: !hasBsdtar }, async (t) => {
+  const root = await tmpDir(t, 'pack-retries');
+  const distDir = path.join(root, 'dist');
+  const zipPath = path.join(root, 'offline-wiki-test.zip');
+  const tmpZip = `${zipPath}.tmp.zip`;
+  // fs/promises is one module object: record what packSite hands to it.
+  const seen = { rm: [], rename: [] };
+  const real = { rm: fs.rm, rename: fs.rename };
+  fs.rm = async (p, opts) => { seen.rm.push({ p: path.resolve(p), opts }); return real.rm(p, opts); };
+  fs.rename = async (a, b) => { seen.rename.push([path.resolve(a), path.resolve(b)]); return real.rename(a, b); };
+  t.after(() => { fs.rm = real.rm; fs.rename = real.rename; });
+
+  await packSite({ distDir, zipPath, contentDir: null, adminDir: null, warn: noop });
+
+  assert.deepEqual(seen.rename, [[tmpZip, zipPath]], 'exactly one rename: the verified temp zip → the final name');
+  const rmOfTmp = seen.rm.find((call) => call.p === path.resolve(tmpZip));
+  assert.ok(rmOfTmp !== undefined, 'fs.rm was called for the temp zip (the finally cleanup)');
+  assert.ok(Number.isInteger(rmOfTmp.opts.maxRetries) && rmOfTmp.opts.maxRetries >= 1, `maxRetries, got ${JSON.stringify(rmOfTmp.opts)}`);
+  assert.ok(Number.isInteger(rmOfTmp.opts.retryDelay) && rmOfTmp.opts.retryDelay > 0, `retryDelay, got ${JSON.stringify(rmOfTmp.opts)}`);
+  await assert.rejects(fs.access(tmpZip), 'no temp zip left behind');
 });

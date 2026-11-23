@@ -349,7 +349,10 @@ async function buildSkeleton({
     const rendered = await renderSite(data, { contentDir });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
-    await fs.rm(distPath, { recursive: true, force: true });
+    //    Retries: on Windows the rm of a directory that was just written
+    //    can answer ENOTEMPTY/EBUSY while handles are still being released
+    //    (seen in the tests' own cleanup) — the same retry policy as there.
+    await fs.rm(distPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 
     // 4. Write pages (posix rel paths from renderSite → platform paths).
     for (const [rel, content] of rendered) {

@@ -745,6 +745,31 @@ test('buildSkeleton refuses a distDir that is the repo root or one of its ancest
   assert.deepEqual((await fs.readdir(copyRoot)).sort(), parentBefore, 'nothing inside its parent was removed');
 });
 
+test('buildSkeleton removes the old dist with fs.rm retries (maxRetries / retryDelay), like the tests\' own cleanup', async (t) => {
+  const distDir = await tmpDir(t, 'rm-retries');
+  await fs.writeFile(path.join(distDir, 'stale.html'), '<title>stale</title>');
+  // fs/promises is one module object: recording what the build hands to
+  // fs.rm is the observable part of "it asks for retries". The transient
+  // Windows failures themselves (ENOTEMPTY/EBUSY while a handle is still
+  // open) cannot be produced deterministically, let alone portably.
+  const seen = [];
+  const realRm = fs.rm;
+  fs.rm = async (p, opts) => { seen.push({ p: path.resolve(p), opts }); return realRm(p, opts); };
+  t.after(() => { fs.rm = realRm; });
+
+  await build({ distDir, contentDir: null, warn: noop });
+
+  const rmOfDist = seen.find((call) => call.p === path.resolve(distDir));
+  assert.ok(rmOfDist !== undefined, 'fs.rm was called for dist');
+  assert.equal(rmOfDist.opts.recursive, true);
+  assert.equal(rmOfDist.opts.force, true);
+  assert.ok(Number.isInteger(rmOfDist.opts.maxRetries) && rmOfDist.opts.maxRetries >= 1,
+    `maxRetries is set, got ${JSON.stringify(rmOfDist.opts)}`);
+  assert.ok(Number.isInteger(rmOfDist.opts.retryDelay) && rmOfDist.opts.retryDelay > 0,
+    `retryDelay is set, got ${JSON.stringify(rmOfDist.opts)}`);
+  await assert.rejects(fs.access(path.join(distDir, 'stale.html')), '…and the rm still does its job');
+});
+
 // ---------------------------------------------------------------------------
 // Task 5 F — the previous dist survives every failure that can be spotted up
 // front, and copyAssets names the real cause of a failure.
