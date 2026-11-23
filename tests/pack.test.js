@@ -110,6 +110,17 @@ async function makeDist(root) {
 
 const FILES_OF_DIST = ['css/theme.css', 'data.js', 'index.html', 'item/wondrous_milk.html'];
 
+/**
+ * The entries as bsdtar itself lists them — NOT normalized: a `./` prefix,
+ * a backslash, a `dist/` prefix all survive here. listZipEntries normalizes
+ * (`./` dropped, backslashes → /), so a "clean path" assertion on its result
+ * says nothing about the archive (task 5b E1).
+ */
+async function rawZipEntries(zipPath) {
+  const { stdout } = await execFileP(BSDTAR, ['-tf', path.resolve(zipPath)]);
+  return stdout.split(/\r?\n/).filter((line) => line !== '');
+}
+
 /** Every file under dir (posix paths), for before/after comparisons. */
 async function listFiles(dir) {
   const out = [];
@@ -163,10 +174,14 @@ test('createZip: every file of dist except admin/, under clean relative paths', 
   const entries = await listZipEntries(zipPath);
   assert.deepEqual(entries.filter((e) => !e.endsWith('/')).sort(), FILES_OF_DIST, 'files: all of dist minus admin/');
   assert.ok(!entries.some((e) => e === 'admin' || e.startsWith('admin/')), `no admin/ entry, got ${JSON.stringify(entries)}`);
-  for (const entry of entries) {
-    assert.ok(!entry.startsWith('./') && !entry.startsWith('/') && !entry.startsWith('../'), `relative path without ./ prefix, got ${JSON.stringify(entry)}`);
-    assert.ok(!entry.includes('\\') && !entry.startsWith('dist/'), `posix path without the dist/ prefix, got ${JSON.stringify(entry)}`);
-  }
+  // Task 5b E1: the "clean relative paths" claim is about what bsdtar WROTE,
+  // so it is asserted on its raw listing. listZipEntries normalizes (`./`
+  // dropped, backslashes → /), and the same assertions on its result were
+  // always true: a zip built with `-C dist . --exclude admin` passed them.
+  const raw = await rawZipEntries(zipPath);
+  assert.deepEqual(raw.filter((e) => !e.endsWith('/')).sort(), FILES_OF_DIST,
+    `as written by bsdtar: the files under clean relative paths, got ${JSON.stringify(raw)}`);
+  assert.deepEqual(raw.filter((e) => e.endsWith('/')).sort(), ['css/', 'item/'], `directory entries are relative and unprefixed too, got ${JSON.stringify(raw)}`);
   assert.ok((await fs.stat(zipPath)).size > 0, 'the archive is non-empty');
 });
 
@@ -231,8 +246,12 @@ test('packSite: a fresh build + one zip that holds exactly dist minus admin/ and
   assert.ok(expected.includes('index.html') && expected.includes('css/theme.css'), 'sanity: the built site is in dist');
   assert.deepEqual(result.entries.filter((e) => !e.endsWith('/')).sort(), expected, 'zip files === dist files minus admin/');
   assert.deepEqual(leakedAdminEntries(result.entries), [], 'no admin/ entry of any kind');
-  for (const entry of result.entries) {
-    assert.ok(!entry.startsWith('./') && !entry.startsWith('/') && !entry.includes('\\'), `clean relative path, got ${JSON.stringify(entry)}`);
+  // E1: clean relative paths as WRITTEN (listZipEntries would normalize them)
+  const raw = await rawZipEntries(zipPath);
+  assert.deepEqual(raw.filter((e) => !e.endsWith('/')).sort(), expected, `raw listing: the files, unprefixed, got ${JSON.stringify(raw.slice(0, 5))}…`);
+  for (const entry of raw) {
+    assert.ok(entry !== '.' && !entry.startsWith('./') && !entry.startsWith('/') && !entry.startsWith('../') && !entry.includes('\\'),
+      `relative posix path without ./ prefix, got ${JSON.stringify(entry)}`);
   }
   // placed: outside dist, no zip (and no temp file) inside it
   assert.equal(result.zipPath, zipPath);
