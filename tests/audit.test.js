@@ -1596,6 +1596,13 @@ test('review round 2, found while parsing exactly — image() takes its address 
 // <svg> is needed for that: it is plain HTML, and it was there from the
 // first. An end tag is now read to where it ends.
 //
+// It found the CSS of a <style> read short too. The audit took a <style>
+// in foreign reading for an element whose content runs to the first
+// </style>. In foreign content a </style> inside a comment, a CDATA
+// section, a processing instruction or a tag is no token, and the first one
+// that IS a token may close a <style> nested inside; the browser applies the
+// text nodes that are the element's own children up to where the element
+// really ends. The CSS is now read to there.
 //
 // Each attack string is a test of its own, each on a page of its own.
 // Every line was tried in Chrome 152 (task-6b report, round 3).
@@ -1669,7 +1676,16 @@ const ROUND3 = [
   // a token may close a <style> nested inside. The browser applies the text
   // nodes that are the style element's own children, up to where the element
   // really ends — each of these was fetched in Chrome 152 (task-6b report).
+  ['b06', 'control — the CSS of an SVG <style> inside a CDATA section: read before', '<svg><style><![CDATA[ @import url(https://evil.example/b06.css); ]]></style></svg>', ['css-external-url']],
+  ['b02', 'found while reading — the CSS of an SVG <style> after a nested <style>: the first </style> closes the nested one', '<svg><style><style></style>@import url(https://evil.example/b02.css);</style></svg>', ['css-external-url']],
+  ['b03', 'found while reading — the CSS of an SVG <style> after a comment holding </style>', '<svg><style><!-- </style> -->@import url(https://evil.example/b03.css);</style></svg>', ['css-external-url']],
+  ['b04', 'found while reading — the CSS of an SVG <style> after a tag whose quoted value holds </style>', '<svg><style><g title="</style>"></g>@import url(https://evil.example/b04.css);</style></svg>', ['css-external-url']],
+  ['b05', 'found while reading — the CSS of an SVG <style> after a processing instruction holding </style>', '<svg><style><?pi </style> ?>junk{} rect{fill:url(https://evil.example/b05.png)}</style><rect width="8" height="8"/></svg>', ['css-external-url']],
+  ['b07', 'found while reading — the CSS of an SVG <style> after a CDATA section holding </style>', '<svg><style><![CDATA[ </style> ]]>junk{} rect{fill:url(https://evil.example/b07.png)}</style><rect width="8" height="8"/></svg>', ['css-external-url']],
+  ['b09', 'found while reading — the CSS of an SVG <style> after two nested <style>', '<svg><style><style><style></style></style>@import url(https://evil.example/b09.css);</style></svg>', ['css-external-url']],
   // --- what reading on costs: where the browser applies none of what the audit reads
+  ['b11', 'the price of reading on — an HTML integration point inside an SVG <style>: the audit gives the element up and reads on to the end of the page; the browser closed the style at the </style> before it', '<svg><style><desc></style>@import url(https://evil.example/b11.css);</style>', ['css-external-url']],
+  ['b12', 'the price of reading on — </style> inside a tag that stays open: what follows is that element\'s text, which the browser applies nowhere — read all the same', '<svg><style><g title="</style>">@import url(https://evil.example/b12.css);</style></svg>', ['css-external-url']],
   // --- a legitimate inline SVG is not reported — and what the page after it
   // costs an author who writes an inline script (a violation in its own right)
   ['s01', 'control — a legitimate inline SVG, a <style> after it, a link and a script of the allow-list: nothing to report', `${R3_ICON}<p>Text <a href="https://example.com/">a link</a>.</p><script src="assets/js/search.js"></script>`, []],
@@ -1684,3 +1700,33 @@ for (const [id, what, html, codes] of ROUND3) {
   });
 }
 
+// Guards for the time the audit takes, in the reading above (ruling AC 3 of round 2 is the
+// rule: linear reading takes milliseconds on these files; the square took seconds, or the
+// memory of the process). What is asserted is an upper bound with room.
+test('review round 3 — the CSS of <style>s inside one another is read once: 200 <style>, each inside the one before, then 500 rules with an outside address — 500 reports, in a few milliseconds', async (t) => {
+  const html = `<svg>${'<style>'.repeat(200)}${Array.from({ length: 500 }, (_, i) => `c${i}{background:url("https://evil.example/${i}.png")}`).join('')}`;
+  const started = performance.now();
+  const violations = await auditOf(t, { [R3]: html });
+  const ms = performance.now() - started;
+  assert.equal(violations.length, 500, 'each address once — not once per <style> it is inside');
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — without the guard each <style> read the whole of the text again`);
+});
+
+test('review round 3 — time grows with the size, not with its square: 30 000 <style>, none ever closed, after an <svg>', async (t) => {
+  const html = `<svg>${'<style>'.repeat(30000)}`;
+  const started = performance.now();
+  const violations = await auditOf(t, { [R3]: html });
+  const ms = performance.now() - started;
+  assert.deepEqual(violations, []);
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to look to the end of the text once per <style>`);
+});
+
+test('review round 3 — and not with the number of comments either: one <style>, 10 000 comments each holding a rule, then one rule — 10 001 reports', async (t) => {
+  const rule = 'x{background:url("https://evil.example/a.png")}';
+  const html = `<svg><style>${`<!-- ${rule} -->`.repeat(10000)}${rule}`;
+  const started = performance.now();
+  const violations = await auditOf(t, { [R3]: html });
+  const ms = performance.now() - started;
+  assert.equal(violations.length, 10001, 'what a comment holds is read as CSS too — more than the browser applies, never less');
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — a search for the end of each comment used to run on to the end of the text`);
+});

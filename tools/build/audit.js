@@ -829,6 +829,127 @@ function checkTag(text, start, tag, report) {
 }
 
 /**
+ * The elements under which a browser reads what follows with the HTML rules:
+ * SVG foreignObject, desc and title; MathML annotation-xml, and its text
+ * integration points mi, mo, mn, ms, mtext. Inside one of them an HTML
+ * element can be open when a </style> comes — and then the browser does not
+ * pop the style (see foreignStyleEnd).
+ */
+const HTML_INTEGRATION_POINTS = new Set(['foreignobject', 'desc', 'title', 'annotation-xml', 'mi', 'mo', 'mn', 'ms', 'mtext']);
+
+/**
+ * Where the comment that begins with the `<!--` at `lt` ends — the position
+ * after it. `<!-->` and `<!--->` close at once; any other at the first `-->`
+ * or `--!>`; or at the end of the text. Comments do not nest. One search for
+ * both ends: a search for each of them ran on to the end of the text
+ * whenever the other did not come — once per comment.
+ */
+const COMMENT_END_RE = /--!?>/y;
+function commentEnd(text, lt) {
+  if (text[lt + 4] === '>') return lt + 5;
+  if (text[lt + 4] === '-' && text[lt + 5] === '>') return lt + 6;
+  const end = matchAt(COMMENT_END_RE, text, lt + 4);
+  return end === null ? text.length : lt + 4 + end[0].length;
+}
+
+/**
+ * Where the DOCTYPE that begins with `<!DOCTYPE`, whose name starts at
+ * `from`, ends — the position after the `>` that closes it, also when a
+ * quoted identifier holds one. Only PUBLIC and SYSTEM are followed by a
+ * quoted identifier (PUBLIC by up to two); anything else ends the DOCTYPE
+ * at its first `>`, as a browser's tokenizer does.
+ */
+function doctypeEnd(text, from) {
+  let i = from;
+  const blanks = () => { while (i < text.length && HTML_SPACE_RE.test(text[i])) i += 1; };
+  blanks();
+  while (i < text.length && !HTML_SPACE_RE.test(text[i]) && text[i] !== '>') i += 1; // the name
+  blanks();
+  const keyword = text.slice(i, i + 6).toLowerCase();
+  let identifiers = keyword === 'public' ? 2 : keyword === 'system' ? 1 : 0;
+  i += 6;
+  while (identifiers > 0) {
+    identifiers -= 1;
+    blanks();
+    const quote = text[i];
+    if (quote !== '"' && quote !== "'") break;
+    const close = text.indexOf(quote, i + 1);
+    if (close < 0) return text.length;
+    i = close + 1;
+  }
+  const gt = text.indexOf('>', i);
+  return gt < 0 ? text.length : gt + 1;
+}
+
+/**
+ * Where a construct that begins with `<!` at `lt` ends — the position after
+ * a comment, a CDATA section (`]]>`), a DOCTYPE, or any other `<!…`, which a
+ * browser ends at its first `>`, as it does a processing instruction. Used
+ * only where the audit must not mistake what is INSIDE one of them for a tag
+ * (foreignStyleEnd); a page itself is read straight through them — see the
+ * head of this file: where a comment ends has enough edges that an audit
+ * which trusted them could be talked out of seeing a script.
+ */
+function declarationEnd(text, lt) {
+  if (text.startsWith('<!--', lt)) return commentEnd(text, lt);
+  const head = text.slice(lt, lt + 9).toUpperCase();
+  if (head === '<![CDATA[') { const end = text.indexOf(']]>', lt + 9); return end < 0 ? text.length : end + 3; }
+  if (head === '<!DOCTYPE') return doctypeEnd(text, lt + 9);
+  const gt = text.indexOf('>', lt + 2);
+  return gt < 0 ? text.length : gt + 1;
+}
+
+/**
+ * Where the <style> whose start tag ends at `from` ends in the reading that
+ * makes it an SVG or MathML style element: the position after the </style>
+ * that closes it, or the end of the text.
+ *
+ * The audit cannot tell that reading from the one in which the browser left
+ * the foreign content before the <style> and reads it as an HTML <style>,
+ * whose content runs to the first `</style` wherever that stands. So the CSS
+ * is read to where the element ends in EITHER reading, whichever is later.
+ * In foreign content a `</style` inside a comment, a CDATA section, a
+ * processing instruction or a tag is no token; the first `</style>` that is
+ * a token closes a <style> nested inside; and the element may never be
+ * closed. Everything up to there is read as CSS — more than the browser
+ * applies, the text nodes that are the element's own children; never less.
+ * The audit used to stop at the first `</style`, and an @import after a
+ * comment inside an SVG <style> was fetched unreported (review round 3).
+ *
+ * Two things it does not follow, and gives the element up on instead — its
+ * CSS is read to the end of the text: an HTML integration point inside the
+ * <style> (an HTML element can be open above it when the </style> comes, and
+ * the browser does not pop the style then), and a `</html>` (a browser opens
+ * new html and body elements above whatever was open). Both read MORE.
+ */
+function foreignStyleEnd(text, from) {
+  let depth = 1;
+  let i = from;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt < 0) break;
+    const next = text[lt + 1];
+    if (next === '!') { i = declarationEnd(text, lt); continue; }
+    if (next === '?') { const gt = text.indexOf('>', lt + 2); i = gt < 0 ? text.length : gt + 1; continue; }
+    if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; }
+    const endTag = next === '/';
+    const tag = parseStartTag(text, endTag ? lt + 1 : lt);
+    i = tag.end;
+    if (tag.name === 'style') {
+      if (endTag) {
+        depth -= 1;
+        if (depth === 0) return i;
+      } else if (!tag.selfClosing) {
+        depth += 1;
+      }
+    } else if (endTag ? tag.name === 'html' : HTML_INTEGRATION_POINTS.has(tag.name) && !tag.selfClosing) {
+      return text.length;
+    }
+  }
+  return text.length;
+}
+
+/**
  * A page. `detailOf(index)` gives the line of the text that holds `index` (for what a <style> reports).
  *
  * The content of an HTML <script> or <style> is text: the scanner skips it to
@@ -850,9 +971,13 @@ function checkTag(text, start, tag, report) {
  * a violation in its own right.
  *
  * A <style>'s content is read as CSS wherever the <style> stands — in
- * foreign content the browser applies it too: to the first `</style` that
- * ends an HTML <style>, also after a `<style/>`, which closes itself only
- * in foreign content.
+ * foreign content the browser applies it too. Before the first <svg> that
+ * is to the first `</style`, as for an HTML <style>. After it the audit
+ * cannot tell an HTML <style> (or <style/>, whose `/` is nothing in HTML)
+ * from an SVG one, and reads to where the element ends in either reading
+ * (foreignStyleEnd): the first `</style` that is a token may close a
+ * <style> nested inside, and one inside a comment, a CDATA section, a
+ * processing instruction or a tag is none.
  *
  * An end tag is read to where it ends. It may carry attributes, and a
  * quoted value may hold a `>`: the audit used to resume right after the
@@ -885,18 +1010,26 @@ function scanHtml(text, report, detailOf) {
       continue;
     }
     if (!RAW_TEXT.has(tag.name)) continue;
-    const close = RAW_TEXT_END[tag.name];
-    close.lastIndex = tag.end;
-    const found = close.exec(text);
+    let found = null;
+    if (!foreign) {
+      // In foreign reading the content is markup, and no end tag is looked
+      // for: the search would run on to the end of the text for every
+      // <script> or <style> that is never closed — once per element, over
+      // the same text (10 000 of them took 12 seconds).
+      const close = RAW_TEXT_END[tag.name];
+      close.lastIndex = tag.end;
+      found = close.exec(text);
+    }
     if (tag.name === 'style') {
       // The content is read as written: the CSS scanner keeps a map back to
       // it, so the line number is the line a contributor finds it on. In
       // foreign reading a <style> may stand inside one whose CSS was read
-      // already — a `<style/>` there is read like an HTML one, on to the
-      // next </style> —: what was read once is not read twice.
+      // already — a `<style/>` there is read like an HTML one, a <style>
+      // nested in another to where the outer one ends —: what was read
+      // once is not read twice.
       const from = tag.end;
       if (!foreign || from >= cssReadTo) {
-        const to = found === null ? text.length : found.index;
+        const to = foreign ? foreignStyleEnd(text, from) : found === null ? text.length : found.index;
         scanCss(text.slice(from, to), report, (offset) => from + offset, detailOf);
         if (foreign) cssReadTo = to;
       }
