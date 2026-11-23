@@ -52,8 +52,10 @@ function normalizeNavLabel(value) {
 
 /**
  * The entries that provide the top-nav about entry (navLabel set), in
- * order. The top nav has room for exactly one such page; the build entry
- * goes red when this returns more than one.
+ * order — the ONE answer to "is navLabel set?" (task 6b D1): render.js
+ * takes the first of these for the top nav. The top nav has room for
+ * exactly one such page; the build entry goes red when this returns more
+ * than one.
  * @param {Array<{navLabel?: string|null}>} mechanics
  * @returns {Array<{slug: string, navLabel: string}>}
  */

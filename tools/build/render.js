@@ -18,6 +18,7 @@ const path = require('node:path');
 
 const { mdToHtml } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
+const { mechanicsWithNavLabel } = require('./mechanics.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem,
@@ -121,9 +122,11 @@ function buildSiteModel(data) {
   const lookup = (id) => byId.get(id) ?? null;
   // 顶部导航的「关于本站」由页面自己声明:机制页的 navLabel(mergeMechanicsContent
   // 读自 content/mechanics/<slug>.md 的 frontmatter `nav_label`,task 5b A)。
-  // 没有页面声明 → null → 导航没有这一项。构建入口保证最多一页带它。
-  const aboutSource = (data.mechanics ?? []).find((m) => typeof m.navLabel === 'string' && m.navLabel.trim() !== '') ?? null;
-  const aboutNav = aboutSource == null ? null : aboutNavItem(aboutSource.navLabel.trim(), aboutSource.slug);
+  // 「navLabel 是否已设置」只问 mechanics.js 一处(mechanicsWithNavLabel,
+  // task 6b D1):这里不再自己判定。没有页面声明 → null → 导航没有这一项;
+  // 构建入口保证最多一页带它。
+  const [aboutPage] = mechanicsWithNavLabel(data.mechanics ?? []);
+  const aboutNav = aboutPage == null ? null : aboutNavItem(aboutPage.navLabel.trim(), aboutPage.slug);
   return { mods, modsById, items, lookup, aboutNav };
 }
 

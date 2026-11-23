@@ -14,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { mergeMechanicsContent, mechanicTitle, mechanicsWithNavLabel } = require('../tools/build/mechanics.js');
+const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_CONTENT = path.join(__dirname, '..', 'content');
 
@@ -142,4 +143,55 @@ test('mechanicsWithNavLabel: the entries that declare a nav label, in order', as
     { slug: 'c', title: 'C', source: 's', navLabel: '另一个' },
   ];
   assert.deepEqual(mechanicsWithNavLabel(two).map((m) => m.slug), ['a', 'c'], 'order kept');
+});
+
+// ---------- Task 6b D1 — "is navLabel set?" has ONE implementation ----------
+//
+// There were two: normalizeNavLabel in mechanics.js and, in render.js, its own
+// `typeof m.navLabel === 'string' && m.navLabel.trim() !== ''`. Equal today —
+// and free to drift the day one of them changes. render.js now asks
+// mechanics.js. (tests/render.test.js may not change for D1, so this lives
+// here, next to the function that is now the only one.)
+
+test('D1 — render.js 复用 mechanics.js 的导出:它自己不再判定 navLabel 是否已设置', async () => {
+  const render = await fs.readFile(path.join(__dirname, '..', 'tools', 'build', 'render.js'), 'utf8');
+  assert.match(render, /require\(['"]\.\/mechanics\.js['"]\)/, 'render.js takes the answer from mechanics.js');
+  assert.match(render, /mechanicsWithNavLabel\(/, '…from the exported mechanicsWithNavLabel');
+  // The second implementation, gone: a test of the navLabel field written in render.js itself.
+  assert.doesNotMatch(render, /typeof\s+[\w.]*navLabel\s*[!=]==?\s*['"]string['"]/,
+    'render.js no longer tests navLabel itself');
+});
+
+test('D1 — 对每一种 navLabel 形态,页面上有没有「关于本站」入口都与 mechanicsWithNavLabel 的答案一致', async () => {
+  const { renderSite } = require('../tools/build/render.js');
+  const shapes = [
+    [undefined, false], [null, false], ['', false], ['   ', false], ['\t\n', false],
+    ['桶装指南', true], ['  桶装指南  ', true], ['关于本站', true],
+    [123, false], [true, false], [['关于本站'], false], [{}, false],
+  ];
+  for (const [shape, declared] of shapes) {
+    const data = structuredClone(FIXTURE_DATA);
+    data.mechanics = data.mechanics.map((m, i) => ({ ...m, navLabel: i === 0 ? shape : null }));
+    const slug = data.mechanics[0].slug;
+
+    // The one implementation's answer…
+    const answer = mechanicsWithNavLabel(data.mechanics);
+    assert.equal(answer.length, declared ? 1 : 0, `navLabel ${JSON.stringify(shape)}: mechanicsWithNavLabel`);
+    // …and what the page shows: the about entry is the LAST link of the menu-row.
+    const out = await renderSite(data, { contentDir: null });
+    const menuRow = out.get('index.html').split('class="menu-row"')[1].split('</div>')[0];
+    const lastLink = (menuRow.match(/<a [^>]*>.*?<\/a>/g) ?? []).at(-1);
+    if (declared) {
+      assert.equal(lastLink, `<a href="mechanics/${slug}.html">${String(shape).trim()}</a>`,
+        `navLabel ${JSON.stringify(shape)}: the about entry, with the label trimmed`);
+    } else {
+      assert.notEqual(lastLink, undefined);
+      assert.ok(!lastLink.includes(`mechanics/${slug}.html`), `navLabel ${JSON.stringify(shape)}: no about entry, got ${lastLink}`);
+    }
+    for (const [rel, html] of out) {
+      if (rel === 'data.js') continue;
+      assert.equal(html.split('class="menu-row"')[1].split('</div>')[0].includes(`mechanics/${slug}.html"`), declared,
+        `${rel}: same answer on every page`);
+    }
+  }
 });
