@@ -327,10 +327,11 @@ function fixOutsideUrl(detail) {
 
 /**
  * What each audit code means and what to do, for a contributor who does not
- * program (task 6b C1). Keyed by the `code` of an audit.js violation — one
- * entry per code; tests/skeleton-build.test.js checks that the audit's own
- * tests never expect a code missing here. `fix` is a string, or a function
- * of the violation's `detail` when the right advice depends on the tag.
+ * program (task 6b C1). Keyed by the `code` of an audit.js violation, one
+ * entry per code of the audit's CODES — tests/skeleton-build.test.js checks
+ * that every code of that list has an entry here. `fix` is a string, or a
+ * function of the violation's `detail` when the right advice depends on the
+ * tag.
  */
 const AUDIT_ADVICE = Object.freeze({
   'external-url': {

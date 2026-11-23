@@ -20,9 +20,14 @@
 // entries — until the first closing fence line of exactly ```. Only a bare
 // ``` closes; ```js etc. inside the body stays content. An unterminated opener
 // falls back to ordinary paragraph text so the rest of the document survives.
-// Security: passthrough content comes only from first-party hand-written md
-// under content/ (no user input) and the site ships as a static offline
-// bundle, so raw html there is as trusted as the build itself.
+// Security: raw html is NOT trusted here. Anyone who can edit content/ can
+// write a ```html block, and this renderer lets its lines through as they
+// are. What keeps a page safe is the build, not this file: the audit
+// (tools/build/audit.js, Ruling T) reads every page and fails the build on
+// an executable <script>, an on*= attribute, a javascript: address and the
+// like. What this file guarantees on its own is narrower — everything IT
+// renders is escaped: the prose, and the attributes of the links and images
+// it makes.
 
 const CODE_SENTINEL = /\u0000(\d+)\u0000/g;
 const HTML_FENCE_OPEN = /^```html\s*$/;
