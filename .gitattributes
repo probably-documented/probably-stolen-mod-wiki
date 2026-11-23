@@ -1,5 +1,6 @@
-# A vendored third-party artifact: its bytes must survive a checkout on any
-# platform exactly as published. admin/vendor/PROVENANCE.md records the
+# Vendored third-party artifacts: their bytes must survive a checkout on any
+# platform exactly as published. admin/vendor/PROVENANCE.md records each
 # file's sha256 and tests/admin-config.test.js compares the two — a
 # line-ending conversion (core.autocrlf on Windows) would fail that check.
 admin/vendor/sveltia-cms.js -text
+admin/vendor/chunks/** -text

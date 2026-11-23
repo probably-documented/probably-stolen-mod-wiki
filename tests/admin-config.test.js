@@ -6,11 +6,13 @@
 // audit, so none of it is covered by the file:// offline discipline — and
 // none of the existing tests looked at it. What is pinned here:
 //
-//   J — the vendored bundle is the official artifact, byte for byte. The
-//       proof that survives a clone is its sha256 recorded next to it
-//       (admin/vendor/PROVENANCE.md), and the file must come out of git
-//       unconverted on every platform (.gitattributes `-text`), or that
-//       comparison would fail on a Windows checkout.
+//   J — the vendored files are the official artifacts, byte for byte: the
+//       main bundle, plus the chunks/additions.js code block and the three
+//       shared modules it imports (the GitHub + additions sign-in loads
+//       them). The proof that survives a clone is one sha256 per file
+//       recorded next to them (admin/vendor/PROVENANCE.md), and every file
+//       must come out of git unconverted on every platform (.gitattributes
+//       `-text`), or those comparisons would fail on a Windows checkout.
 //   index.html — the CMS page loads the one local bundle as a classic
 //       script and nothing else: no remote script or stylesheet (the shell
 //       is the only part of dist that may talk to the network, and even it
@@ -48,15 +50,42 @@ const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const ADMIN_DIR = path.join(REPO_ROOT, 'admin');
-const BUNDLE_REL = 'admin/vendor/sveltia-cms.js';
-const BUNDLE_PATH = path.join(REPO_ROOT, ...BUNDLE_REL.split('/'));
-const PROVENANCE_PATH = path.join(ADMIN_DIR, 'vendor', 'PROVENANCE.md');
+const VENDOR_REL = 'admin/vendor';
+const VENDOR_DIR = path.join(REPO_ROOT, ...VENDOR_REL.split('/'));
+const PROVENANCE_REL = 'PROVENANCE.md';
+const PROVENANCE_PATH = path.join(VENDOR_DIR, PROVENANCE_REL);
 const GITATTRIBUTES_PATH = path.join(REPO_ROOT, '.gitattributes');
 const INDEX_PATH = path.join(ADMIN_DIR, 'index.html');
 const CONFIG_PATH = path.join(ADMIN_DIR, 'config.yml');
 
+/**
+ * The official files vendored under admin/vendor/, relative to it — the
+ * same paths they have in the @sveltia/cms package's dist/. Nothing else
+ * may sit there: tests below compare this list with the directory and with
+ * PROVENANCE.md, so an added or missing file fails two tests at once.
+ */
+const VENDORED = Object.freeze([
+  'sveltia-cms.js',
+  'chunks/additions.js',
+  'chunks/assets/_shared-module_0-C8f2zUat.js',
+  'chunks/assets/_shared-module_46-Dfds8-Cf.js',
+  'chunks/assets/_shared-module_64-Dh5oNTNO.js',
+]);
+
 const readText = (file) => fs.readFile(file, 'utf8');
 const noop = () => {};
+const toPosix = (p) => p.split(path.sep).join('/');
+
+/** Every file under dir, sorted. */
+async function listFiles(dir) {
+  const out = [];
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await listFiles(full)));
+    else out.push(full);
+  }
+  return out.sort();
+}
 
 /** Has a CJK ideograph — what makes a label Chinese for the contributors. */
 const hasChinese = (text) => /[\u4e00-\u9fff]/.test(text);
@@ -154,32 +183,55 @@ const collection = (config, name) => listItems(subBlock(config, 'collections')).
 const fieldsOf = (coll) => listItems(subBlock(coll, 'fields'));
 const fieldNames = (coll) => fieldsOf(coll).map((field) => unquote(value(field, 'name')));
 
-test('J — vendored bundle: admin/vendor/sveltia-cms.js is byte-identical to the digest recorded in PROVENANCE.md', async () => {
-  const [bundle, provenance] = await Promise.all([
-    fs.readFile(BUNDLE_PATH),
-    readText(PROVENANCE_PATH),
-  ]);
+test('J — PROVENANCE.md records exactly the vendored files, one sha256 line each, and every file matches it', async () => {
+  const provenance = await readText(PROVENANCE_PATH);
 
-  // One explicit line, so the digest cannot be confused with the tarball's
-  // sha1 or the registry's base64 integrity value on the same page.
-  const recorded = /^sha256\(sveltia-cms\.js\) = `([0-9a-f]{64})`$/m.exec(provenance);
-  assert.ok(recorded !== null,
-    'PROVENANCE.md must carry the line: sha256(sveltia-cms.js) = `<64 hex digits>`');
+  // One explicit line per file — `sha256(<path under admin/vendor/>) = `<hex>``
+  // — so a digest cannot be confused with the tarball's sha1 or the
+  // registry's base64 integrity value on the same page.
+  const recorded = new Map();
+  for (const [, rel, hex] of provenance.matchAll(/^sha256\(([^`\r\n]+)\) = `([0-9a-f]{64})`\r?$/gm)) {
+    assert.ok(!recorded.has(rel), `PROVENANCE.md records ${rel} twice`);
+    recorded.set(rel, hex);
+  }
+  assert.deepEqual([...recorded.keys()].sort(), [...VENDORED].sort(),
+    'PROVENANCE.md must carry one `sha256(<file>) = `<64 hex digits>`` line for every vendored file, and for nothing else');
 
-  const actual = createHash('sha256').update(bundle).digest('hex');
-  assert.equal(actual, recorded[1], `${BUNDLE_REL} differs from the vendored (official) bytes`);
+  const onDisk = (await listFiles(VENDOR_DIR))
+    .map((file) => toPosix(path.relative(VENDOR_DIR, file)))
+    .filter((rel) => rel !== PROVENANCE_REL)
+    .sort();
+  assert.deepEqual(onDisk, [...VENDORED].sort(), `admin/vendor/ must hold exactly the vendored files (and ${PROVENANCE_REL})`);
+
+  for (const rel of VENDORED) {
+    const digest = createHash('sha256').update(await fs.readFile(path.join(VENDOR_DIR, ...rel.split('/')))).digest('hex');
+    assert.equal(digest, recorded.get(rel), `${VENDOR_REL}/${rel} differs from the vendored (official) bytes`);
+  }
 });
 
-test('J — .gitattributes marks the bundle -text, so no platform converts its line endings on checkout', async () => {
+test('J — .gitattributes keeps every vendored file unconverted (-text), so no platform rewrites its line endings on checkout', async () => {
+  // Only the two shapes this file uses: a literal path, or a directory
+  // pattern ending in "/**". Not a gitattributes parser.
   const rules = (await readText(GITATTRIBUTES_PATH))
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('#'));
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .map((line) => {
+      const [pattern, ...attrs] = line.split(/\s+/);
+      return { pattern, attrs };
+    });
 
-  const rule = rules.find((line) => line.split(/\s+/)[0] === BUNDLE_REL);
-  assert.ok(rule !== undefined, `.gitattributes has no rule for ${BUNDLE_REL}`);
-  const attrs = rule.split(/\s+/).slice(1);
-  assert.ok(attrs.includes('-text'), `${BUNDLE_REL}: expected the -text attribute, got ${JSON.stringify(attrs)}`);
+  // "admin/vendor/chunks/**" minus its trailing "**" is "admin/vendor/chunks/":
+  // everything under that directory.
+  const matches = (pattern, file) => (pattern.endsWith('/**') ? file.startsWith(pattern.slice(0, -2)) : pattern === file);
+  for (const rel of VENDORED) {
+    const file = `${VENDOR_REL}/${rel}`;
+    const matching = rules.filter(({ pattern }) => matches(pattern, file));
+    assert.ok(matching.length > 0, `.gitattributes has no rule for ${file}`);
+    assert.ok(matching.some(({ attrs }) => attrs.includes('-text')),
+      `${file}: expected a rule carrying the -text attribute, got ${JSON.stringify(matching)}`);
+    assert.ok(!matching.some(({ attrs }) => attrs.includes('text')), `${file}: a rule turns text conversion back on`);
+  }
 });
 
 test('index.html loads only the local bundle, as a classic script — no remote script or stylesheet', async () => {
@@ -321,20 +373,7 @@ async function capturingExitCode(fn) {
   }
 }
 
-const toPosix = (p) => p.split(path.sep).join('/');
-
-/** Every file under dir, sorted. */
-async function listFiles(dir) {
-  const out = [];
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await listFiles(full)));
-    else out.push(full);
-  }
-  return out.sort();
-}
-
-test('the default build injects the shell: dist/admin/ holds index.html, config.yml and the vendored bundle', async (t) => {
+test('the default build injects the shell: dist/admin/ holds index.html, config.yml and every vendored file', async (t) => {
   // buildSkeleton's default adminDir is the relative path "admin", resolved
   // against the cwd — the repository root when the tests run via `npm test`.
   assert.equal(path.resolve('admin'), ADMIN_DIR, 'the tests must run from the repository root, as `npm test` does');
@@ -348,16 +387,18 @@ test('the default build injects the shell: dist/admin/ holds index.html, config.
 
   const injected = path.join(distDir, 'admin');
   const files = (await listFiles(injected)).map((file) => toPosix(path.relative(injected, file)));
-  for (const rel of ['index.html', 'config.yml', 'vendor/sveltia-cms.js']) {
+  for (const rel of ['index.html', 'config.yml', ...VENDORED.map((vendored) => `vendor/${vendored}`)]) {
     assert.ok(files.includes(rel), `dist/admin/${rel} is missing after the build; dist/admin holds ${JSON.stringify(files)}`);
   }
 
-  // …and the bundle is still the official bytes once it is in dist.
-  const [source, copy] = await Promise.all([
-    fs.readFile(BUNDLE_PATH),
-    fs.readFile(path.join(injected, 'vendor', 'sveltia-cms.js')),
-  ]);
-  assert.ok(source.equals(copy), 'dist/admin/vendor/sveltia-cms.js differs from admin/vendor/sveltia-cms.js');
+  // …and the vendored files are still the official bytes once they are in dist.
+  for (const rel of VENDORED) {
+    const [source, copy] = await Promise.all([
+      fs.readFile(path.join(VENDOR_DIR, ...rel.split('/'))),
+      fs.readFile(path.join(injected, 'vendor', ...rel.split('/'))),
+    ]);
+    assert.ok(source.equals(copy), `dist/admin/vendor/${rel} differs from ${VENDOR_REL}/${rel}`);
+  }
   // The offline zip never carries dist/admin/: tests/pack.test.js, "packSite:
   // a fresh build + one zip that holds exactly dist minus admin/".
 });
