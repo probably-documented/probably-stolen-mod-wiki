@@ -52,13 +52,20 @@ cmp package/dist/sveltia-cms.js admin/vendor/sveltia-cms.js && echo identical
     正是这种配置**——登录、登出、评论、协作锁、用户管理都在这个代码块里。
   - `qrcode`(用手机登录的二维码)、`git`(本地仓库工作流)、`gitea` / `gitlab`(其它 Git
     后端)、`map`(Map 字段)、`react-dom`(自定义 React 组件的预览):本站都不使用,不会加载。
+
+  2026-11-23 用本机构建好的站点核对过:只入库主文件时,登录页要先请求
+  `vendor/chunks/additions.js`(404),再从 UNPKG 把它取回来。把官方的
+  `dist/chunks/additions.js` 和 `dist/chunks/assets/` 一并放到 `admin/vendor/chunks/`,
+  登录流程就全部从本站加载,不再向 UNPKG 要代码块。
 - **界面翻译。** 英文以外的界面语言包(包括简体中文 `zh-CN`)从
   `https://unpkg.com/@sveltia/cms@0.271.0/locales/` 加载。
 - **字体。** 界面字体(Source Sans 3、Noto Mono、Material Symbols Outlined)从
   `cdn.jsdelivr.net` 加载。
 - **其它按需库。** 代码高亮(Shiki)、富文本模式用的 Markdown 序列化库 Turndown,以及
-    图片处理、PDF、地图等功能的附加库,用到时从 UNPKG 加载。
-- **版本检查。** 启动时会请求 `https://unpkg.com/@sveltia/cms/package.json`,看有没有新版本。
+  图片处理、PDF、地图等功能的附加库,用到时从 UNPKG 加载。
+- **版本检查与服务状态。** 启动时会请求 `https://unpkg.com/@sveltia/cms/package.json`,
+  看有没有新版本;后端是 GitHub 时还会向 `https://www.githubstatus.com` 查询 GitHub 的
+  服务状态。
 
 以上都可以在入库文件里搜字符串核对,例如 `unpkg.com/@sveltia/cms@0.271.0/dist/`、
 `The additions chunk is not loaded yet`、`unpkg.com/@sveltia/cms@0.271.0/locales`。
