@@ -113,11 +113,38 @@ const CODES = Object.freeze([
   'unreadable',
 ]);
 
-/** Named character references a URL could be assembled from; anything else stays as written. */
+/**
+ * The named character references whose value is an ASCII character — every
+ * one a browser knows. They are the ones that can change what the audit
+ * reads: a quote, a parenthesis, a slash, the asterisk of a comment's end, a
+ * backslash, a blank, `&` itself, the characters a URL or a MIME type is
+ * made of. The other two thousand–odd named references have values outside
+ * ASCII; left as written they move no boundary the audit looks for and no
+ * scheme (a no-break space is no CSS blank, and a URL parser trims C0
+ * controls and spaces only), so they are not decoded.
+ *
+ * Names are exact — HTML has `&quot;` and `&QUOT;`, and no `&Quot;`. A name
+ * is tried longest first, so `&quot;` wins over `&quot`.
+ */
 const NAMED_REFERENCES = Object.freeze({
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", colon: ':', semi: ';', sol: '/', bsol: '\\',
-  num: '#', percnt: '%', quest: '?', excl: '!', comma: ',', period: '.', plus: '+', equals: '=',
-  lpar: '(', rpar: ')', Tab: '\t', NewLine: '\n',
+  Tab: '\t', NewLine: '\n', excl: '!', quot: '"', QUOT: '"', num: '#', dollar: '$', percnt: '%', amp: '&', AMP: '&', apos: "'",
+  lpar: '(', rpar: ')', ast: '*', midast: '*', plus: '+', comma: ',', period: '.', sol: '/', colon: ':', semi: ';', lt: '<', LT: '<',
+  equals: '=', gt: '>', GT: '>', quest: '?', commat: '@', lsqb: '[', bsol: '\\', rsqb: ']', Hat: '^', lowbar: '_', grave: '`',
+  lcub: '{', verbar: '|', rcub: '}',
+});
+const NAMED_LONGEST = Math.max(...Object.keys(NAMED_REFERENCES).map((name) => name.length)) + 1; // with the `;`
+/**
+ * The historical names HTML reads without their `;` — those whose value is
+ * ASCII; the rest would change nothing. In an attribute value such a name is
+ * NOT a reference when `=` or an ASCII letter or digit follows it (for
+ * historical reasons): `&quothttps://…` stays written.
+ */
+const NAMED_WITHOUT_SEMICOLON = Object.freeze(new Set(['amp', 'AMP', 'lt', 'LT', 'gt', 'GT', 'quot', 'QUOT']));
+/** What a numeric reference from 0x80 to 0x9F is in HTML: the Windows-1252 character, not the control. */
+const C1_REPLACEMENTS = Object.freeze({
+  0x80: 0x20ac, 0x82: 0x201a, 0x83: 0x0192, 0x84: 0x201e, 0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02c6, 0x89: 0x2030,
+  0x8a: 0x0160, 0x8b: 0x2039, 0x8c: 0x0152, 0x8e: 0x017d, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022,
+  0x96: 0x2013, 0x97: 0x2014, 0x98: 0x02dc, 0x99: 0x2122, 0x9a: 0x0161, 0x9b: 0x203a, 0x9c: 0x0153, 0x9e: 0x017e, 0x9f: 0x0178,
 });
 
 // How a tag is read. HTML has exactly five whitespace characters — tab, line
@@ -181,15 +208,60 @@ const toPosix = (p) => p.split(path.sep).join('/');
 // Values as a browser reads them
 // ---------------------------------------------------------------------------
 
-/** Character references decoded: numeric ones (with or without `;`) and the named ones of NAMED_REFERENCES. */
+/**
+ * The character reference at `at` (text[at] is `&`) in an attribute value, as
+ * HTML consumes it: { text, end }, or null when it is none — `&#` with no
+ * digit after, `&` before anything that is no name, a historical name that
+ * an `=`, a letter or a digit follows.
+ *   numeric   `&#104;` `&#x68;`, the `;` optional, any number of digits
+ *   named     from NAMED_REFERENCES, the longest first, the `;` optional
+ *             for the historical names only
+ */
+function readCharacterReference(text, at) {
+  if (text[at + 1] === '#') {
+    const hex = text[at + 2] === 'x' || text[at + 2] === 'X';
+    const from = at + 2 + (hex ? 1 : 0);
+    let end = from;
+    while (end < text.length && (hex ? /[0-9a-f]/i : /[0-9]/).test(text[end])) end += 1;
+    if (end === from) return null;
+    const digits = text.slice(from, end);
+    if (text[end] === ';') end += 1;
+    let code = Number.parseInt(digits, hex ? 16 : 10);
+    if (!Number.isFinite(code) || code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) code = 0xfffd;
+    else if (C1_REPLACEMENTS[code] !== undefined) code = C1_REPLACEMENTS[code];
+    return { text: String.fromCodePoint(code), end };
+  }
+  for (let length = Math.min(NAMED_LONGEST, text.length - at - 1); length >= 1; length -= 1) {
+    const name = text.slice(at + 1, at + 1 + length);
+    const withSemicolon = name.endsWith(';');
+    const value = NAMED_REFERENCES[withSemicolon ? name.slice(0, -1) : name];
+    if (value === undefined) continue;
+    if (!withSemicolon && !NAMED_WITHOUT_SEMICOLON.has(name)) continue; // `&apos ` is no reference
+    if (!withSemicolon && /[=0-9A-Za-z]/.test(text[at + 1 + length] ?? '')) return null;
+    return { text: value, end: at + 1 + length };
+  }
+  return null;
+}
+
+/**
+ * The character references of an attribute value, decoded — in ONE pass:
+ * what a reference decodes to is not read again, exactly as in a browser
+ * (`&#38;quot;` is `&quot;` written out, not a quote; the audit used to
+ * decode the digits, then the name, and make it one). Numeric ones with or
+ * without `;`, and the named ones of NAMED_REFERENCES. Anything else stays
+ * as written.
+ */
 function decodeCharacterReferences(value) {
-  return value
-    .replace(/&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?/g, (whole, hex, dec) => {
-      const code = Number.parseInt(hex ?? dec, hex === undefined ? 10 : 16);
-      if (!Number.isFinite(code) || code > 0x10ffff) return whole;
-      return String.fromCodePoint(code === 0 ? 0xfffd : code);
-    })
-    .replace(/&([A-Za-z][A-Za-z0-9]*);/g, (whole, name) => NAMED_REFERENCES[name] ?? NAMED_REFERENCES[name.toLowerCase()] ?? whole);
+  let out = '';
+  let i = 0;
+  for (let amp = value.indexOf('&'); amp >= 0; amp = value.indexOf('&', i)) {
+    out += value.slice(i, amp);
+    const reference = readCharacterReference(value, amp);
+    if (reference === null) { out += '&'; i = amp + 1; continue; }
+    out += reference.text;
+    i = reference.end;
+  }
+  return out + value.slice(i);
 }
 
 /**
@@ -368,12 +440,21 @@ function tokenizeCss(css) {
 }
 
 /**
+ * An address as a CSS token gives it, read as a URL parser reads it: tabs
+ * and newlines dropped, blanks and control characters trimmed at both ends.
+ * No character references here: a stylesheet, and the content of a <style>
+ * element, decode none in a browser; the references of a style="" attribute
+ * were decoded once, before its value was read as CSS.
+ */
+const cssUrl = (raw) => raw.replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
+
+/**
  * How an address written in CSS refers to something: an outside site (by
  * scheme, or protocol-relative), the site root, a data: address — or nothing
  * that concerns the audit.
  */
 function cssAddressKind(raw) {
-  const url = readUrl(raw);
+  const url = cssUrl(raw);
   if (url.startsWith('//') || /^https?:\/\//i.test(url)) return 'external';
   if (url.startsWith('/')) return 'root-relative';
   if (/^data:/i.test(url)) return 'data';
@@ -611,9 +692,12 @@ function checkTag(text, start, tag, report) {
     if (name === 'srcdoc') report(start, 'srcdoc', snippet());
     if (isScriptUrl(raw)) report(start, 'script-url', snippet());
     if (name === 'style') {
-      // Judged as CSS, and only as CSS: reportUrl would report the same
-      // https:// a second time, in words meant for a tag.
-      scanCss(raw, report, () => start, snippet);
+      // Decoded first, then judged as CSS, and only as CSS (ruling AC 2): a
+      // browser decodes the character references of an attribute value before
+      // it reads that value as CSS — url(&quot;…&quot;) is a quoted address to
+      // it. reportUrl would report the same https:// a second time, in words
+      // meant for a tag.
+      scanCss(decodeCharacterReferences(raw), report, () => start, snippet);
     } else if (value !== null) {
       // A2 and A3 by class (ruling AA), for every attribute of every tag.
       reportUrl(start, readUrl(raw), name, tag.name, report, snippet());

@@ -1323,3 +1323,99 @@ test('review round 2, Important — the controls: a string that a LINE BREAK end
   });
   assert.deepEqual(violations, []);
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — ruling AC(2): a style attribute is decoded before it is
+// read as CSS
+//
+// A browser decodes the character references of an attribute value before it
+// reads that value as CSS: style="background:url(&quot;https://…&quot;)" is a
+// quoted address to it. The audit gave the raw value to the CSS lexer, which
+// saw `&quot;` — no quote, no address it knew. The same decoding reaches
+// every character the CSS syntax is made of: the `*` of a comment's end
+// (&ast;/), the letters of `url` (&#114;), a quote written without its `;`
+// (&quot + a blank), a tab inside an address (&Tab;), which a URL parser
+// drops.
+//
+// Two things go the other way, and the audit over-reported: inside a
+// <style> element or a stylesheet file the browser decodes NOTHING (the
+// audit decoded `&#104;ttps://` there); and it decodes ONCE — `&#38;quot;`
+// is `&quot;` written out, not a quote (the audit, in two passes, made it
+// one). Each line was tried in Chrome 152 (task-6b report, round 2).
+// ---------------------------------------------------------------------------
+
+test('ruling AC(2) — a style attribute is decoded before it is read as CSS: &quot; and &apos; are quotes to the browser (the reviewer\'s two)', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div style="background:url(&quot;https://evil.example/h.png&quot;)">x</div>',
+      '<div style="background:url(&apos;https://evil.example/i.png&apos;)">x</div>',
+      '<div style="background:url(https://evil.example/j.png)">x</div>', // nothing to decode — a control
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`));
+});
+
+test('ruling AC(2) — the decoding reaches every character the CSS syntax is made of: the end of a comment, a name, a quote without its `;`, a tab in the address', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div style="/* &ast;/ background:url(https://evil.example/e3.png)">x</div>', // &ast;/ closes the comment the audit never saw closed
+      '<div style="background:url(&quot https://evil.example/e4.png &quot)">x</div>', // no `;`, then a blank: decoded all the same
+      '<div style="background:u&#114;l(&quot;https://evil.example/e6.png&quot;)">x</div>', // `url` itself, spelled with a reference
+      '<div style="background:u&#x72;l(https://evil.example/e6b.png)">x</div>', // a hexadecimal one
+      '<div style="background:url(&quot;https://evil.example/e7&#Tab;.png&quot;)">x</div>', // a tab, which the URL parser drops
+      '<div style="&sol;*&ast;/ background:url(https://evil.example/e8.png)">x</div>', // a whole empty comment, written with references — a control, reported before this round too
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6].map((n) => `${HTML}:${n} [css-external-url]`));
+});
+
+test('ruling AC(2) — decoded ONCE, as a browser does: &#38;quot; is `&quot;` written out, and &quot with a letter after it is not decoded at all', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div style="background:url(&#38;quot;https://evil.example/e9.png&#38;quot;)">x</div>', // the browser asks for a relative address named `&quot;https:…`
+      '<div style="background:url(&quothttps://evil.example/e5.png)">x</div>', // for historical reasons `&quot` stays when a letter follows
+      '<a href="javascript&#38;colon;alert(1)">a link to a relative address, not a script</a>', // the same in a URL attribute
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('ruling AC(2) — where the browser decodes nothing, the audit decodes nothing: inside a <style> element and in a stylesheet file', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>e10{background:url(&quot;https://evil.example/e10.png&quot;)}</style>',
+      '<style>e11{background:url("&#104;ttps://evil.example/e11.png")}</style>',
+    ),
+    'css/theme.css': 'a{background:url("&#104;ttps://evil.example/x.png")}',
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('ruling AC(2) — once decoded, the CSS rules apply as anywhere else: a line break inside the string makes it a bad string; a blank inside does not', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div style="background:url(\'https://evil.example/b7.png&#10;\')">x</div>', // decoded to a line break, before the quote: the browser asks for nothing
+      '<div style="background:url(\'https://evil.example/e12&#32;.png\')">x</div>', // decoded to a blank, inside a closed string: asked for
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:2 [css-external-url]`]);
+});
+
+// A control: these edges read the same in the decoder as it was and in the
+// rewritten one (it was checked against the old file before the commit).
+test('the decoder — its edges, as a control: a reference to 0, to a surrogate, past U+10FFFF; names with and without `;`; hexadecimal', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<a href="&#xD800;javascript:alert(1)">a surrogate is U+FFFD in HTML</a>',
+      '<a href="&#0;javascript:alert(1)">0 is U+FFFD too</a>',
+      '<a href="&#99999999999999999999;javascript:alert(1)">past U+10FFFF as well</a>',
+      '<a href="&QUOT;javascript:alert(1)">&QUOT; is a quote, a capital name of its own</a>',
+      '<a href="&APOS;javascript:alert(1)">&APOS; is no reference at all — no capital of that one</a>',
+      '<a href="javascript&colon alert(1)">the colon named without its `;` is no reference</a>',
+      '<a href="javascript&colon;alert(1)">the colon, named</a>',
+      '<a href="&#x6A;&#97;vascript:alert(1)">hexadecimal and decimal</a>',
+      '<a href="&#X6A;avascript:alert(1)">a capital X too</a>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [7, 8, 9].map((n) => `${HTML}:${n} [script-url]`));
+});
