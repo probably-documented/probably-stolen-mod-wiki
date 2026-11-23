@@ -357,7 +357,7 @@ const AUDIT_ADVICE = Object.freeze({
   },
   'css-external-url': {
     problem: '样式里有一处引用了外部地址(以 http:// 或 https:// 开头,或以 // 开头),'
-      + '例如 url(…)、@import "…"、image-set(…) 里的图片或字体。本站不允许加载外部资源。',
+      + '例如 url(…)、@import "…"、image-set(…),或 @font-face 里 src 的字体地址。本站不允许加载外部资源。',
     fix: '删掉这条样式,或改成站内的相对路径。',
   },
   'css-root-relative': {

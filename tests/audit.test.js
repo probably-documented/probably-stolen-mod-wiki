@@ -1550,3 +1550,52 @@ test('review round 2, found while parsing exactly — where the browser leaves t
     'other.html:1 [script-inline]', 'other.html:2 [external-url]',
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — found while parsing exactly: two more places where the
+// spec lets CSS write an address as a bare STRING
+//
+// The audit's CSS rules cover the syntaxes the spec has for a resource
+// address: url(), @import, image-set() (a bare string in it is an address).
+// Two were missing from that list. The src of @font-face takes a url as a
+// bare string (CSS Fonts: `src: "font.woff2"`), and so does image(). Chrome
+// 152 drops such a value and fetches nothing (task-6b report, round 2) — so
+// reporting them over-reports, on the safe side, like a <script/> of an SVG.
+// They are reported because the list is "what the spec lets be an address",
+// not "what one browser loads today": an outside font that no word is said
+// about is the same thing whether it was written with url() or without.
+// ---------------------------------------------------------------------------
+
+test('review round 2, found while parsing exactly — the src of @font-face may hold its address as a bare string: reported like url()', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>@font-face{font-family:f1;src:"https://evil.example/f1.woff2"}</style>',
+      '<style>@font-face{font-family:f2;src:local("No Such Font"), "https://evil.example/f2.woff2" format("woff2")}</style>',
+      '<style>@font-face{font-family:f3;src:"https://evil.example/f3.woff2" format("woff2") tech(variations)}</style>',
+      '<style>@font-face{font-family:f4;src:"/f4.woff2"}</style>', // root-relative, as ever
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`).concat(`${HTML}:4 [css-root-relative]`));
+});
+
+test('review round 2, found while parsing exactly — and only there: a font-family written as a string, a name in local(), a format() or tech() — none is an address', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>@font-face{font-family:"https://evil.example/not-an-address";src:local("https://evil.example/not-an-address")}</style>',
+      '<style>@font-face{font-family:"https://evil.example/a";src:url("theme.woff2") format("https://evil.example/not-an-address")}</style>',
+      '<style>x{content:"https://evil.example/not-an-address"}</style>', // a string in any other declaration
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('review round 2, found while parsing exactly — image() takes its address as a bare string too, like image-set()', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<style>x{background-image:image("https://evil.example/i.png")}</style>',
+      '<style>x{background-image:image("https://evil.example/j.png" type("image/png"))}</style>',
+      '<style>x{background-image:image(url("https://evil.example/k.png"))}</style>', // url() inside: read by the url() rule, once
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`));
+});
