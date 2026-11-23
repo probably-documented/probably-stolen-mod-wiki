@@ -132,3 +132,40 @@ test('isAllowedDistDir: a repo that itself lives under the temp dir (this test s
   assert.equal(isAllowedDistDir(TMP, repoInTmp), false, 'the temp dir itself: an ancestor of the repo');
   assert.equal(isAllowedDistDir(path.join(TMP, 'some-unrelated-dir'), repoInTmp), true, 'an unrelated temp directory');
 });
+
+// D7 (task 6b): a path on another drive. path.relative answers with an
+// absolute path for two paths on different drives — the one case where "is it
+// inside?" must not be read off that string. win32 only, and nothing is
+// touched on disk: the other drive does not have to exist.
+
+test('isAllowedDistDir (D7): a path on another drive is neither inside the repo nor inside the temp directory; a temp root given on another drive behaves like any other', () => {
+  if (process.platform !== 'win32') return; // POSIX has a single root: there is no "another drive"
+  const thisDrive = path.win32.parse(TMP).root; // e.g. 'C:\'
+  const otherDrive = thisDrive.toLowerCase() === 'c:\\' ? 'd:\\' : 'c:\\';
+  const there = (...segments) => path.win32.join(otherDrive, ...segments);
+
+  // Outside the repo and outside the temp directory → refused, whatever temp root is assumed.
+  assert.equal(isAllowedDistDir(there('elsewhere', 'dist'), REPO), false, 'a directory on another drive');
+  assert.equal(isAllowedDistDir(there(), REPO), false, 'the root of another drive');
+  assert.equal(isAllowedDistDir(there('elsewhere', 'dist'), REPO, path.join(FS_ROOT, 'scratch')), false, '…with a made-up temp root too');
+
+  // The same path as os.tmpdir(), on another drive: not "under os.tmpdir()".
+  const tempTail = path.win32.relative(thisDrive, TMP); // e.g. Users\me\AppData\Local\Temp
+  assert.notEqual(tempTail, '', 'sanity: os.tmpdir() is not the root of its drive');
+  assert.equal(isAllowedDistDir(there(tempTail, 'x'), REPO), false, 'os.tmpdir()\'s path, on another drive');
+
+  // The temp root is a parameter: on another drive it behaves like any other.
+  const scratch = there('scratch');
+  assert.equal(isAllowedDistDir(there('scratch', 'a', 'b'), REPO, scratch), true, 'under the given temp root, on another drive');
+  assert.equal(isAllowedDistDir(scratch, REPO, scratch), false, 'the temp root itself');
+  assert.equal(isAllowedDistDir(there('elsewhere', 'a'), REPO, scratch), false, 'not under the given temp root');
+  assert.equal(isAllowedDistDir(there('scratch', 'a'), REPO), false, '…and not under os.tmpdir() either, which is on this drive');
+
+  // A repo on another drive, with the real temp directory on this one.
+  const repoThere = there('somewhere', 'repo');
+  assert.equal(isAllowedDistDir(there('somewhere', 'repo', 'dist'), repoThere), true, 'its own dist directory');
+  assert.equal(isAllowedDistDir(repoThere, repoThere), false, 'the repo root');
+  assert.equal(isAllowedDistDir(there('somewhere'), repoThere), false, 'the parent of the repo root');
+  assert.equal(isAllowedDistDir(there('somewhere', 'repo', 'out'), repoThere), false, '(D6) another directory inside that repo');
+  assert.equal(isAllowedDistDir(path.join(TMP, 'unrelated'), repoThere), true, 'the temp directory is on another drive from that repo — still allowed under it');
+});
