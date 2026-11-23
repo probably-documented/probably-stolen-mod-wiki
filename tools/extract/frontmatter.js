@@ -20,21 +20,49 @@
 // 依赖方向保持 build → extract,不引入倒依赖。
 
 /**
- * YAML 双引号字符串(已去首尾引号)里的 `\"` 与 `\\`。必须一次扫描:
- * `\\"` 是「反斜杠 + 引号」,先替换 `\"` 再替换 `\\` 会把它解错。
- * 其它转义序列(`\n`、`\t`、`\uXXXX` …)不在本解析器的子集里,原样保留。
+ * YAML 双引号字符串(已去首尾引号)的转义,一次扫描还原(task 6b D9 补齐):
+ *   单字符  \n \t \r \0 \b \f   → 换行、制表、回车、NUL、退格、换页
+ *   \\ \" \/                   → 反斜杠、双引号、斜杠
+ *   \uXXXX  \UXXXXXXXX         → 该码位的字符(十六进制,大小写都认)
+ * 为什么必须一次扫描:相邻的两个转义会被任何固定顺序解错。`\\\"` 是
+ * `\\` + `\"`(值是 `\"`),先替换 `\\` 再替换 `\"`,第一步得到的 `\"` 会被
+ * 第二步再解成 `"`;`\\n` 是 `\\` + `n`(值是 `\n` 两个字符),先处理 `\n`
+ * 会把它解成反斜杠加换行。一次扫描从左到右、每个反斜杠只管它后面那一个
+ * 转义,就没有这个问题。
+ * 不是合法转义的写法(不认识的字母、\u 后面位数不够或不是十六进制、超出
+ * U+10FFFF、末尾孤立的反斜杠)在 YAML 里本来就是错的:原样保留,不抛错。
  */
+const DOUBLE_QUOTE_ESCAPES = Object.freeze({
+  n: '\n', t: '\t', r: '\r', '0': '\0', b: '\b', f: '\f', '\\': '\\', '"': '"', '/': '/',
+});
+
 function unescapeDoubleQuoted(inner) {
   let out = '';
   for (let i = 0; i < inner.length; i += 1) {
     const ch = inner[i];
-    const next = inner[i + 1];
-    if (ch === '\\' && (next === '"' || next === '\\')) {
-      out += next;
-      i += 1;
-    } else {
+    if (ch !== '\\' || i + 1 >= inner.length) { // 末尾孤立的反斜杠:原样
       out += ch;
+      continue;
     }
+    const next = inner[i + 1];
+    if (Object.hasOwn(DOUBLE_QUOTE_ESCAPES, next)) {
+      out += DOUBLE_QUOTE_ESCAPES[next];
+      i += 1;
+      continue;
+    }
+    if (next === 'u' || next === 'U') {
+      const width = next === 'u' ? 4 : 8;
+      const hex = inner.slice(i + 2, i + 2 + width);
+      if (hex.length === width && /^[0-9a-f]+$/i.test(hex)) {
+        const code = Number.parseInt(hex, 16);
+        if (code <= 0x10ffff) {
+          out += String.fromCodePoint(code);
+          i += 1 + width;
+          continue;
+        }
+      }
+    }
+    out += ch; // 不认识的转义:反斜杠原样,下一轮从 next 接着看
   }
   return out;
 }
@@ -45,9 +73,10 @@ function unescapeDoubleQuoted(inner) {
  * 旧方言(Task 2 迁移):去引号字符串、单行 JSON 数组/对象。
  * 新方言(Task 3,CMS 原生 YAML 子集):裸 true/false 布尔、数字、
  * flow 列表 `[a, b]`(JSON.parse 失败后的宽容解析)。
- * 引号字符串的转义(task 6 Ruling W):单引号内的 `''` 还原为 `'`;
- * 双引号内的 `\"` 还原为 `"`、`\\` 还原为 `\`——Sveltia CMS 保存条目时
- * 用 yaml 库写出的就是这两种形态。
+ * 引号字符串的转义(task 6 Ruling W,task 6b D9 补齐):单引号内只有 `''`
+ * 是转义(还原为 `'`),反斜杠不是转义符、原样;双引号内是 YAML 的转义
+ * 集合(`\"`、`\\`、`\n`、`\uXXXX` …,见 unescapeDoubleQuoted)——Sveltia
+ * CMS 保存条目时用 yaml 库写出的就是这些形态。
  * 明确不实现(超集,遇到保持原样/跳过,不抛错):
  * 列表对象项、多级嵌套。
  */

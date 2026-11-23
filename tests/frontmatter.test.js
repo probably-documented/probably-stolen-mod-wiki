@@ -181,10 +181,74 @@ test('双引号字符串:转义的引号和反斜杠还原为本身', () => {
   assert.equal(parseFrontmatterScalar(String.raw`"C:\\path\\"`), 'C:\\path\\');
   assert.equal(parseFrontmatterScalar(String.raw`"\""`), '"', '内容只有一个双引号');
   assert.equal(parseFrontmatterScalar('""'), '', '空串不变');
-  // 一次扫描:\\" 是「反斜杠 + 引号」,先替换 \" 再替换 \\ 会把它解错
-  assert.equal(parseFrontmatterScalar(String.raw`"x\\"y"`), String.raw`x\"y`);
-  // \ 后接其它字符的转义序列(\n、\t、\uXXXX …)不在本解析器的子集里:保持原样
-  assert.equal(parseFrontmatterScalar(String.raw`"a\nb"`), String.raw`a\nb`);
+  // 一次扫描(D9 把这条换成了良构的输入):`\\\"` 是 `\\` + `\"`,值是 `\` + `"`。
+  // 顺序替换里「先 \\ 后 \"」会解错:第一步得到的 \" 会被第二步再解成 "。
+  assert.equal(parseFrontmatterScalar(String.raw`"x\\\"y"`), String.raw`x\"y`);
+  // 反斜杠后面还是一个转义的开头:`\\n` 是 `\\` + `n`(两个字符),不是换行。
+  // 先处理 \n 的顺序替换会把它解成反斜杠加换行。
+  assert.equal(parseFrontmatterScalar(String.raw`"x\\ny"`), String.raw`x\ny`);
+});
+
+// ---------- task 6b D9:双引号字符串的完整转义集合 ----------
+//
+// CMS 写出的 YAML 形态要到上线后才能实测。中文内容若被写成 \uXXXX 而解析器
+// 不还原,页面会直接显示乱码——所以把 YAML 的转义提前补齐。单字符转义 \n \t
+// \r \0 \b \f \\ \" \/、\uXXXX 与 \UXXXXXXXX。
+
+test('D9 — 双引号字符串:单字符转义 \\n \\t \\r \\0 \\b \\f \\\\ \\" \\/', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`"a\nb"`), 'a\nb');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\tb"`), 'a\tb');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\rb"`), 'a\rb');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\0b"`), 'a\0b');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\bb"`), 'a\bb');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\fb"`), 'a\fb');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\\b"`), 'a\\b');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\"b"`), 'a"b');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\/b"`), 'a/b');
+  // 相邻的转义互不干扰:一次扫描
+  assert.equal(parseFrontmatterScalar(String.raw`"\n\t\r"`), '\n\t\r');
+  assert.equal(parseFrontmatterScalar(String.raw`"\\n"`), String.raw`\n`);
+  assert.equal(parseFrontmatterScalar(String.raw`"\\"`), '\\', 'the whole value is one backslash');
+});
+
+test('D9 — 双引号字符串:\\uXXXX 与 \UXXXXXXXX 还原为字符,中文与 emoji 不再是乱码', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`"\u4e2d\u6587"`), '中文');
+  assert.equal(parseFrontmatterScalar(String.raw`"\u4E2D"`), '中', '十六进制大小写都认');
+  assert.equal(parseFrontmatterScalar(String.raw`"安装\u0020指南"`), '安装 指南', '与字面字符混排');
+  assert.equal(parseFrontmatterScalar(String.raw`"\U0001F600"`), '\u{1F600}', '八位的 \U');
+  assert.equal(parseFrontmatterScalar(String.raw`"\U00000041"`), 'A');
+  assert.equal(parseFrontmatterScalar(String.raw`"\uD83D\uDE00"`), '\u{1F600}', '一对代理项');
+});
+
+test('D9 — 不是合法转义的写法原样保留,不抛错:不认识的字母、位数不够、超出 Unicode 范围、末尾孤立的反斜杠', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`"a\qb"`), String.raw`a\qb`);
+  assert.equal(parseFrontmatterScalar(String.raw`"\u12"`), String.raw`\u12`);
+  assert.equal(parseFrontmatterScalar(String.raw`"\uzzzz"`), String.raw`\uzzzz`);
+  assert.equal(parseFrontmatterScalar(String.raw`"\U00110000"`), String.raw`\U00110000`, 'beyond U+10FFFF');
+  assert.equal(parseFrontmatterScalar(String.raw`"a\"`), 'a\\', 'a lone backslash at the end: the closing quote is not consumed as an escaped quote');
+});
+
+test('D9 — 经 splitFrontmatter:被 CMS 写成转义形态的中文标题与列表项,读出来是原来的文字', () => {
+  const { fm, body } = splitFrontmatter(String.raw`---
+title: "\u5B89\u88C5\u4E0E\u517C\u5BB9\u6027"
+nav_label: "\u5173\u4E8E\u672C\u7AD9"
+tags:
+  - "a\tb"
+  - "line1\nline2"
+---
+正文
+`);
+  assert.equal(fm.title, '安装与兼容性');
+  assert.equal(fm.nav_label, '关于本站');
+  assert.deepEqual(fm.tags, ['a\tb', 'line1\nline2']);
+  assert.equal(body, '正文\n');
+});
+
+test('单引号字符串:反斜杠不是转义符,保持原样(只有 \'\' 是转义)', () => {
+  assert.equal(parseFrontmatterScalar(String.raw`'C:\path'`), String.raw`C:\path`);
+  assert.equal(parseFrontmatterScalar(String.raw`'a\nb'`), String.raw`a\nb`);
+  assert.equal(parseFrontmatterScalar(String.raw`'it\'s'`), String.raw`it\'s`, 'a backslash before the quote does not escape it either');
+  assert.equal(parseFrontmatterScalar(String.raw`'C:\path''\x'`), String.raw`C:\path'\x`, '…while \'\' still is one quote');
 });
 
 test('引号转义:经 splitFrontmatter 读取 CMS 写出的 frontmatter,键值与列表项都还原', () => {
