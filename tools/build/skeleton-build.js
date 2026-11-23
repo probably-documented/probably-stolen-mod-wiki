@@ -8,7 +8,7 @@
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
 //      rm guard → CMS shell source → id lint → asset sources
-//   1. data prep (drop missing icons, merge content/mechanics)
+//   1. data prep (drop missing icons, merge content/mechanics — mechanics.js)
 //   2. render
 //   3. rm dist → 4. write files → 5. copy repo assets → 6. auditExternalLinks(dist)
 //   7. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
@@ -26,7 +26,7 @@ const { renderSite } = require('./render.js');
 const { auditExternalLinks } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { isInsideDir } = require('./paths.js');
-const { splitFrontmatter } = require('../extract/frontmatter.js');
+const { mergeMechanicsContent } = require('./mechanics.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
@@ -116,46 +116,6 @@ async function validateItemContentIds(contentItemsDir, validIds) {
     if (/\.md$/i.test(entry.name) && !legalFiles.has(entry.name)) violations.push(entry.name);
   }
   return violations.sort();
-}
-
-/** frontmatter `title` > first ATX h1 > slug (modwiki merge.js readMechanics order). */
-function mechanicTitle(source, slug) {
-  const { fm, body } = splitFrontmatter(source);
-  const fromFm = fm.title;
-  if (typeof fromFm === 'string' && fromFm.trim() !== '') return fromFm.trim();
-  const h1 = body.match(/^#\s+(.+)$/m);
-  return h1 ? h1[1].trim() : slug;
-}
-
-/**
- * content/mechanics/<slug>.md → mechanic pages (the hand-written layer). Same
- * contract as modwiki merge.js readMechanics: slug = file name, title =
- * frontmatter `title` > first ATX h1 > slug, source = the file as written. A
- * slug already present in `mechanics` is replaced by the file; new slugs are
- * appended in file-name order. A missing directory leaves `mechanics` as is.
- * @returns {Promise<Array<{slug: string, title: string, source: string}>>}
- */
-async function mergeMechanicsContent(mechanics, contentDir) {
-  if (contentDir == null) return mechanics;
-  const dir = path.join(contentDir, 'mechanics');
-  let entries;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissing(err)) return mechanics;
-    throw err;
-  }
-  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, m]));
-  const names = entries
-    .filter((e) => e.isFile() && /\.md$/i.test(e.name))
-    .map((e) => e.name)
-    .sort();
-  for (const name of names) {
-    const source = await fs.readFile(path.join(dir, name), 'utf8');
-    const slug = name.replace(/\.md$/i, '');
-    bySlug.set(slug, { slug, title: mechanicTitle(source, slug), source });
-  }
-  return [...bySlug.values()];
 }
 
 /** Absolute path of an ASSET_MAP source inside assetsDir. */
