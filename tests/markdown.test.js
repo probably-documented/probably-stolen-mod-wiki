@@ -324,3 +324,104 @@ test('B3 — ```html 直通块里手写的 <a> 原样输出,不经 mdToHtml 改�
   const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
   assert.equal(html, '<a href="https://example.com/raw">手写外链</a>\n<a class="x" href="https://example.com/y">另一个</a>');
 });
+
+// ===== B4 (task 6b, ruling Z): image syntax =====
+//
+// ![替代文字](地址 "可选标题") → <img src="地址" alt="替代文字">, plus a title
+// attribute when one is given. The address is kept exactly as written; what
+// may be loaded is the audit's decision (audit.js reports a https:// image in
+// Chinese and fails the build). Same boundaries as links: not parsed inside
+// `code` spans, and a ```html block is passed through untouched.
+
+test('B4 — 基本写法 ![替代文字](地址) → <img src="…" alt="…">;地址原样保留;不进目录', () => {
+  const ctx = makeCtx();
+  const md = '前 ![示意图](../assets/a.png) 后';
+  const { html, toc } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<p>前 <img src="../assets/a.png" alt="示意图"> 后</p>');
+  assert.deepEqual(toc, []);
+  assert.ok(!html.includes('<a '), 'an image is not a link');
+});
+
+test('B4 — 带标题 ![a](x.png "标题") → 加 title 属性;顺序 src、alt、title', () => {
+  const ctx = makeCtx();
+  const { html } = mdToHtml('![示意图](a.png "一张示意图")', ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<p><img src="a.png" alt="示意图" title="一张示意图"></p>');
+  // a title may hold a closing parenthesis, and does not become part of the address
+  const titled = mdToHtml('![a](a.png "标题) 还在")', ctx.lookup, ctx.renderInline).html;
+  assert.equal(titled, '<p><img src="a.png" alt="a" title="标题) 还在"></p>');
+});
+
+test('B4 — 替代文字与标题里需要转义的字符被转义;一个引号不会截断属性、变成别的属性', () => {
+  const ctx = makeCtx();
+  const { html } = mdToHtml('![a <b> & "c"](x.png "t <i> & \'q\'")', ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<p><img src="x.png" alt="a &lt;b&gt; &amp; &quot;c&quot;" title="t &lt;i&gt; &amp; \'q\'"></p>');
+  // the injection shape: the quote must not open an attribute
+  const injected = mdToHtml('![a" onerror="alert(1)](x.png)', ctx.lookup, ctx.renderInline).html;
+  assert.equal(injected, '<p><img src="x.png" alt="a&quot; onerror=&quot;alert(1)"></p>');
+  assert.ok(!/ onerror="/.test(injected), 'no real onerror attribute in the output');
+  // a quote inside the address cannot get out of src either
+  assert.equal(mdToHtml('![a](x"y.png)', ctx.lookup, ctx.renderInline).html, '<p><img src="x%22y.png" alt="a"></p>');
+});
+
+test('B4 — 地址是外部网址时原样输出 <img src="https://…">(随后由构建的审计拦截),不带链接的 target/rel', () => {
+  const ctx = makeCtx();
+  const { html } = mdToHtml('![图](https://example.com/x.png)', ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<p><img src="https://example.com/x.png" alt="图"></p>');
+  assert.equal(mdToHtml('![图](//cdn.example.com/x.png)', ctx.lookup, ctx.renderInline).html, '<p><img src="//cdn.example.com/x.png" alt="图"></p>');
+  assert.equal(mdToHtml('![图](/assets/x.png)', ctx.lookup, ctx.renderInline).html, '<p><img src="/assets/x.png" alt="图"></p>');
+});
+
+test('B4 — `![` 出现在代码段里不解析', () => {
+  const ctx = makeCtx();
+  const { html } = mdToHtml('写法是 `![a](x.png)`,就这样。', ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<p>写法是 <code>![a](x.png)</code>,就这样。</p>');
+});
+
+test('B4 — ```html 直通块里的 ![…](…) 不解析:直通块原样输出', () => {
+  const ctx = makeCtx();
+  const md = ['```html', '<p>![a](x.png)</p>', '```'].join('\n');
+  assert.equal(mdToHtml(md, ctx.lookup, ctx.renderInline).html, '<p>![a](x.png)</p>');
+});
+
+test('B4 — 图片嵌在链接里的常见写法 [![a](x.png)](page.html)', () => {
+  const ctx = makeCtx();
+  assert.equal(mdToHtml('[![a](x.png)](page.html)', ctx.lookup, ctx.renderInline).html,
+    '<p><a href="page.html"><img src="x.png" alt="a"></a></p>');
+  // an external link around it keeps its own two attributes; the image stays as written
+  assert.equal(mdToHtml('[![a](https://cdn.example.com/x.png)](https://example.com)', ctx.lookup, ctx.renderInline).html,
+    '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer"><img src="https://cdn.example.com/x.png" alt="a"></a></p>');
+  // …and inside a list item or a table cell it behaves the same: both go through the inline renderer
+  assert.equal(mdToHtml('- [![a](x.png)](page.html)', ctx.lookup, ctx.renderInline).html,
+    '<ul><li><a href="page.html"><img src="x.png" alt="a"></a></li></ul>');
+  const inTable = mdToHtml('| 图 |\n|---|\n| [![a](x.png)](page.html) |', ctx.lookup, ctx.renderInline).html;
+  assert.ok(inTable.includes('<td><a href="page.html"><img src="x.png" alt="a"></a></td>'), inTable);
+});
+
+test('B4 — 不带 ! 的链接照旧;两段图片相邻各自成图', () => {
+  const ctx = makeCtx();
+  assert.equal(mdToHtml('[a](x.png)', ctx.lookup, ctx.renderInline).html, '<p><a href="x.png">a</a></p>');
+  assert.equal(mdToHtml('![a](x.png)![b](y.png)', ctx.lookup, ctx.renderInline).html,
+    '<p><img src="x.png" alt="a"><img src="y.png" alt="b"></p>');
+});
+
+test('B4 — 替代文字为空;替代文字里的内联标记保持原样、不被再解析', () => {
+  const ctx = makeCtx([{ id: 'wondrous_milk', name: '神奇乳汁' }]);
+  assert.equal(mdToHtml('![](x.png)', ctx.lookup, ctx.renderInline).html, '<p><img src="x.png" alt=""></p>');
+  assert.equal(mdToHtml('![**粗** 和 *斜*](x.png)', ctx.lookup, ctx.renderInline).html,
+    '<p><img src="x.png" alt="**粗** 和 *斜*"></p>');
+  assert.deepEqual(ctx.calls, [], 'nothing inside an alt text is looked up or emphasised');
+  // The same limit as for links: a `]` inside the alt text ends it, so the
+  // whole thing stays as written — including a [[wikilink]], which has two.
+  const bracketed = mdToHtml('![a [b]](x.png)', ctx.lookup, ctx.renderInline).html;
+  assert.ok(bracketed.includes('![a [b]](x.png)'), bracketed);
+  assert.deepEqual(ctx.calls, []);
+});
+
+test('B4 — 不支持的写法保持原样,不猜:单引号标题、带空格的地址、缺右括号', () => {
+  const ctx = makeCtx();
+  for (const md of ["![a](x.png '标题')", '![a](x y.png)', '![a](x.png', '![a [b]](x.png)']) {
+    const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+    assert.ok(!html.includes('<img'), `${md}: not an image`);
+    assert.ok(html.includes(md), `${md}: kept as written`);
+  }
+});

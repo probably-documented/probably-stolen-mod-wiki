@@ -10,7 +10,8 @@
 //
 // Supported: ATX headings (slug ids + toc), GFM pipe tables with alignment,
 // ordered/unordered lists (2-space nesting), **bold**, *italic*, `code`,
-// [text](#anchor), paragraphs (single newline joins, blank line splits).
+// [text](#anchor), ![alt](src "title") images (the address as written), and
+// paragraphs (single newline joins, blank line splits).
 // Everything else (e.g. blockquotes) survives as escaped text.
 //
 // ```html passthrough fences: an opening fence line of exactly ```html
@@ -52,18 +53,36 @@ function makeSlug(title, usedCounts) {
 // Inline renderer. Order matters:
 //   1. extract `code` spans into sentinels (their content gets no further parsing)
 //   2. escape HTML
-//   3. [text](href) links
-//   4. **strong**, then *em*
-//   5. [[item id]] wikilinks (last, per the plan's state machine)
-//   6. restore code spans
+//   3. ![alt](src "title") images — parked behind a sentinel of their own
+//   4. [text](href) links
+//   5. **strong**, then *em*
+//   6. [[item id]] wikilinks (last, per the plan's state machine)
+//   7. restore code spans and images
 function renderInline(text, ctx) {
   const codes = [];
-  let out = text.replace(/`([^`]+)`/g, (_, code) => {
-    codes.push(`<code>${escapeHtml(code)}</code>`);
+  const park = (html) => {
+    codes.push(html);
     return `\u0000${codes.length - 1}\u0000`;
-  });
+  };
+  let out = text.replace(/`([^`]+)`/g, (_, code) => park(`<code>${escapeHtml(code)}</code>`));
 
   out = escapeHtml(out);
+
+  // ![alt](src "title"): an image (task 6b B4, ruling Z). The address is kept
+  // exactly as written — relative or not — because what may be loaded is the
+  // audit's decision (audit.js: a https:// image fails the build there, with
+  // a report for the contributor). A quote in the alt text or the title is
+  // escaped rather than let through: it would otherwise end the attribute and
+  // open another one. The whole tag is parked until the end, so the inline
+  // rules below never rewrite what is inside its attributes; and it is parsed
+  // before links, so that [![a](x.png)](page.html) nests an image in a link.
+  // What the syntax does not cover (a single-quoted title, an address with a
+  // space in it) stays as written.
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, alt, src, title) => {
+    const attributeText = (value) => value.replace(/"/g, '&quot;');
+    return park(`<img src="${src.replace(/"/g, '%22')}" alt="${attributeText(alt)}"`
+      + (title === undefined ? '' : ` title="${attributeText(title)}"`) + '>');
+  });
 
   // [text](href): an external http(s) link opens in a new tab (task 6b B1 —
   // external links are allowed in the body, ruling of 2026-11-23), with the
