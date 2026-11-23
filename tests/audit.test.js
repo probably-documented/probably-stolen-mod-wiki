@@ -1459,3 +1459,94 @@ test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an 
   assert.ok(violations.every((v) => v.code === 'css-external-url' && v.line === 1));
   assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to grow with the square of the number of addresses`);
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — found while parsing exactly, after the four fixes above:
+// inside <svg> / <math> a <script/> or <style/> IS self-closing
+//
+// The audit took every <script> and <style> for an HTML one: an element whose
+// content is text up to the next </script> or </style>. In an HTML document
+// that is so — but inside foreign content (SVG, MathML) the start tag ends
+// where its `/>` says, and what follows it is markup again. So, given
+//   <svg><script/></svg>   <iframe src="javascript:alert(1)"></iframe>
+// the browser ran the iframe's script, and the audit — looking for a
+// </script> that never came — read the rest of the file as the text of that
+// script: nothing in it was checked. An SVG <script>alert(1)</script> that
+// the browser runs was not reported either, when a self-closing one came
+// before it. None of this is new in this round; it was there from the first.
+//
+// What the audit now does is deliberately the safe side of the browser. It
+// keeps count of the <svg> / <math> it has seen opened and not seen closed;
+// while that count is above zero a <script> or <style> is an ordinary
+// element — its start tag is checked like any, and what follows is read as
+// markup. A <style>'s content is still read as CSS (the browser applies it:
+// an SVG style imports). Where the browser leaves the foreign content sooner
+// than the audit does — a <p> that breaks out, a <desc>, which is an HTML
+// integration point — the audit reads MORE markup than the browser does, and
+// can only over-report. Every line was tried in Chrome 152 (task-6b report).
+// ---------------------------------------------------------------------------
+
+test('review round 2, found while parsing exactly — inside <svg> / <math> a <script/> or <style/> is self-closing: what follows it is markup, and the audit reads it (it read nothing more in the file)', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<svg><script/></svg>',
+      '<iframe src="https://evil.example/q1.html"></iframe>',
+      '<svg><style/></svg>',
+      '<img src="https://evil.example/q2.png" alt="">',
+      '<svg><script>alert(1)</script></svg>', // an SVG script: it runs
+      '<svg><style>@import "https://evil.example/q4.css";</style></svg>', // an SVG style: its content is CSS
+      '<svg><style><img src="https://evil.example/q5.png"></style></svg>', // …and markup: the browser leaves the SVG and loads the image
+      '<math><style/></math>',
+      '<iframe src="https://evil.example/q6.html"></iframe>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [script-inline]`, // the empty SVG script, reported like any <script>
+    `${HTML}:2 [external-url]`,
+    `${HTML}:4 [external-url]`,
+    `${HTML}:5 [script-inline]`,
+    `${HTML}:6 [css-external-url]`,
+    `${HTML}:7 [external-url]`,
+    `${HTML}:9 [external-url]`,
+  ]);
+});
+
+test('review round 2, found while parsing exactly — so the line after an SVG script is read: the iframe with a javascript: address, which the browser runs', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<svg><script href="data:text/javascript,alert(1)"/></svg>', // runs in the browser; refused twice over
+      '<iframe src="javascript:alert(1)"></iframe>', // the first navigation of the frame: runs
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [data-url]`, `${HTML}:1 [script-inline]`, `${HTML}:2 [script-url]`]);
+});
+
+test('review round 2, found while parsing exactly — the controls: in HTML proper the `/` before `>` of a <script/> is nothing, and what follows is the script\'s text', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div><script/></div>',
+      '<iframe src="https://evil.example/q8.html"></iframe>', // script text: fetched by nobody
+      '<svg></svg><script/>', // the SVG is closed first: an HTML script again
+      '<iframe src="https://evil.example/q9.html"></iframe>', // script text as well
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [script-inline]`]); // the first <script/> swallows the rest, the browser as the audit
+});
+
+test('review round 2, found while parsing exactly — where the browser leaves the SVG sooner than the audit, the audit reports more, never less', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<svg><desc><script/></desc></svg>', // <desc> is an HTML integration point: the browser makes an HTML script of it
+      '<img src="https://evil.example/q10.png" alt="">', // …and never loads the image, which is that script's text
+    ),
+    'other.html': page(
+      '<svg><p><script/></svg>', // <p> breaks out of the SVG: an HTML script again
+      '<img src="https://evil.example/q11.png" alt="">', // …never loaded
+    ),
+  });
+  // the audit stays inside the SVG, reads the script as an element and the image as markup: both reported — the safe side
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [script-inline]`, `${HTML}:2 [external-url]`,
+    'other.html:1 [script-inline]', 'other.html:2 [external-url]',
+  ]);
+});
