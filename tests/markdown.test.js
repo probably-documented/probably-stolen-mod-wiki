@@ -276,3 +276,51 @@ test('empty input yields empty output', () => {
   assert.equal(html, '');
   assert.deepEqual(toc, []);
 });
+
+// ===== B1 (task 6b): external links open in a new tab =====
+//
+// 站长裁决(2026-11-23):正文里允许外部链接。它们带 target="_blank" 与
+// rel="noopener noreferrer"(与 templates.js 页脚署名的写法一致);站内链接、
+// 锚点与 mailto 保持原样。
+
+test('B1 — 外部链接(http/https)带 target="_blank" rel="noopener noreferrer";站内相对链接、锚点、mailto 不带', () => {
+  const ctx = makeCtx();
+  const md = [
+    '见 [外链](https://example.com/a) 与 [另一个](http://example.org/b)。',
+    '',
+    '[站内](../items.html) [锚点](#合成表) [邮件](mailto:someone@example.com)',
+  ].join('\n');
+  const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+
+  assert.ok(html.includes('<a href="https://example.com/a" target="_blank" rel="noopener noreferrer">外链</a>'),
+    'an https link carries the two attributes, in this order');
+  assert.ok(html.includes('<a href="http://example.org/b" target="_blank" rel="noopener noreferrer">另一个</a>'),
+    'an http link too');
+  assert.equal((html.match(/ target="_blank" rel="noopener noreferrer"/g) || []).length, 2,
+    'exactly the two external links carry them');
+  assert.ok(html.includes('<a href="../items.html">站内</a>'), 'a site-relative link carries neither');
+  assert.ok(html.includes('<a href="#合成表">锚点</a>'), 'a fragment link carries neither');
+  assert.ok(html.includes('<a href="mailto:someone@example.com">邮件</a>'), 'mailto is not an external http(s) link');
+});
+
+test('B1 — 大小写不敏感的 HTTP(S) 方案、带查询串与片段的外链同样处理;属性写法不受 href 内容影响', () => {
+  const ctx = makeCtx();
+  const md = '[大写](HTTPS://example.com/x) [查询](https://example.com/p?a=1&b=2#frag) [形似外链](httpsx://example.com/)';
+  const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+
+  assert.ok(html.includes('<a href="HTTPS://example.com/x" target="_blank" rel="noopener noreferrer">大写</a>'), 'the scheme is case-insensitive, the href is left as written');
+  assert.ok(html.includes('<a href="https://example.com/p?a=1&amp;b=2#frag" target="_blank" rel="noopener noreferrer">查询</a>'), 'the href stays escaped, the attributes follow it');
+  assert.ok(html.includes('<a href="httpsx://example.com/">形似外链</a>'), 'not an http(s) URL: no attributes');
+});
+
+test('B3 — ```html 直通块里手写的 <a> 原样输出,不经 mdToHtml 改写、不加属性', () => {
+  const ctx = makeCtx();
+  const md = [
+    '```html',
+    '<a href="https://example.com/raw">手写外链</a>',
+    '<a class="x" href="https://example.com/y">另一个</a>',
+    '```',
+  ].join('\n');
+  const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<a href="https://example.com/raw">手写外链</a>\n<a class="x" href="https://example.com/y">另一个</a>');
+});

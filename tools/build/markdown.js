@@ -65,9 +65,14 @@ function renderInline(text, ctx) {
 
   out = escapeHtml(out);
 
+  // [text](href): an external http(s) link opens in a new tab (task 6b B1 —
+  // external links are allowed in the body, ruling of 2026-11-23), with the
+  // same two attributes templates.js gives the footer credit. Site-relative
+  // links, fragments and other schemes stay as they are.
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
     const safeHref = href.replace(/"/g, '%22');
-    return `<a href="${safeHref}">${label}</a>`;
+    const external = /^https?:\/\//i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return `<a href="${safeHref}"${external}>${label}</a>`;
   });
 
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
