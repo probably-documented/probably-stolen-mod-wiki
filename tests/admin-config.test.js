@@ -19,17 +19,25 @@
 //       must start from files the site ships), and it tells search engines
 //       not to index it.
 //
-// config.yml (task 6 rulings K / L / M / S):
-//   K — the skeleton: the GitHub backend with the additions sign-in, no
-//       media folder, no base_url (a later task fills it in), and the two
-//       collections contributors edit, both creatable and deletable.
+// config.yml (task 6 rulings K / L / M / S / V):
+//   K — the skeleton: the GitHub backend with the additions sign-in, a
+//       placeholder media folder (Sveltia CMS 0.271.0 refuses to start
+//       without one; the build never reads it), no base_url until the
+//       sign-in service exists — one known, expected configuration error
+//       in the meantime — and the two collections contributors edit, both
+//       creatable and deletable. The body hints carry the ruled link
+//       policy: external links are fine, images are not supported yet.
 //   L — an item page's file name is the item id (the build lints it), so the
 //       `slug` select offers exactly the real item ids and nothing else.
 //       What a contributor may type is what the renderer reads: the body.
 //   M — a mechanic page is title + nav_label + body.
-//   S — every front matter key of a content/mechanics page is a field of the
-//       mechanics collection. (The same for content/items is not in place
-//       yet — the S test says why.)
+//   S — every front matter key of a mechanic page is a field of the
+//       mechanics collection. Item pages are not checked: the renderer
+//       reads nothing of their front matter, and the CMS writes keys it
+//       does not know back unchanged.
+//   V — both bodies are Markdown fields opened in raw mode only: until the
+//       rich-text round trip has been tried on [[id]] and ```html blocks,
+//       WYSIWYG editing stays closed.
 //
 // And the build: with its default adminDir, buildSkeleton really injects
 // the shell into dist/admin/.
@@ -281,18 +289,22 @@ test('L — the 物品 dropdown of the items collection offers exactly the real 
     'the dropdown must list every real item id (aliases are not ids) and nothing else');
 });
 
-test('K — config skeleton: GitHub backend with the additions sign-in, no media folder, no base_url; both collections can be created and deleted', async () => {
+test('K — config skeleton: GitHub backend with the additions sign-in, a placeholder media folder, no base_url yet; both collections can be created and deleted', async () => {
   const config = await readConfig();
 
   const backend = subBlock(config, 'backend');
   assert.ok(backend, 'config.yml has a backend block');
   assert.equal(value(backend, 'name'), 'github');
   assert.equal(value(backend, 'auth_type'), 'additions');
-  // Both are left out on purpose (ruling K): the media upload story and the
-  // sign-in service URL are decided by later tasks. A `# base_url:` example
-  // in a comment is fine — comments are not configuration.
-  assert.ok(!has(config, 'media_folder'), 'media_folder is not configured');
-  assert.ok(!has(backend, 'base_url'), 'base_url is not configured');
+  // Sveltia CMS 0.271.0 refuses to start without a media folder, so one is
+  // declared as an inert placeholder. The build never reads that directory;
+  // what happens to images and uploads is decided after the CMS is online.
+  assert.equal(unquote(value(config, 'media_folder')), 'assets/uploads');
+  // The sign-in service does not exist until a later task deploys it, so
+  // its URL is left out, and the CMS reports exactly that one configuration
+  // error meanwhile — the expected state in between. A `# base_url:`
+  // example in a comment is fine: comments are not configuration.
+  assert.ok(!has(backend, 'base_url'), 'base_url is not configured yet');
 
   for (const [name, folder] of [['items', 'content/items'], ['mechanics', 'content/mechanics']]) {
     const coll = collection(config, name);
@@ -341,11 +353,36 @@ test('S — every front matter key of content/mechanics/*.md is a field of the m
     assert.deepEqual(outside, [],
       `content/mechanics/${name}: front matter keys that are not fields of the collection, hence not editable in the CMS: ${outside.join(', ')}`);
   }
-  // The same check for content/items/*.md is deliberately absent for now:
-  // the items collection declares only what the renderer reads (the slug
-  // that names the file, and the body), which cannot cover the test-only
-  // front matter of the fixture entry content/items/wondrous_milk.md
-  // (title, fixture-fm-key, related). See the task 6 report.
+  // Only mechanic pages are checked. The renderer reads nothing of an item
+  // page's front matter — render.js takes the body of content/items/<id>.md
+  // and names the page after the file — so the items collection declares
+  // just the slug that names the file and the body, and the keys the
+  // fixture entry carries beyond those (title, fixture-fm-key, related)
+  // stay as they are: Sveltia CMS 0.271.0 writes keys it does not know
+  // back unchanged when an entry is saved.
+});
+
+test('V — both bodies are Markdown fields, the last field of their collection, opened in raw mode only', async () => {
+  const config = await readConfig();
+  for (const name of ['items', 'mechanics']) {
+    const fields = fieldsOf(collection(config, name));
+    const body = fields.at(-1);
+    assert.equal(value(body, 'name'), 'body', `${name}: the body is the last field`);
+    assert.equal(value(body, 'widget'), 'markdown', `${name}.body is a Markdown field`);
+    const modes = listItems(subBlock(body, 'modes')).map((mode) => mode.map((line) => line.text));
+    assert.deepEqual(modes, [['raw']], `${name}.body: raw mode only`);
+  }
+});
+
+test('the body hints carry the ruled link policy: external links are fine, images are not supported yet', async () => {
+  const config = await readConfig();
+  for (const name of ['items', 'mechanics']) {
+    const body = fieldsOf(collection(config, name)).find((field) => value(field, 'name') === 'body');
+    const hint = unquote(value(body, 'hint'));
+    assert.match(hint, /Markdown/, `${name}.body hint: says the body is Markdown`);
+    assert.match(hint, /外部链接/, `${name}.body hint: external links are allowed`);
+    assert.match(hint, /暂不支持插入图片/, `${name}.body hint: images are not supported yet`);
+  }
 });
 
 // ---------------------------------------------------------------------------
