@@ -32,12 +32,13 @@
 // prints it without a stack trace.
 
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 
 const { renderSite } = require('./render.js');
 const { auditExternalLinks } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
-const { isInsideDir } = require('./paths.js');
+const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
@@ -83,27 +84,6 @@ const ASSET_MAP = Object.freeze([
 const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-builds');
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
-
-/**
- * Would the recursive `rm distDir` take the repo with it? True when the
- * resolved distDir is the repo root itself or one of its ancestors — asked
- * literally: does repoRoot lie inside distDir. So `distDir: '.'` run from
- * the repo root IS the repo root, while a sibling whose name merely extends
- * the repo's (`<repo>-copy`) stays allowed.
- *
- * Pure (no fs access) so it can be unit-tested against a stand-in repo root —
- * the real one must never be passed to buildSkeleton to prove the guard.
- *
- * Not covered: aliases of the same directory through symlinks/junctions or
- * 8.3 short names (that would need fs.realpath, i.e. I/O).
- *
- * @param {string} distDir
- * @param {string} repoRoot
- * @returns {boolean}
- */
-function isUnsafeDistDir(distDir, repoRoot) {
-  return isInsideDir(distDir, repoRoot);
-}
 
 /**
  * Lint content/items/: every markdown file there must be named exactly
@@ -296,9 +276,11 @@ async function injectAdmin(adminSource, distDir) {
  *   adminInjected: boolean}>}
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   adminInjected = whether an admin tree was copied into dist.
- * @throws {Error} when distDir resolves to the repo root or one of its
- *   ancestors, when adminDir lies inside distDir or is not a directory (all
- *   three refused before anything is removed), when a content/items markdown
+ * @throws {Error} when distDir is neither a directory inside the repo nor
+ *   one inside the system temp directory (in particular the repo root or
+ *   one of its ancestors — paths.js isAllowedDistDir), when adminDir lies
+ *   inside distDir or is not a directory (all three refused before anything
+ *   is removed), when a content/items markdown
  *   file is not named `<item.id>.md`, when an asset source is missing, when
  *   more than one mechanics page declares a top-nav label (`nav_label`), on
  *   any render/write/asset-copy/admin-copy failure, when a page or the
@@ -319,10 +301,13 @@ async function buildSkeleton({
 } = {}) {
   try {
     // 0. Pre-flight — nothing on disk has changed yet.
-    //    rm guard: the recursive rm in step 3 must never eat the repo.
+    //    rm guard (paths.js isAllowedDistDir): the recursive rm in step 3
+    //    may only ever hit a directory inside the repo, or inside the system
+    //    temp directory — and never the repo root or one of its ancestors.
     const distPath = path.resolve(distDir);
-    if (isUnsafeDistDir(distPath, REPO_ROOT)) {
-      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it is the repo root or one of its ancestors`);
+    if (!isAllowedDistDir(distPath, REPO_ROOT)) {
+      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it must be a directory inside the repo `
+        + `(${REPO_ROOT}) or inside the system temp directory (${os.tmpdir()}), and never the repo root or one of its ancestors`);
     }
     //    CMS shell source — all three answers known up front (see
     //    resolveAdminSource): inside dist → refused (step 3 would delete it
@@ -428,4 +413,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildSkeleton, validateItemContentIds, isUnsafeDistDir };
+module.exports = { buildSkeleton, validateItemContentIds };

@@ -27,7 +27,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildSkeleton, validateItemContentIds, isUnsafeDistDir,
+  buildSkeleton, validateItemContentIds,
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
@@ -703,54 +703,18 @@ test('buildSkeleton with contentDir: null has no content/items to lint and build
 });
 
 // ---------------------------------------------------------------------------
-// Task 5 D — rm guard
+// Task 5 D → Task 5b D1 — rm guard
 //
 // buildSkeleton removes distDir recursively. `buildSkeleton({ distDir: '.' })`
-// run from the repo root would wipe the repo. The judgement is a pure function
-// so the tests never hand the REAL repo root (nor any of its real ancestors)
-// to buildSkeleton: a stand-in tree inside a temp dir plays the repo.
+// run from the repo root would wipe the repo; since D1 the guard is a
+// positive allow-list (tools/build/paths.js isAllowedDistDir: inside the
+// repo, or inside the system temp directory — nothing else). The judgement
+// is a pure function with its own tests (tests/paths.test.js, string-built
+// paths, nothing on disk). What is pinned HERE is the wiring — that
+// buildSkeleton really asks it before rm — and it is pinned without ever
+// handing the REAL repo root to buildSkeleton: a throwaway copy of the
+// build's inputs plays the repo.
 // ---------------------------------------------------------------------------
-
-test('isUnsafeDistDir: the repo root and its ancestors are refused; subdirectories and unrelated dirs are allowed', async (t) => {
-  const tmp = await tmpDir(t, 'rm-guard');
-  const repoRoot = path.join(tmp, 'repo'); // stand-in repo root (never created, never removed)
-  const parent = path.dirname(repoRoot);
-  const cases = [
-    [repoRoot, true, 'the repo root itself'],
-    [path.join(repoRoot, 'dist', '..'), true, 'a path that normalizes back to the repo root'],
-    [`${repoRoot}${path.sep}`, true, 'trailing separator'],
-    [parent, true, 'parent of the repo root'],
-    [path.dirname(parent), true, 'grandparent of the repo root'],
-    [path.parse(repoRoot).root, true, 'filesystem root'],
-    [path.join(repoRoot, 'dist'), false, 'ordinary subdirectory'],
-    [path.join(repoRoot, 'out', 'nested', 'deeper'), false, 'nested subdirectory'],
-    [path.join(parent, 'dist'), false, 'sibling directory'],
-    [path.join(parent, `${path.basename(repoRoot)}-copy`), false, "sibling whose name extends the repo's"],
-  ];
-  for (const [distDir, expected, what] of cases) {
-    assert.equal(isUnsafeDistDir(distDir, repoRoot), expected, what);
-  }
-  assert.equal(isUnsafeDistDir(await tmpDir(t, 'rm-guard-unrelated'), repoRoot), false, 'an unrelated temp dir');
-
-  if (process.platform === 'win32') {
-    assert.equal(isUnsafeDistDir(repoRoot.toUpperCase(), repoRoot), true, 'win32 paths compare case-insensitively');
-  }
-});
-
-test('isUnsafeDistDir: "." (and "", "..") from inside the repo resolve against cwd and are refused too', async (t) => {
-  const cwd = process.cwd();
-  const repoRoot = path.join(await tmpDir(t, 'rm-guard-cwd'), 'repo');
-  await fs.mkdir(repoRoot);
-  process.chdir(repoRoot);
-  try {
-    assert.equal(isUnsafeDistDir('.', repoRoot), true, '"." from the repo root is the repo root');
-    assert.equal(isUnsafeDistDir('', repoRoot), true, '"" resolves to cwd as well');
-    assert.equal(isUnsafeDistDir('..', repoRoot), true, '".." from the repo root is its parent');
-    assert.equal(isUnsafeDistDir('dist', repoRoot), false, 'a relative subdirectory is fine');
-  } finally {
-    process.chdir(cwd); // before tmpDir's cleanup: cwd must not sit inside the dir being removed
-  }
-});
 
 test('buildSkeleton refuses a distDir that is the repo root or one of its ancestors, before touching anything', async (t) => {
   // A throwaway copy of the build's own inputs stands in for the repo: the
