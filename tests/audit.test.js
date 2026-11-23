@@ -30,7 +30,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const auditModule = require('../tools/build/audit.js');
-const { auditExternalLinks } = auditModule;
+const { auditExternalLinks, CODES } = auditModule;
 
 let counter = 0;
 
@@ -59,6 +59,38 @@ const HTML = 'index.html';
 const page = (...lines) => lines.join('\n');
 
 // ---------------------------------------------------------------------------
+// A6 — the set of codes
+// ---------------------------------------------------------------------------
+
+test('A6 — the exported CODES is exactly what the rules report: one input per rule, and nothing else', async (t) => {
+  const violations = await auditOf(t, {
+    'index.html': page(
+      '<a href="//example.com/x">protocol-relative</a>',
+      '<img src="https://evil.example/x.png" alt=""/>',
+      '<a href="/index.html">root-relative</a>',
+      '<script>alert(1)</script>',
+      '<script src="evil.js"></script>',
+      '<div onclick="x()">event</div>',
+      '<a href="javascript:alert(1)">script url</a>',
+      '<base href="x/">',
+      '<meta http-equiv="refresh" content="1">',
+      '<iframe srcdoc="x"></iframe>',
+      'fetch("/x")',
+      'XMLHttpRequest',
+    ),
+    'css/theme.css': page(
+      'a{background:url(https://evil.example/a.png)}',
+      'b{background:url(//cdn.example.com/b.png)}',
+      'c{background:url(/c.png)}',
+    ),
+  });
+  const reported = [...new Set(violations.map((v) => v.code))].sort();
+  const expected = [...CODES].filter((code) => code !== 'unreadable').sort();
+  assert.deepEqual(reported, expected,
+    'every rule reports a code of the exported list, and every code of the list (but `unreadable`, a file the build cannot read — not made to happen here) is reported by some rule');
+});
+
+// ---------------------------------------------------------------------------
 // A6 — the shape
 // ---------------------------------------------------------------------------
 
@@ -71,10 +103,10 @@ test('A6 — returns an array of { file, line, code, detail }, sorted by file th
   });
 
   assert.deepEqual(violations.map((v) => `${v.file}:${v.line} [${v.code}]`), [
-    'a-first.html:1 [href-root-relative]',
+    'a-first.html:1 [root-relative-url]',
     'css/theme.css:1 [css-url-http]',
-    'z-last.html:1 [src-http]',
-    'z-last.html:3 [src-http]',
+    'z-last.html:1 [external-url]',
+    'z-last.html:3 [external-url]',
   ]);
   for (const v of violations) {
     assert.deepEqual(Object.keys(v).sort(), ['code', 'detail', 'file', 'line'], `keys of ${JSON.stringify(v)}`);
@@ -121,7 +153,7 @@ test('A1 — the footer credit needs no special whitelist any more: audit.js doe
 // A2 — loading external resources stays forbidden
 // ---------------------------------------------------------------------------
 
-test('A2 — src="http(s)://…" on any element is a violation (src-http)', async (t) => {
+test('A2 — src="http(s)://…" on any element is a violation (external-url)', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<img src="https://evil.example/x.png" alt=""/>',
@@ -136,23 +168,23 @@ test('A2 — src="http(s)://…" on any element is a violation (src-http)', asyn
   });
   // Line 6 holds a tag that spans lines 6–7, so the next tags sit on 8 and 9.
   assert.deepEqual(brief(violations), [
-    `${HTML}:1 [src-http]`,
-    `${HTML}:2 [src-http]`,
-    `${HTML}:3 [src-http]`,
-    `${HTML}:4 [src-http]`,
-    `${HTML}:5 [src-http]`,
-    `${HTML}:6 [src-http]`, // a tag that spans lines is reported where it starts
-    `${HTML}:8 [src-http]`,
-    `${HTML}:9 [src-http]`,
+    `${HTML}:1 [external-url]`,
+    `${HTML}:2 [external-url]`,
+    `${HTML}:3 [external-url]`,
+    `${HTML}:4 [external-url]`,
+    `${HTML}:5 [external-url]`,
+    `${HTML}:6 [external-url]`, // a tag that spans lines is reported where it starts
+    `${HTML}:8 [external-url]`,
+    `${HTML}:9 [external-url]`,
   ]);
 });
 
 test('A2 — a <script src> to an outside URL is reported once, as the external resource it is', async (t) => {
   const violations = await auditOf(t, { [HTML]: '<script src="https://evil.example/x.js"></script>' });
-  assert.deepEqual(brief(violations), [`${HTML}:1 [src-http]`], 'src-http, and not a second script-src line for the same tag');
+  assert.deepEqual(brief(violations), [`${HTML}:1 [external-url]`], 'external-url, and not a second script-src line for the same tag');
 });
 
-test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) href on any other element that is not <a> (href-http)', async (t) => {
+test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) href on any other element that is not <a> (external-url)', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<link rel="stylesheet" href="https://evil.example/x.css"/>',
@@ -163,7 +195,7 @@ test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) hr
       '<a href="https://example.com/fine">a link is fine</a>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5].map((n) => `${HTML}:${n} [href-http]`));
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5].map((n) => `${HTML}:${n} [external-url]`));
 });
 
 test('A2 — CSS url(http…) is a violation (css-url-http): in a <style> block, in a style attribute, in a .css file', async (t) => {
@@ -196,9 +228,9 @@ test('A2 — protocol-relative references (src="//…", href="//…", url(//…)
     ),
   });
   assert.deepEqual(brief(violations), [
-    `${HTML}:1 [src-protocol-relative]`,
-    `${HTML}:2 [href-protocol-relative]`,
-    `${HTML}:3 [href-protocol-relative]`,
+    `${HTML}:1 [protocol-relative-url]`,
+    `${HTML}:2 [protocol-relative-url]`,
+    `${HTML}:3 [protocol-relative-url]`,
     `${HTML}:4 [css-url-protocol-relative]`,
   ]);
 });
@@ -237,13 +269,13 @@ test('A3 — root-relative href="/…", src="/…" and CSS url(/…) are violati
   });
   assert.deepEqual(brief(violations), [
     'css/theme.css:1 [css-url-root-relative]',
-    `${HTML}:1 [href-root-relative]`,
-    `${HTML}:2 [src-root-relative]`,
-    `${HTML}:3 [href-root-relative]`,
-    `${HTML}:4 [src-root-relative]`,
+    `${HTML}:1 [root-relative-url]`,
+    `${HTML}:2 [root-relative-url]`,
+    `${HTML}:3 [root-relative-url]`,
+    `${HTML}:4 [root-relative-url]`,
     `${HTML}:5 [css-url-root-relative]`,
     `${HTML}:6 [css-url-root-relative]`,
-    `${HTML}:7 [href-root-relative]`,
+    `${HTML}:7 [root-relative-url]`,
   ]);
 });
 
@@ -333,9 +365,9 @@ test('A4 — <script src>: only the three scripts the first-party templates load
     `${HTML}:5 [script-src]`, // the list holds exact values
     `${HTML}:6 [script-src]`,
     `${HTML}:7 [script-src]`,
-    `${HTML}:8 [src-http]`, // an outside URL is the external resource it is
-    `${HTML}:9 [src-protocol-relative]`,
-    `${HTML}:10 [src-root-relative]`,
+    `${HTML}:8 [external-url]`, // an outside URL is the external resource it is
+    `${HTML}:9 [protocol-relative-url]`,
+    `${HTML}:10 [root-relative-url]`,
   ]);
 });
 
@@ -407,7 +439,10 @@ test('A4 — a <base> tag is a violation (base-tag): it changes what every relat
   const violations = await auditOf(t, {
     [HTML]: '<base href="https://evil.example/">\n<BASE target="_blank">\n<base/>\n<p>no base here</p>',
   });
-  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [base-tag]`));
+  // (ruling AA) the first one is outside-addressed too: a <base> is no longer a special case
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [base-tag]`, `${HTML}:1 [external-url]`, `${HTML}:2 [base-tag]`, `${HTML}:3 [base-tag]`,
+  ]);
 });
 
 test('A4 — a <meta> with http-equiv is a violation (meta-http-equiv); the ordinary <meta> tags of a page are not', async (t) => {
@@ -421,7 +456,12 @@ test('A4 — a <meta> with http-equiv is a violation (meta-http-equiv); the ordi
       '<meta name="robots" content="noindex">',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [meta-http-equiv]`));
+  // (ruling AA) the first one also carries an outside address in its content
+  // attribute: two entries, the tag first
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [meta-http-equiv]`, `${HTML}:1 [external-url]`,
+    `${HTML}:2 [meta-http-equiv]`, `${HTML}:3 [meta-http-equiv]`,
+  ]);
 });
 
 test('A4 — a srcdoc attribute is a violation (srcdoc): a same-origin frame that can carry a script', async (t) => {
@@ -443,7 +483,7 @@ test('A4 — several violations in one tag are reported one each, in document or
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [script-url]`, // href comes first in the tag…
     `${HTML}:1 [inline-event-handler]`, // …then onclick
-    `${HTML}:2 [src-http]`,
+    `${HTML}:2 [external-url]`,
     `${HTML}:2 [srcdoc]`,
     `${HTML}:2 [inline-event-handler]`,
   ]);
@@ -514,10 +554,10 @@ test('A5 — …but A2 and A3 apply to them as literal text: a script can assemb
     'css/z.css': '@import url(/x.css);',
   });
   assert.deepEqual(brief(violations), [
-    'assets/js/y.js:1 [src-http]',
-    'assets/js/y.js:2 [href-http]',
-    'assets/js/y.js:3 [src-root-relative]',
-    'assets/js/y.js:4 [href-protocol-relative]',
+    'assets/js/y.js:1 [external-url]',
+    'assets/js/y.js:2 [external-url]',
+    'assets/js/y.js:3 [root-relative-url]',
+    'assets/js/y.js:4 [protocol-relative-url]',
     'assets/js/y.js:6 [css-url-http]',
     'css/z.css:1 [css-url-root-relative]',
   ]);
@@ -531,4 +571,153 @@ test('A5 — in a page, src= and href= that are not inside a tag are just text',
     ),
   });
   assert.deepEqual(violations, []);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AA (task 6b) — by tag, not by named attribute
+//
+// Naming attributes (src, href) did not hold: srcset, poster, data, action,
+// formaction and ping all load from outside and none of them was looked at.
+// The rule is now by class. Outside an <a href>, no attribute value of any
+// tag may hold an http:// or https:// address or start with //; and no
+// URL-bearing attribute may start with / (the list is URL_ATTRIBUTES in
+// audit.js). Each gap below was shown to slip through by a probe before this
+// change; each is pinned here as caught, next to the legal use of the same
+// attribute.
+// ---------------------------------------------------------------------------
+
+test('AA — the six HTML gaps are closed: srcset, poster, object data, action, formaction, ping', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<img srcset="https://evil.example/a.png 1x" alt=""/>',
+      '<video poster="https://evil.example/p.png"></video>',
+      '<object data="https://evil.example/o.svg"></object>',
+      '<form action="https://evil.example/submit"></form>',
+      '<button formaction="https://evil.example/go">x</button>',
+      '<a href="items.html" ping="https://evil.example/track">x</a>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6].map((n) => `${HTML}:${n} [external-url]`));
+});
+
+test('AA — …and the same attributes with site-relative values are not reported', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<img srcset="a.png 1x, b.png 2x" src="a.png" alt=""/>',
+      '<video poster="p.png" src="v.mp4"></video>',
+      '<object data="o.svg"></object>',
+      '<form action="submit.html"></form>',
+      '<button formaction="go.html">x</button>',
+      '<a href="items.html" ping="track.html">x</a>',
+      '<a href="https://example.com/x">an outside link is fine</a>',
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('AA — a plain-text address outside every tag is not a violation; neither is an <a href> to an outside page', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<p>参考 https://example.com/a、http://example.org/b 和 //example.net/c</p>',
+      '<p>写法示例:srcset="https://example.com/a.png" 会加载外部图片。</p>',
+      '<a href="https://example.com/x">外链</a> <a href="http://example.org/y">另一个</a>',
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('AA — by class: any attribute of any tag but <a href>, wherever in the value the address sits', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<meta name="anything" content="0; url=https://evil.example/">', // content
+      '<div data-x="https://evil.example/d">any attribute at all</div>',
+      '<img srcset="a.png 1x, https://evil.example/b.png 2x" alt=""/>', // not at the start of the value
+      '<img src="HTTPS://EVIL.EXAMPLE/upper.png" alt=""/>', // case does not matter
+      '<img src="&#104;ttps://evil.example/decoded.png" alt=""/>', // character references
+      '<img src=https://evil.example/bare.png>', // an unquoted value
+      '<a href="x.html" title="see https://example.com">only the href of an <a> is exempt</a>',
+      '<a xlink:href="https://evil.example/svg">…and xlink:href is not href</a>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${HTML}:${n} [external-url]`));
+});
+
+test('AA — <base href="https://…"> is refused twice over: as a <base>, and as an outside address (no special case any more)', async (t) => {
+  const violations = await auditOf(t, { [HTML]: '<base href="https://evil.example/">' });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [base-tag]`, `${HTML}:1 [external-url]`]);
+});
+
+test('AA — protocol-relative: any attribute value that starts with //, <a href> included; a // elsewhere is nothing', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<img srcset="//cdn.example.com/a.png 1x" alt=""/>',
+      '<div data-x="//evil.example/d">any attribute</div>',
+      '<img srcset=" //cdn.example.com/b.png 1x" alt=""/>', // after a blank
+      '<a href="//example.com/x">a link does not get a pass either</a>',
+      '<a href="https://example.com/x">an https link is fine</a>',
+      '<div class="a//b" title="x // y">not at the start: fine</div>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4].map((n) => `${HTML}:${n} [protocol-relative-url]`));
+});
+
+test('AA — root-relative (A3) applies to every URL-bearing attribute, <a href> included, and to each candidate of a list', async (t) => {
+  const lines = [
+    '<a href="/index.html">首页</a>',
+    '<img src="/assets/x.png" alt=""/>',
+    '<img srcset="/a.png 1x" alt=""/>',
+    '<img srcset="a.png 1x, /b.png 2x" alt=""/>', // the second candidate
+    '<video poster="/p.png"></video>',
+    '<object data="/o.svg"></object>',
+    '<form action="/submit"></form>',
+    '<button formaction="/go">x</button>',
+    '<a href="x.html" ping="/track">x</a>',
+    '<blockquote cite="/q"></blockquote>',
+    '<img longdesc="/d.html" alt="" usemap="#m"/>', // usemap="#m" is a fragment: fine
+    '<html manifest="/m.appcache"></html>',
+    '<body background="/bg.png"></body>',
+    '<use xlink:href="/s.svg#a"/>',
+  ];
+  const violations = await auditOf(t, { [HTML]: lines.join('\n') });
+  assert.deepEqual(brief(violations), lines.map((_, i) => `${HTML}:${i + 1} [root-relative-url]`));
+});
+
+test('AA — …and to nothing that is not a URL-bearing attribute: a custom or plain attribute may start with /', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: '<div data-path="/x" title="/y" class="/z" id="/w" aria-label="/v">not addresses</div>',
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('AA — one attribute can break two rules; that is two entries, the outside address first', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: '<img srcset="/a.png 1x, https://evil.example/b.png 2x" alt=""/>',
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [external-url]`, `${HTML}:1 [root-relative-url]`]);
+});
+
+test('AA — the tag scanner reads quoted values: a > inside quotes does not cut the tag short', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<div title="a > b" onclick="x()">after the quoted > there is still an event attribute</div>',
+      "<div title='a > b' ping='https://evil.example/'>single quotes too</div>",
+      '<img src="x.png" alt="a>b" srcset="https://evil.example/a.png 1x"/>',
+      '<a href="https://example.com/" title="x>y" onclick="z()">an outside href (fine), an event attribute after a quoted ></a>',
+      '<img\n  alt="a > b"\n  srcset="https://evil.example/a.png 1x">',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [inline-event-handler]`,
+    `${HTML}:2 [external-url]`,
+    `${HTML}:3 [external-url]`,
+    `${HTML}:4 [inline-event-handler]`, // …and no external-url: the https:// sits in the <a href>
+    `${HTML}:5 [external-url]`, // a tag that spans lines is reported where it starts
+  ]);
+});
+
+test('AA — a style="" attribute is judged as CSS, once: it is not reported again for the https:// inside it', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: '<div style="background:url(https://evil.example/a.png)">x</div>',
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [css-url-http]`]);
 });

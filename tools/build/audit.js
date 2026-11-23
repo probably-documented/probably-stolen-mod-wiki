@@ -14,15 +14,20 @@
 // What is a violation — one { file, line, code, detail } per occurrence:
 //
 //   A1  allowed: <a href="http(s)://…">, an external link. No whitelist.
-//   A2  src="http(s)://…" on any element
-//         href="http(s)://…" on any element but <a> (<link>, an SVG <image> …
-//         load something; an <a> only navigates)
-//         protocol-relative src="//…" and href="//…"
-//         CSS url(http…) and url(//…) — a stylesheet, a <style> block, a
-//         style="" attribute
+//   A2  outside that one attribute (ruling AA: by tag, not by named
+//         attribute — src, srcset, poster, data, action, formaction, ping,
+//         content, style… are covered at once):
+//         protocol-relative-url — an attribute value that starts with //,
+//         any attribute, <a href> included
+//         external-url — an attribute value that holds an http:// or
+//         https:// address, any attribute but the href of an <a>
+//         in CSS (a stylesheet, a <style> block, a style="" attribute): the
+//         outside and protocol-relative addresses of url()
 //         a fetch( call, the word XMLHttpRequest
-//   A3  root-relative href="/…", src="/…", CSS url(/…): dead under file://,
-//       and pointing past the site on a GitHub Pages project site
+//   A3  root-relative-url: a URL-bearing attribute (URL_ATTRIBUTES — <a href>
+//         included, and each candidate of srcset) holds an address that
+//         starts with /; in CSS, url(/…). Dead under file://, and pointing
+//         past the site on a GitHub Pages project site.
 //   A4  in *.html only:
 //         an executable inline <script> (no src, and no type or a JavaScript
 //         one); a script block whose type is not executable is a data block
@@ -55,8 +60,12 @@
 //     <style>'s content is read as CSS. A browser keeps a script element open
 //     past a nested <script> that follows <!--; the audit stops at the first
 //     </script> — so that one case is over-reported, never under-reported.
-//   • Not covered, on purpose (the brief lists the rules): srcset, poster,
-//     action and other URL attributes, @import "…", CSS escapes.
+//   • An address written in running text, outside every tag, is not a
+//     violation: a contributor may write a URL in a sentence (ruling AA).
+//   • A tag's attributes are read with the scanner whatever the rule: a >
+//     inside a quoted value does not end the tag, so nothing hides behind it.
+//   • Not covered, on purpose: @import "…" and image-set("…") in CSS, and CSS
+//     escapes.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -70,6 +79,20 @@ const path = require('node:path');
  * templates.js emits no <script> at all. Exact values, as written.
  */
 const ALLOWED_SCRIPT_SRC = Object.freeze(['assets/js/item-filter.js', 'assets/js/search.js', 'data.js']);
+
+/**
+ * Every code the audit can report, in the order of the rules above. Exported
+ * so that the build entry can check its report knows how to explain each of
+ * them (skeleton-build.js AUDIT_ADVICE), and the audit's own tests can check
+ * the list against what the rules really report.
+ */
+const CODES = Object.freeze([
+  'protocol-relative-url', 'external-url', 'root-relative-url',
+  'css-url-http', 'css-url-protocol-relative', 'css-url-root-relative',
+  'fetch', 'xhr',
+  'script-inline', 'script-src', 'inline-event-handler', 'script-url', 'base-tag', 'meta-http-equiv', 'srcdoc',
+  'unreadable',
+]);
 
 /** Named character references a URL could be assembled from; anything else stays as written. */
 const NAMED_REFERENCES = Object.freeze({
@@ -91,6 +114,20 @@ const AFTER_END_TAG_NAME = '[\\t\\n\\f\\r />]';
 /** <script> / <style>: elements whose content is text, never markup. */
 const RAW_TEXT = new Set(['script', 'style']);
 const EVENT_ATTRIBUTE = /^on[a-z]+$/;
+
+/**
+ * The attributes whose value is a URL — or a list of URLs — that the browser
+ * fetches or navigates to. A3 (root-relative) applies to them (ruling AA).
+ * Not in the list: `content`, a URL only in <meta http-equiv="refresh"> —
+ * and that tag is refused outright (A4) — and data-* attributes, which the
+ * browser does not fetch. An outside address in ANY attribute is A2's
+ * business and needs no list.
+ */
+const URL_ATTRIBUTES = Object.freeze(new Set([
+  'href', 'xlink:href', 'src', 'srcset', 'imagesrcset', 'poster', 'data', 'action', 'formaction',
+  'ping', 'cite', 'longdesc', 'usemap', 'manifest', 'background', 'archive', 'classid', 'codebase',
+  'profile', 'icon', 'dynsrc', 'lowsrc', 'itemid', 'itemtype', 'resource', 'about',
+]));
 
 async function walkFiles(dir) {
   const out = [];
@@ -185,13 +222,38 @@ function scanCss(css, report, at, describe) {
   }
 }
 
-/** One src / href value: external, protocol-relative or root-relative — each with the code of its element kind. */
-function reportUrl(index, raw, element, httpAllowed, report, detail) {
-  const kind = urlKind(raw);
-  if (kind === 'http') {
-    if (!httpAllowed) report(index, `${element}-http`, detail);
-  } else if (kind !== 'other') {
-    report(index, `${element}-${kind}`, detail);
+/** The addresses an attribute value holds: one — or each candidate of srcset (comma separated, its first token) or of ping / archive (blank separated). */
+function urlCandidates(attribute, url) {
+  if (attribute === 'srcset' || attribute === 'imagesrcset') {
+    return url.split(',').map((candidate) => candidate.trim().split(/[\t\n\f\r ]+/)[0]).filter((candidate) => candidate !== '');
+  }
+  if (attribute === 'ping' || attribute === 'archive') {
+    return url.split(/[\t\n\f\r ]+/).filter((candidate) => candidate !== '');
+  }
+  return [url];
+}
+
+/**
+ * A2 and A3 for one attribute value (ruling AA — by class, not by named
+ * attribute). `url` is the value as a browser reads it (readUrl).
+ *   protocol-relative-url  it starts with // — any attribute, <a href> included
+ *   external-url           it holds an http:// or https:// address — any
+ *                          attribute but the href of an <a>, wherever in the
+ *                          value the address sits (srcset, content, style…)
+ *   root-relative-url      a URL-bearing attribute (URL_ATTRIBUTES) holds an
+ *                          address that starts with / — <a href> included
+ * One value may break two rules; that is two entries.
+ */
+function reportUrl(index, url, attribute, tagName, report, detail) {
+  const candidates = urlCandidates(attribute, url);
+  // protocol-relative: the value itself, or any of the addresses it lists
+  if (candidates.some((candidate) => candidate.startsWith('//'))) {
+    report(index, 'protocol-relative-url', detail);
+  } else if (/https?:\/\//i.test(url) && !(tagName === 'a' && attribute === 'href')) {
+    report(index, 'external-url', detail);
+  }
+  if (URL_ATTRIBUTES.has(attribute) && candidates.some((candidate) => candidate.startsWith('/') && !candidate.startsWith('//'))) {
+    report(index, 'root-relative-url', detail);
   }
 }
 
@@ -255,13 +317,14 @@ function checkTag(text, start, tag, report) {
     if (EVENT_ATTRIBUTE.test(name)) report(start, 'inline-event-handler', snippet());
     if (name === 'srcdoc') report(start, 'srcdoc', snippet());
     if (isScriptUrl(raw)) report(start, 'script-url', snippet());
-    if (name === 'src') {
-      reportUrl(start, raw, 'src', false, report, snippet());
-    } else if ((name === 'href' || name === 'xlink:href') && !isBase) {
-      // A <base> is refused as what it is; its href is not counted again.
-      reportUrl(start, raw, 'href', tag.name === 'a', report, snippet());
+    if (name === 'style') {
+      // Judged as CSS, and only as CSS: reportUrl would report the same
+      // https:// a second time, in words meant for a tag.
+      scanCss(raw, report, () => start, snippet);
+    } else if (value !== null) {
+      // A2 and A3 by class (ruling AA), for every attribute of every tag.
+      reportUrl(start, readUrl(raw), name, tag.name, report, snippet());
     }
-    if (name === 'style') scanCss(decodeCharacterReferences(raw), report, () => start, snippet);
     if (tag.name === 'script') {
       if (name === 'src') src = raw;
       if (name === 'type') type = raw;
@@ -269,9 +332,10 @@ function checkTag(text, start, tag, report) {
   }
   if (tag.name === 'script') {
     if (src !== null) {
-      // An outside src is the external resource it is (reported above);
+      // An outside, protocol-relative or root-relative src was reported above;
       // what is left is a site path — allowed only for the first-party list.
-      if (urlKind(src) === 'other' && !ALLOWED_SCRIPT_SRC.includes(readUrl(src))) report(start, 'script-src', snippet());
+      const url = readUrl(src);
+      if (!url.startsWith('/') && !/https?:\/\//i.test(url) && !ALLOWED_SCRIPT_SRC.includes(url)) report(start, 'script-src', snippet());
     } else if (type === null || isExecutableScriptType(type)) {
       report(start, 'script-inline', snippet());
     }
@@ -313,10 +377,10 @@ function scanHtml(text, report) {
   }
 }
 
-/** A .js file, as literal text: the markup a script may assemble at run time. */
+/** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption. */
 function scanScriptText(text, report) {
-  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, m[2], 'src', false, report, lineText(text, m.index));
-  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, m[2], 'href', false, report, lineText(text, m.index));
+  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, lineText(text, m.index));
+  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, lineText(text, m.index));
   scanCss(text, report, (offset) => offset, (index) => lineText(text, index));
 }
 
@@ -366,4 +430,4 @@ async function auditExternalLinks(dir) {
   return violations;
 }
 
-module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC };
+module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC, CODES };

@@ -58,7 +58,7 @@ const {
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
-const { auditExternalLinks } = require('../tools/build/audit.js');
+const { auditExternalLinks, CODES } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
 
 /** The footer credit link templates.js writes on every page (templates.js keeps its own copy). */
@@ -974,7 +974,7 @@ test('buildSkeleton injects adminDir into dist/admin after the audit — an exte
   // What the audit says about that tree on its own — i.e. what would happen
   // to the build if admin/ were ever copied in before the audit ran.
   const standalone = await auditExternalLinks(adminDir);
-  assert.deepEqual(standalone.map((v) => `${v.file}:${v.line} [${v.code}]`), ['index.html:3 [src-http]']);
+  assert.deepEqual(standalone.map((v) => `${v.file}:${v.line} [${v.code}]`), ['index.html:3 [external-url]']);
 
   const { exitCode, before } = await capturingExitCode(() =>
     buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));
@@ -1049,12 +1049,24 @@ test('buildSkeleton refuses an adminDir inside distDir instead of letting rm dis
 // ---------------------------------------------------------------------------
 
 /** Every code audit.js can report. A new one needs advice in the report: a problem and a fix. */
-const AUDIT_CODES = [
-  'src-http', 'href-http', 'src-protocol-relative', 'href-protocol-relative',
-  'src-root-relative', 'href-root-relative', 'css-url-http', 'css-url-protocol-relative',
-  'css-url-root-relative', 'fetch', 'xhr', 'script-inline', 'script-src', 'inline-event-handler',
-  'script-url', 'base-tag', 'meta-http-equiv', 'srcdoc', 'unreadable',
-];
+test('C1 — 每一种违规 code 都有中文的「问题」与「怎么改」(code 全集取自 audit.js 的导出;那份全集由审计自己的测试对照过实现)', () => {
+  assert.ok(CODES.length >= 15, `sanity: the audit exports its codes (${CODES.length})`);
+  for (const code of CODES) {
+    const report = formatAuditViolations([{ file: 'mechanics/a.html', line: 7, code, detail: '<x>' }], {
+      sourceOf: () => 'content/mechanics/a.md',
+    });
+    const lines = report.split('\n');
+    assert.match(lines[0], /^\[audit\] FAIL — 发现 1 处不允许的写法:$/, code);
+    // A file the build could not read is never a content problem (C2), whatever sourceOf says.
+    assert.equal(lines[1], code === 'unreadable'
+      ? '  1. 文件:(构建生成的)mechanics/a.html 第 7 行附近'
+      : '  1. 文件:content/mechanics/a.md(生成页面 mechanics/a.html 第 7 行附近)', code);
+    assert.match(lines[2], /^     问题:[^\n]*[\u4e00-\u9fff]/, `${code}: a problem in Chinese`);
+    assert.match(lines[3], /^     怎么改:[^\n]*[\u4e00-\u9fff]/, `${code}: a fix in Chinese`);
+    assert.equal(lines.length, 5, code);
+    assert.match(lines[4], /^提示:/, code);
+  }
+});
 
 const hasChinese = (text) => /[\u4e00-\u9fff]/.test(text);
 
@@ -1175,7 +1187,9 @@ test('C2 — 内容与模板同时违规:内容条目给出文件与改法,模�
   const assetsDir = await tmpDir(t, 'audit-report-mixed-assets');
   await fs.cp(REPO_ASSETS, assetsDir, { recursive: true });
   await fs.appendFile(path.join(assetsDir, 'theme.css'), 'a{background:url(//cdn.example.com/x.png)}\n');
-  const contentDir = await contentWithAppend(t, 'audit-report-mixed', 'install-compat', '\n```html\n<base href="https://example.com/">\n```\n');
+  // One content violation that is no path (a path the site does not ship would
+  // be caught earlier, by the dangling-link check) and makes exactly one entry.
+  const contentDir = await contentWithAppend(t, 'audit-report-mixed', 'install-compat', '\n```html\n<div onclick="alert(1)">点我</div>\n```\n');
 
   const { err, exitCode } = await capturingExitCode(() =>
     build({ distDir, contentDir, assetsDir, warn: noop }));
@@ -1208,29 +1222,6 @@ test('C1 — the CLI:stderr 是中文清单加提示,提示是最后一行,后�
   const lines = run.stderr.trim().split(/\r?\n/);
   assert.match(lines.at(-1), /^提示:/, `the last stderr line is the hint, got: ${lines.at(-1)}`);
   assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
-});
-
-test('C1 — 每一种违规 code 都有中文的「问题」与「怎么改」;audit.js 的测试里出现过的 code 都在这份清单里', async () => {
-  for (const code of AUDIT_CODES) {
-    const report = formatAuditViolations([{ file: 'mechanics/a.html', line: 7, code, detail: '<x>' }], {
-      sourceOf: () => 'content/mechanics/a.md',
-    });
-    const lines = report.split('\n');
-    assert.match(lines[0], /^\[audit\] FAIL — 发现 1 处不允许的写法:$/, code);
-    // A file the build could not read is never a content problem (C2), whatever sourceOf says.
-    assert.equal(lines[1], code === 'unreadable'
-      ? '  1. 文件:(构建生成的)mechanics/a.html 第 7 行附近'
-      : '  1. 文件:content/mechanics/a.md(生成页面 mechanics/a.html 第 7 行附近)', code);
-    assert.match(lines[2], /^     问题:[^\n]*[\u4e00-\u9fff]/, `${code}: a problem in Chinese`);
-    assert.match(lines[3], /^     怎么改:[^\n]*[\u4e00-\u9fff]/, `${code}: a fix in Chinese`);
-    assert.equal(lines.length, 5, code);
-    assert.match(lines[4], /^提示:/, code);
-  }
-  // every code the audit's own tests ever expect is one this report can explain
-  const auditTests = await fs.readFile(path.join(REPO_ROOT, 'tests', 'audit.test.js'), 'utf8');
-  const expectedInAuditTests = new Set([...auditTests.matchAll(/\[([a-z]+(?:-[a-z]+)+|fetch|xhr)\]/g)].map((m) => m[1]));
-  assert.ok(expectedInAuditTests.size >= 15, `sanity: the audit tests name their codes (found ${expectedInAuditTests.size})`);
-  for (const code of expectedInAuditTests) assert.ok(AUDIT_CODES.includes(code), `tests/audit.test.js expects [${code}], which has no advice here`);
 });
 
 test('C1 — 读不出来的文件:不是内容文件能改的——不写行号,按构建问题处理', () => {
@@ -1471,4 +1462,19 @@ test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(�
   assert.equal(lines[1], `  ${toPosix(path.join(contentDir, 'mechanics', 'first.md'))}(nav_label: 关于本站)`);
   assert.equal(lines[2], `  ${toPosix(path.join(contentDir, 'mechanics', 'second.md'))}(nav_label: 桶装指南)`);
   assert.match(lines[3], /^提示:.*nav_label.*[\u4e00-\u9fff]。$/, 'the report ENDS with the hint');
+});
+
+test('C1 — 违规的是一个 <img>(通常是图片写法生成的):报告说明在文件里要找的是那一段 ![…](…) 写法,而不是生成的标签;别的标签照旧', () => {
+  const one = (detail) => formatAuditViolations([{ file: 'mechanics/a.html', line: 7, code: 'external-url', detail }], {
+    sourceOf: () => 'content/mechanics/a.md',
+  }).split('\n');
+
+  const image = one('<img src="https://example.com/x.png" alt="图">');
+  assert.match(image[2], /^     问题:有一个标签从外部地址\(http:\/\/ 或 https:\/\/ 开头\)加载资源.*本站不允许加载外部资源。页面里是这段\(它通常是用图片写法 !\[替代文字\]\(地址\) 写的:请在文件里找那一段图片写法\):<img src="https:\/\/example\.com\/x\.png" alt="图">$/);
+  for (const line of image.slice(1)) assert.ok(hasChinese(line), `in Chinese: ${line}`);
+
+  // …and only for an <img>: any other tag is in the file as the page shows it
+  const frame = one('<iframe src="https://example.com/">');
+  assert.match(frame[2], /^     问题:.*页面里是这段:<iframe src="https:\/\/example\.com\/">$/);
+  assert.ok(!frame[2].includes('图片写法'));
 });

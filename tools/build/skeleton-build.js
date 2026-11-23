@@ -311,29 +311,17 @@ function editableSourceOf(distFile, contentDir) {
  * tests never expect a code missing here.
  */
 const AUDIT_ADVICE = Object.freeze({
-  'src-http': {
-    problem: '有一处 src="https://…" 从外部地址加载图片、脚本或音视频。本站不允许加载外部资源。',
-    fix: '删掉这个标签。本站暂不支持插入图片。',
+  'external-url': {
+    problem: '有一个标签从外部地址(http:// 或 https:// 开头)加载资源,例如图片、视频、脚本或样式。本站不允许加载外部资源。',
+    fix: '删掉这个标签,或那一段图片写法。本站暂不支持插入外部图片。',
   },
-  'href-http': {
-    problem: '有一个不是普通链接的元素(link、area、image 等)用 href 指向外部地址。本站不允许加载外部资源。',
-    fix: '删掉这个标签。想链接到外部网页,请写成普通的链接:[文字](https://网址)。',
+  'protocol-relative-url': {
+    problem: '有一个地址以 // 开头(例如 //cdn.example.com/x.png)。这种写法等同于从外部站点加载,本站不允许。',
+    fix: '图片等资源请删掉;想链接到外部网页,请写完整的、以 https:// 开头的地址(只能用在普通链接里)。',
   },
-  'src-protocol-relative': {
-    problem: '有一处 src 以 // 开头。这种写法等同于从外部地址加载资源,本站不允许。',
-    fix: '改成站内的相对路径,或者删掉这个标签。',
-  },
-  'href-protocol-relative': {
-    problem: '有一个链接的 href 以 // 开头,它指向外部站点,本站不允许这种写法。',
-    fix: '想链接到外部网页,请写完整的地址,以 https:// 开头。',
-  },
-  'src-root-relative': {
-    problem: '有一处 src 以 / 开头(这叫「根相对路径」)。这种地址在本站的网址下会指到错误的位置,离线打开时直接失效。',
-    fix: '改成相对于当前页面的路径,例如 ../assets/图片名.png。',
-  },
-  'href-root-relative': {
-    problem: '有一个链接的 href 以 / 开头(这叫「根相对路径」)。这种地址在本站的网址下会指到错误的位置,离线打开时直接失效。',
-    fix: '改成相对于当前页面的路径,例如 [物品图鉴](../items.html)。',
+  'root-relative-url': {
+    problem: '有一个地址以 / 开头(这叫「根相对路径」)。这种地址在本站的网址下会指到错误的位置,离线打开时直接失效。',
+    fix: '改成相对于当前页面的路径,例如 [物品图鉴](../items.html) 或 ../assets/图片名.png。',
   },
   'css-url-http': {
     problem: '样式里的 url(https://…) 从外部地址加载图片或字体。本站不允许加载外部资源。',
@@ -416,7 +404,13 @@ function formatAuditViolations(violations, { sourceOf = () => null } = {}) {
       ? `文件:(构建生成的)${v.file}${place}`
       : `文件:${source}(生成页面 ${v.file}${place})`;
     const how = source === null ? NOT_A_CONTENT_FILE : fix;
-    return `  ${i + 1}. ${where}\n     问题:${problem}页面里是这段:${v.detail}\n     怎么改:${how}`;
+    // What the page holds is not always what the file says: an <img> is
+    // nearly always the build's rendering of ![替代文字](地址) (markdown.js,
+    // B4). Say so, or the contributor searches for a tag that is not there.
+    const shown = /^<img\b/i.test(v.detail)
+      ? '页面里是这段(它通常是用图片写法 ![替代文字](地址) 写的:请在文件里找那一段图片写法):'
+      : '页面里是这段:';
+    return `  ${i + 1}. ${where}\n     问题:${problem}${shown}${v.detail}\n     怎么改:${how}`;
   });
 
   const hints = ['改好之前,网站不会更新。'];
