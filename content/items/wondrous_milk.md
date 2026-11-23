@@ -1,5 +1,6 @@
 ---
 title: 神奇乳汁
+slug: wondrous_milk
 fixture-fm-key: frontmatter-不进正文
 related:
   - milk_barrel
