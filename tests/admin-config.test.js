@@ -17,6 +17,21 @@
 //       must start from files the site ships), and it tells search engines
 //       not to index it.
 //
+// config.yml (task 6 rulings K / L / M / S):
+//   K — the skeleton: the GitHub backend with the additions sign-in, no
+//       media folder, no base_url (a later task fills it in), and the two
+//       collections contributors edit, both creatable and deletable.
+//   L — an item page's file name is the item id (the build lints it), so the
+//       `slug` select offers exactly the real item ids and nothing else.
+//       What a contributor may type is what the renderer reads: the body.
+//   M — a mechanic page is title + nav_label + body.
+//   S — every front matter key of a content/mechanics page is a field of the
+//       mechanics collection. (The same for content/items is not in place
+//       yet — the S test says why.)
+//
+// And the build: with its default adminDir, buildSkeleton really injects
+// the shell into dist/admin/.
+//
 // Everything here is offline: no registry, no CDN — the bundle is compared
 // with the digest that was written down when it was vendored.
 
@@ -24,7 +39,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
+
+const { buildSkeleton } = require('../tools/build/skeleton-build.js');
+const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
+const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const ADMIN_DIR = path.join(REPO_ROOT, 'admin');
@@ -33,14 +53,106 @@ const BUNDLE_PATH = path.join(REPO_ROOT, ...BUNDLE_REL.split('/'));
 const PROVENANCE_PATH = path.join(ADMIN_DIR, 'vendor', 'PROVENANCE.md');
 const GITATTRIBUTES_PATH = path.join(REPO_ROOT, '.gitattributes');
 const INDEX_PATH = path.join(ADMIN_DIR, 'index.html');
+const CONFIG_PATH = path.join(ADMIN_DIR, 'config.yml');
 
 const readText = (file) => fs.readFile(file, 'utf8');
+const noop = () => {};
+
+/** Has a CJK ideograph — what makes a label Chinese for the contributors. */
+const hasChinese = (text) => /[\u4e00-\u9fff]/.test(text);
 
 /** Values of every `src="…"` / `href="…"` attribute in an HTML document. */
 const resourceRefs = (html) => [...html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']*)["']/gi)].map((m) => m[1]);
 
 /** Has a scheme (http:, https:, data:, …) or is protocol-relative (//host/…). */
 const isRemote = (ref) => /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(ref);
+
+// ---------------------------------------------------------------------------
+// Reading admin/config.yml — three line-oriented helpers, not a YAML parser
+//
+// The file is kept in one fixed shape: one key per line, two-space indents,
+// list items start with "- ", strings are bare or single-quoted, comments
+// are whole lines. The repo has no npm dependencies, and a parser would be
+// more code than the file it reads. A line that does not fit the shape
+// fails the test that stumbled over it; nothing is guessed.
+// ---------------------------------------------------------------------------
+
+/** A block: the lines under one key, comments and blank lines removed. */
+const blockOf = (text) => {
+  const block = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    if (raw.trim() === '' || raw.trim().startsWith('#')) return;
+    const [, indent, body] = /^(\s*)(.*)$/.exec(raw);
+    assert.ok(!indent.includes('\t'), `config.yml line ${i + 1}: tab indentation is not part of the file's shape`);
+    block.push({ indent: indent.length, text: body, no: i + 1 });
+  });
+  return block;
+};
+
+const baseIndent = (block) => Math.min(...block.map((line) => line.indent));
+
+/** The lines under `key:` inside `block`, or null when `block` has no such key. */
+function subBlock(block, key) {
+  const base = baseIndent(block);
+  const start = block.findIndex((line) => line.indent === base && line.text === `${key}:`);
+  if (start < 0) return null;
+  const out = [];
+  for (const line of block.slice(start + 1)) {
+    if (line.indent <= base) break;
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * The text after `key:` on the block's own level, quotes and all — `true`
+ * stays `true`, so a quoted 'true' (a string, not the flag) does not pass
+ * for the flag. undefined when the key is absent or opens a sub-block.
+ */
+function value(block, key) {
+  const base = baseIndent(block);
+  for (const line of block) {
+    if (line.indent !== base) continue;
+    const match = /^([A-Za-z][\w-]*):(?:\s+(.*))?$/.exec(line.text);
+    if (match !== null && match[1] === key) return match[2];
+  }
+  return undefined;
+}
+
+const has = (block, key) => value(block, key) !== undefined || subBlock(block, key) !== null;
+
+/** The items of a block whose lines start with "- ": each item is a block of its own. */
+function listItems(block) {
+  assert.ok(block !== null, 'config.yml: the block to list is missing');
+  const base = baseIndent(block);
+  const items = [];
+  for (const line of block) {
+    if (line.indent > base) {
+      assert.ok(items.length > 0, `config.yml line ${line.no}: unexpected indentation`);
+      items.at(-1).push(line);
+      continue;
+    }
+    assert.ok(line.text.startsWith('- '), `config.yml line ${line.no}: expected a list item, got "${line.text}"`);
+    items.push([{ indent: base + 2, text: line.text.slice(2), no: line.no }]);
+  }
+  return items;
+}
+
+/** A config string as written: single quotes are the YAML kind ('' is one '), bare text is itself. */
+function unquote(raw) {
+  assert.equal(typeof raw, 'string', 'config.yml: expected a value, found none');
+  if (raw.startsWith("'")) {
+    assert.ok(raw.length >= 2 && raw.endsWith("'"), `config.yml: unterminated single-quoted string "${raw}"`);
+    return raw.slice(1, -1).replace(/''/g, "'");
+  }
+  assert.ok(!raw.startsWith('"'), `config.yml: double-quoted strings are not part of the file's shape ("${raw}")`);
+  return raw;
+}
+
+const readConfig = async () => blockOf(await readText(CONFIG_PATH));
+const collection = (config, name) => listItems(subBlock(config, 'collections')).find((coll) => value(coll, 'name') === name);
+const fieldsOf = (coll) => listItems(subBlock(coll, 'fields'));
+const fieldNames = (coll) => fieldsOf(coll).map((field) => unquote(value(field, 'name')));
 
 test('J — vendored bundle: admin/vendor/sveltia-cms.js is byte-identical to the digest recorded in PROVENANCE.md', async () => {
   const [bundle, provenance] = await Promise.all([
@@ -88,4 +200,164 @@ test('index.html loads only the local bundle, as a classic script — no remote 
 test('index.html tells search engines not to index the CMS', async () => {
   const html = await readText(INDEX_PATH);
   assert.match(html, /<meta\s+name\s*=\s*["']robots["']\s+content\s*=\s*["']noindex["']\s*\/?\s*>/i);
+});
+
+// ---------------------------------------------------------------------------
+// config.yml
+// ---------------------------------------------------------------------------
+
+test('L — the 物品 dropdown of the items collection offers exactly the real item ids, and the file is named after the choice', async () => {
+  const items = collection(await readConfig(), 'items');
+  assert.ok(items, 'config.yml has an items collection');
+
+  // The file name is the item id (render.js opens content/items/<id>.md and
+  // the build lints it), so the slug is picked, never typed.
+  assert.equal(unquote(value(items, 'slug')), '{{fields.slug}}', 'the entry file is named after the slug field');
+  const slugField = fieldsOf(items).find((field) => value(field, 'name') === 'slug');
+  assert.ok(slugField, 'the items collection has a slug field');
+  assert.equal(value(slugField, 'widget'), 'select', 'the slug is chosen from a list');
+
+  const options = listItems(subBlock(slugField, 'options'));
+  for (const option of options) {
+    assert.ok(value(option, 'label') !== undefined, `config.yml line ${option[0].no}: an option without a label`);
+  }
+  const ids = options.map((option) => unquote(value(option, 'value')));
+  assert.equal(new Set(ids).size, ids.length, `the dropdown lists an id twice: ${JSON.stringify(ids)}`);
+
+  const realIds = FIXTURE_DATA.items.map((item) => item.id);
+  assert.deepEqual([...ids].sort(), [...realIds].sort(),
+    'the dropdown must list every real item id (aliases are not ids) and nothing else');
+});
+
+test('K — config skeleton: GitHub backend with the additions sign-in, no media folder, no base_url; both collections can be created and deleted', async () => {
+  const config = await readConfig();
+
+  const backend = subBlock(config, 'backend');
+  assert.ok(backend, 'config.yml has a backend block');
+  assert.equal(value(backend, 'name'), 'github');
+  assert.equal(value(backend, 'auth_type'), 'additions');
+  // Both are left out on purpose (ruling K): the media upload story and the
+  // sign-in service URL are decided by later tasks. A `# base_url:` example
+  // in a comment is fine — comments are not configuration.
+  assert.ok(!has(config, 'media_folder'), 'media_folder is not configured');
+  assert.ok(!has(backend, 'base_url'), 'base_url is not configured');
+
+  for (const [name, folder] of [['items', 'content/items'], ['mechanics', 'content/mechanics']]) {
+    const coll = collection(config, name);
+    assert.ok(coll, `config.yml has a ${name} collection`);
+    assert.equal(value(coll, 'folder'), folder, `the ${name} collection reads ${folder}`);
+    assert.equal(value(coll, 'create'), 'true', `${name}: contributors can create entries`);
+    assert.equal(value(coll, 'delete'), 'true', `${name}: contributors can delete entries`);
+  }
+});
+
+test('every collection and field a contributor sees has a Chinese label; the fields that need explaining have a Chinese hint', async () => {
+  const config = await readConfig();
+  const collections = listItems(subBlock(config, 'collections'));
+  assert.ok(collections.length > 0, 'config.yml defines collections');
+
+  for (const coll of collections) {
+    const name = value(coll, 'name');
+    const label = unquote(value(coll, 'label'));
+    assert.ok(hasChinese(label), `the ${name} collection has no Chinese label, got "${label}"`);
+    for (const field of fieldsOf(coll)) {
+      const fieldLabel = unquote(value(field, 'label'));
+      assert.ok(hasChinese(fieldLabel), `${name}.${value(field, 'name')} has no Chinese label, got "${fieldLabel}"`);
+    }
+  }
+
+  // The one field whose value becomes a file name, and the one that must
+  // stay empty on all but a single page: both need a word of explanation.
+  for (const [collName, fieldName] of [['items', 'slug'], ['mechanics', 'nav_label']]) {
+    const field = fieldsOf(collection(config, collName)).find((f) => value(f, 'name') === fieldName);
+    assert.ok(field, `the ${collName} collection has a ${fieldName} field`);
+    assert.ok(hasChinese(unquote(value(field, 'hint'))), `${collName}.${fieldName}: no hint in Chinese`);
+  }
+});
+
+test('S — every front matter key of content/mechanics/*.md is a field of the mechanics collection', async () => {
+  const mechanics = collection(await readConfig(), 'mechanics');
+  assert.ok(mechanics, 'config.yml has a mechanics collection');
+  const editable = new Set([...fieldNames(mechanics), 'body']);
+
+  const dir = path.join(REPO_ROOT, 'content', 'mechanics');
+  const files = (await fs.readdir(dir)).filter((name) => /\.md$/i.test(name)).sort();
+  assert.ok(files.length > 0, 'sanity: the repo has mechanic pages to check');
+  for (const name of files) {
+    const { fm } = splitFrontmatter(await readText(path.join(dir, name)));
+    const outside = Object.keys(fm).filter((key) => !editable.has(key));
+    assert.deepEqual(outside, [],
+      `content/mechanics/${name}: front matter keys that are not fields of the collection, hence not editable in the CMS: ${outside.join(', ')}`);
+  }
+  // The same check for content/items/*.md is deliberately absent for now:
+  // the items collection declares only what the renderer reads (the slug
+  // that names the file, and the body), which cannot cover the test-only
+  // front matter of the fixture entry content/items/wondrous_milk.md
+  // (title, fixture-fm-key, related). See the task 6 report.
+});
+
+// ---------------------------------------------------------------------------
+// The build
+// ---------------------------------------------------------------------------
+
+async function tmpDir(t, label) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `admin-config-${label}-`));
+  // Windows may answer ENOTEMPTY/EPERM to the final rmdir of a recursive rm
+  // while a just-written entry is still pending — the tests' own cleanup
+  // failing, not the test. fs.rm retries such errors.
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
+  return dir;
+}
+
+/** Run fn while capturing the process.exitCode it leaves behind, then restore the runner's own exit status. */
+async function capturingExitCode(fn) {
+  const before = process.exitCode;
+  try {
+    return { result: await fn(), exitCode: process.exitCode, before };
+  } catch (err) {
+    return { err, exitCode: process.exitCode, before };
+  } finally {
+    process.exitCode = before;
+  }
+}
+
+const toPosix = (p) => p.split(path.sep).join('/');
+
+/** Every file under dir, sorted. */
+async function listFiles(dir) {
+  const out = [];
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await listFiles(full)));
+    else out.push(full);
+  }
+  return out.sort();
+}
+
+test('the default build injects the shell: dist/admin/ holds index.html, config.yml and the vendored bundle', async (t) => {
+  // buildSkeleton's default adminDir is the relative path "admin", resolved
+  // against the cwd — the repository root when the tests run via `npm test`.
+  assert.equal(path.resolve('admin'), ADMIN_DIR, 'the tests must run from the repository root, as `npm test` does');
+
+  const distDir = await tmpDir(t, 'inject');
+  const { result, exitCode, before } = await capturingExitCode(() =>
+    buildSkeleton({ distDir, contentDir: null, warn: noop })); // adminDir is NOT passed: the default has to find admin/
+
+  assert.equal(result.adminInjected, true, 'the default adminDir is injected');
+  assert.equal(exitCode, before, 'a build that injects the shell is not a failure');
+
+  const injected = path.join(distDir, 'admin');
+  const files = (await listFiles(injected)).map((file) => toPosix(path.relative(injected, file)));
+  for (const rel of ['index.html', 'config.yml', 'vendor/sveltia-cms.js']) {
+    assert.ok(files.includes(rel), `dist/admin/${rel} is missing after the build; dist/admin holds ${JSON.stringify(files)}`);
+  }
+
+  // …and the bundle is still the official bytes once it is in dist.
+  const [source, copy] = await Promise.all([
+    fs.readFile(BUNDLE_PATH),
+    fs.readFile(path.join(injected, 'vendor', 'sveltia-cms.js')),
+  ]);
+  assert.ok(source.equals(copy), 'dist/admin/vendor/sveltia-cms.js differs from admin/vendor/sveltia-cms.js');
+  // The offline zip never carries dist/admin/: tests/pack.test.js, "packSite:
+  // a fresh build + one zip that holds exactly dist minus admin/".
 });

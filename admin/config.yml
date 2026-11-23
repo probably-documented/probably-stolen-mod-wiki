@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json
+
+# 在线编辑器(Sveltia CMS)的配置。入口是 /admin/;本文件和 index.html 放在同一目录,
+# 构建时会一起复制到 dist/admin/,改完要重新构建才会生效。
+#
+# label 是贡献者在编辑器里看到的字段名,hint 是字段下方的说明,都请用中文写。
+# 以 # 开头的整行是注释,不影响配置。
+
+backend:
+  name: github
+  # TODO(Task 7): 把 OWNER 换成仓库所在的 GitHub 组织名(或用户名);下面 site_url 里的 OWNER 也要一起换。
+  repo: OWNER/probably-stolen-mod-wiki
+  branch: main
+  auth_type: additions
+  # TODO(Task 9): 填入 Sveltia CMS Additions Worker 的 URL
+  # 写法示例(部署好之后去掉行首的 # 即可):
+  #   base_url: https://你的-worker.workers.dev
+  # 注意:Sveltia CMS 0.271.0 在 auth_type: additions 时要求必须有 base_url。缺少时打开 /admin/ 会直接提示
+  # “The base_url option must be the URL of your Sveltia CMS Additions service.”,无法登录。
+
+# TODO(Task 7): OWNER 同上。
+site_url: https://OWNER.github.io/probably-stolen-mod-wiki/
+
+# 这里故意不配置 media_folder:上传图片的做法还没有定,另行处理。
+# 注意:Sveltia CMS 0.271.0 在没有配置任何媒体库时要求必须有 media_folder。缺少时打开 /admin/ 会直接提示
+# “The media folder is not defined.”。
+
+collections:
+  # 物品的「详解」:每个文件对应一件物品,文件名就是物品 ID(只能从下拉列表里选)。
+  - name: items
+    label: 物品详解
+    description: 每个文件是一篇物品详解,显示在对应物品详情页的「详解」一节。一篇详解对应一件物品,由「物品」一栏决定。
+    folder: content/items
+    create: true
+    delete: true
+    # 文件名就是「物品」一栏选中的物品 ID
+    slug: '{{fields.slug}}'
+    # 列表里显示的标题就是文件名(物品 ID)
+    summary: '{{slug}}'
+    fields:
+      - name: slug
+        label: 物品
+        widget: select
+        hint: '只能从列表里选。这个值就是页面的文件名:选了哪件物品,这篇详解就显示在那件物品的页面上。'
+        options:
+          - label: 神奇乳汁
+            value: wondrous_milk
+          - label: 触手本体
+            value: tentacle_body
+          - label: 神奇乳汁桶
+            value: milk_barrel
+          - label: 浓郁乳汁
+            value: milk_rich
+          - label: 触手卵
+            value: brood_egg
+          - label: 掌上青楼
+            value: palm_brothel
+          - label: tear_merchant
+            value: tear_merchant
+      # 正文要放在字段的最后一个
+      - name: body
+        label: 详解正文
+        widget: markdown
+        # 打开时是原文(Markdown)编辑,需要时可以切换到富文本
+        modes:
+          - raw
+          - rich_text
+        hint: '显示在物品详情页的「详解」一节。正文支持 Markdown,可以贴外部链接(会在新标签页打开)。图片不要用外部网址,请勿外链图片。'
+
+  # 机制说明:每个文件是一个页面,会出现在站点的「机制说明」索引里。
+  - name: mechanics
+    label: 机制说明
+    description: 每个文件是一个机制说明页面,会出现在站点的「机制说明」索引里。
+    folder: content/mechanics
+    create: true
+    delete: true
+    fields:
+      - name: title
+        label: 标题
+        widget: string
+        hint: '页面的标题,会显示在「机制说明」索引里。文件名由它自动生成。'
+      - name: nav_label
+        label: 顶部导航上的名字
+        widget: string
+        required: false
+        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航——目前是「关于本站」那一页。'
+      # 正文要放在字段的最后一个
+      - name: body
+        label: 正文
+        widget: markdown
+        # 打开时是原文(Markdown)编辑,需要时可以切换到富文本
+        modes:
+          - raw
+          - rich_text
+        hint: '正文支持 Markdown,可以贴外部链接(会在新标签页打开)。图片不要用外部网址,请勿外链图片。'
