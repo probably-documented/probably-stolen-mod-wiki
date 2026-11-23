@@ -13,10 +13,21 @@
 //   闭合:  ---\nkey: v\n---\n<body>          (mechanics/*.md、测试 fixture)
 //   无闭合: ---\nkey: v\n\n<body>            (content/items/*.md 真实方言:
 //          首个空行结束 frontmatter;若到 EOF 都没有空行则 body 为空)
+// Task 3 起另接受 CMS 原生 YAML 子集(Sveltia 序列化风格):
+//   key: 后随缩进 `- item` 的多行标量列表、裸 true/false/数字标量、
+//   flow 列表 [a, b];旧单行 JSON 方言不变。零 npm 依赖,手写行式解析。
 // 放在 tools/extract/ 层:build 已依赖 extract(build.js require merge.js),
 // 依赖方向保持 build → extract,不引入倒依赖。
 
-/** Scalar frontmatter value: quoted strings unquoted, JSON arrays/objects parsed. */
+/**
+ * Scalar frontmatter value.
+ *
+ * 旧方言(Task 2 迁移):去引号字符串、单行 JSON 数组/对象。
+ * 新方言(Task 3,CMS 原生 YAML 子集):裸 true/false 布尔、数字、
+ * flow 列表 `[a, b]`(JSON.parse 失败后的宽容解析)。
+ * 明确不实现(超集,遇到保持原样/跳过,不抛错):
+ * 列表对象项、多级嵌套。
+ */
 function parseFrontmatterScalar(raw) {
   if (raw === '') return '';
   if (
@@ -29,21 +40,64 @@ function parseFrontmatterScalar(raw) {
     try {
       return JSON.parse(raw);
     } catch {
-      return raw; // not valid JSON: keep verbatim
+      // not valid JSON: [...] 落入 flow 列表(项为裸标量),{...} 原样保留
+      return raw[0] === '[' ? parseFlowList(raw) : raw;
     }
   }
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (YAML_NUMBER_RE.test(raw)) return Number(raw);
   return raw;
 }
 
-const KV_LINE_RE = /^([A-Za-z][\w-]*)\s*:\s?(.*)$/;
+// YAML 数字子集:整数/小数/负数;前导零(如 "007")按 YAML 1.2 视为字符串
+const YAML_NUMBER_RE = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 
-/** frontmatter 行 → data(kv 之外的行跳过,空行不可能是 kv)。 */
+/** flow 列表 `[a, b]`:逗号切分,每项按标量解析(子集,不支持嵌套 flow)。 */
+function parseFlowList(raw) {
+  const inner = raw.slice(1, -1).trim();
+  if (inner === '') return [];
+  return inner.split(',').map((part) => parseFrontmatterScalar(part.trim()));
+}
+
+const KV_LINE_RE = /^([A-Za-z][\w-]*)\s*:\s?(.*)$/;
+const LIST_ITEM_RE = /^\s+-\s*(.*)$/;
+const KVISH_RE = /^[A-Za-z][\w-]*\s*:/; // `- key: value` 对象项形态(超集,不实现)
+
+/**
+ * frontmatter 行 → data(kv 之外的行跳过,空行不可能是 kv)。
+ * `key:`(值空)后随缩进 `- item` 行时累积为标量列表(CMS 原生
+ * YAML 多行列表);遇非列表行即止。对象项行(`- key: value`)按
+ * 现有"跳过非 kv 行"的宽容行为处理,不抛错。
+ */
 function parseKvLines(lines) {
   const data = {};
-  for (const line of lines) {
-    const match = line.match(KV_LINE_RE);
-    if (match === null) continue;
-    data[match[1]] = parseFrontmatterScalar(match[2].trim());
+  let i = 0;
+  while (i < lines.length) {
+    const match = lines[i].match(KV_LINE_RE);
+    if (match === null) { i += 1; continue; }
+    if (match[2].trim() === '') {
+      // key: 值空 → 尝试收集后续列表行
+      const items = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const item = lines[j].match(LIST_ITEM_RE);
+        if (item === null) break; // 非列表行:frontmatter 结束或下一个 kv
+        if (!KVISH_RE.test(item[1].trim())) {
+          items.push(parseFrontmatterScalar(item[1].trim()));
+        } // 对象项(- key: value):超集不实现,跳过该行
+        j += 1;
+      }
+      if (items.length > 0) {
+        data[match[1]] = items;
+        i = j;
+        continue;
+      }
+      data[match[1]] = ''; // 旧空值行为:key: 无值
+    } else {
+      data[match[1]] = parseFrontmatterScalar(match[2].trim());
+    }
+    i += 1;
   }
   return data;
 }
