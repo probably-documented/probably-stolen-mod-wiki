@@ -1588,6 +1588,13 @@ test('review round 2, found while parsing exactly — image() takes its address 
 // leaving": after the first <svg> the body of an HTML <script> is read as
 // markup too.
 //
+// Reading the code for the Critical found an end tag read short. An end
+// tag may carry attributes, and a quoted value may hold a `>`; the audit
+// resumed right after the FIRST `>` — inside that value. A <script src> of
+// the allow-list written there made it skip the rest of the page, and
+// nothing was reported while the browser ran an <img onerror> after it. No
+// <svg> is needed for that: it is plain HTML, and it was there from the
+// first. An end tag is now read to where it ends.
 //
 //
 // Each attack string is a test of its own, each on a page of its own.
@@ -1639,6 +1646,14 @@ const ROUND3 = [
   // attributes, and a quoted value may hold a `>`. The audit resumed right
   // after the FIRST `>` — inside that value. A <script src> of the allow-list
   // written there made it skip the rest of the page: nothing was reported.
+  ['e01', 'found while reading — an end tag carries an attribute whose quoted value holds >: a <script src> of the allow-list written inside that value hid all that followed', `<p></p title="x><script src=assets/js/search.js>y">${R3_IMG('e01')}`, ['inline-event-handler']],
+  ['e02', 'found while reading — the same, after a script of the allow-list', `<script src="assets/js/search.js"></script a="x><script src=assets/js/search.js>y">${R3_IMG('e02')}`, ['inline-event-handler']],
+  ['e03', 'found while reading — the same, after a data block', `<script type="application/json">{}</script a="x><script type="application/json">y">${R3_IMG('e03')}`, ['inline-event-handler']],
+  ['e04', 'found while reading — the same, after a <style>: the link with a javascript: address that followed was never read', '<style>x</style a="x><style>y"><a href="javascript:alert(\'e04\')">e04</a>', ['script-url']],
+  ['e05', 'found while reading — the same with single quotes', `<p></p title='x><script src=assets/js/search.js>y'>${R3_IMG('e05')}`, ['inline-event-handler']],
+  ['e06', 'control — an end tag with an attribute and no > inside its value: read right before', `<script src="assets/js/search.js"></script x="y">${R3_IMG('e06')}`, ['inline-event-handler']],
+  ['e07', 'control — a start tag with > inside a quoted value: read right before', `<div title="a>b">${R3_IMG('e07')}`, ['inline-event-handler']],
+  ['e08', 'found while reading — the same before an embedded page from outside', '<p></p title="x><script src=assets/js/search.js>y"><iframe src="https://evil.example/e08.html"></iframe>', ['external-url']],
   ['k03', 'control — the control of the re-review: a data block inside an <svg> with no comment — read before', `<svg><script type="application/json">${R3_IMG('k03')}</script>`, ['inline-event-handler']],
   // --- the CSS of a <style> the audit cannot tell from an HTML one is read.
   // b01 and b10 were read before; b08 is new: in foreign content the tag

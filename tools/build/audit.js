@@ -91,8 +91,9 @@
 //     address in it, so it is read too.
 //   • An address written in running text, outside every tag, is not a
 //     violation: a contributor may write a URL in a sentence (ruling AA).
-//   • A tag's attributes are read with the scanner whatever the rule: a >
-//     inside a quoted value does not end the tag, so nothing hides behind it.
+//   • A tag's attributes are read with the scanner whatever the rule — a
+//     start tag's and an end tag's alike: a > inside a quoted value does not
+//     end the tag, so nothing hides behind it.
 //   • In a .js file only src=, href= and CSS are read, as text.
 
 const fs = require('node:fs/promises');
@@ -711,8 +712,10 @@ function reportUrl(index, url, attribute, tagName, report, detail, { dataUrls = 
 }
 
 /**
- * A start tag at `start`: its name, its attributes (name, value — null when
- * it has none), and where it ends. Of repeated attributes only the first is
+ * A tag at `start`: a start tag — or an end tag, when `start` is its `/`.
+ * Its name, its attributes (name, value — null when it has none), and where
+ * it ends: after the `>`, also when a quoted value holds one, or the end of
+ * the text when no `>` comes. Of repeated attributes only the first is
  * kept, as a browser does.
  *
  * The name, every attribute name and every value are read to where they
@@ -850,6 +853,13 @@ function checkTag(text, start, tag, report) {
  * foreign content the browser applies it too: to the first `</style` that
  * ends an HTML <style>, also after a `<style/>`, which closes itself only
  * in foreign content.
+ *
+ * An end tag is read to where it ends. It may carry attributes, and a
+ * quoted value may hold a `>`: the audit used to resume right after the
+ * FIRST `>` — inside that value. A <script src> of the allow-list written
+ * there made it skip the rest of the page as the text of that script, and
+ * nothing was reported while the browser ran an <img onerror> after it.
+ * No <svg> is needed for that; it was there from the first (review round 3).
  */
 function scanHtml(text, report, detailOf) {
   let i = 0;
@@ -859,9 +869,8 @@ function scanHtml(text, report, detailOf) {
     const lt = text.indexOf('<', i);
     if (lt < 0) return;
     const next = text[lt + 1];
-    if (next === '/') { // an end tag has nothing to check
-      const gt = text.indexOf('>', lt + 2);
-      i = gt < 0 ? text.length : gt + 1;
+    if (next === '/') { // an end tag has nothing to check — but it is read to where IT ends: it may carry attributes, and a quoted value may hold a `>`
+      i = parseStartTag(text, lt + 1).end;
       continue;
     }
     if (next === undefined || !/[A-Za-z]/.test(next)) { // `<!`, `<?`, or a bare `<`: not a tag
@@ -894,8 +903,7 @@ function scanHtml(text, report, detailOf) {
     }
     if (foreign) continue; // its content is markup too, read on below
     if (found === null) return;
-    const gt = text.indexOf('>', found.index);
-    i = gt < 0 ? text.length : gt + 1;
+    i = parseStartTag(text, found.index + 1).end; // past the whole of the end tag
   }
 }
 
