@@ -11,9 +11,10 @@
 //   navLabel = frontmatter `nav_label`, when it declares the top-nav about
 //              entry (see normalizeNavLabel); null otherwise (task 5b A)
 //   source   = the file as written
+// Every entry of the result carries navLabel, set or not (task 6b D2).
 // A slug already present in `mechanics` is replaced by the file; new slugs
-// are appended in file-name order. A missing directory (or a null contentDir)
-// leaves `mechanics` as is.
+// are appended in file-name order. A missing directory (or a null
+// contentDir) returns the base entries as they came, navLabel normalised.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -65,23 +66,27 @@ function mechanicsWithNavLabel(mechanics) {
 
 /**
  * Merge content/mechanics/*.md into `mechanics` (see the header).
+ * The result has the same shape on every path (task 6b D2): each entry
+ * carries `navLabel` — the label, or null — whether it is an untouched
+ * base entry, a replaced one or an appended one.
  * @param {Array<{slug: string, title: string, source: string, navLabel?: string|null}>} mechanics
  * @param {string|null} contentDir the content root (null skips the merge)
  * @returns {Promise<Array<{slug: string, title: string, navLabel: string|null, source: string}>>}
  */
 async function mergeMechanicsContent(mechanics, contentDir) {
-  if (contentDir == null) return mechanics;
+  // Base entries keep everything they came with; navLabel is normalised so
+  // that "which page declares the about entry" is answered one way everywhere.
+  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, { ...m, navLabel: normalizeNavLabel(m.navLabel) }]));
+  const baseEntries = () => [...bySlug.values()];
+  if (contentDir == null) return baseEntries();
   const dir = path.join(contentDir, 'mechanics');
   let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch (err) {
-    if (isMissing(err)) return mechanics;
+    if (isMissing(err)) return baseEntries();
     throw err;
   }
-  // Base entries keep everything they came with; navLabel is normalised so
-  // that "which page declares the about entry" is answered one way everywhere.
-  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, { ...m, navLabel: normalizeNavLabel(m.navLabel) }]));
   const names = entries
     .filter((e) => e.isFile() && /\.md$/i.test(e.name))
     .map((e) => e.name)

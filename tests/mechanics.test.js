@@ -55,12 +55,43 @@ test('mechanicTitle: frontmatter title > first ATX h1 > slug', () => {
 
 // ---------- mergeMechanicsContent ----------
 
-test('mergeMechanicsContent: null contentDir / a missing directory leave the input as is', async (t) => {
+test('mergeMechanicsContent (D2): contentDir null / a missing directory → the same entries in the same order, and every one of them carries navLabel (null)', async (t) => {
   const base = BASE();
+  const expected = base.map((m) => ({ ...m, navLabel: null }));
 
-  assert.equal(await mergeMechanicsContent(base, null), base, 'contentDir null → the very same array, nothing read');
-  const untouched = await mergeMechanicsContent(base, path.join(await tmpDir(t, 'no-dir'), 'no-such-content'));
-  assert.deepEqual(untouched, base, 'a missing content dir → the same entries, same order');
+  const viaNull = await mergeMechanicsContent(base, null);
+  const viaMissing = await mergeMechanicsContent(base, path.join(await tmpDir(t, 'no-dir'), 'no-such-content'));
+
+  for (const [what, merged] of [['contentDir null', viaNull], ['a missing content dir', viaMissing]]) {
+    assert.deepEqual(merged, expected, `${what}: the base entries, each with navLabel: null`);
+    assert.deepEqual(merged.map((m) => m.slug), base.map((m) => m.slug), `${what}: same order`);
+    for (const m of merged) {
+      assert.ok(Object.hasOwn(m, 'navLabel'), `${what}: ${m.slug} has the navLabel key`);
+      assert.equal(m.navLabel, null);
+    }
+  }
+  assert.ok(base.every((m) => !Object.hasOwn(m, 'navLabel')), 'the input is left as it was');
+});
+
+test('mergeMechanicsContent (D2): whatever the path, every entry of the result has the same keys', async (t) => {
+  const base = BASE();
+  const keysOf = (merged) => merged.map((m) => Object.keys(m).sort());
+  const expectedKeys = [['navLabel', 'slug', 'source', 'title']];
+
+  // nothing merged: base entries keep what they came with, plus navLabel
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, null)), [expectedKeys[0], expectedKeys[0]]);
+  // a base entry that declares a label comes back with it normalised
+  const declaring = [{ ...base[0], navLabel: '  顶部入口  ' }, base[1]];
+  assert.deepEqual((await mergeMechanicsContent(declaring, null)).map((m) => m.navLabel), ['顶部入口', null]);
+  // merged: a replaced entry and an appended one have the same shape as the untouched base entries
+  const contentDir = await contentWith(t, 'shape', {
+    'barrel-system.md': '---\ntitle: 替换\n---\n\n正文',
+    'z-new.md': '正文',
+  });
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, contentDir)), [expectedKeys[0], expectedKeys[0], expectedKeys[0]]);
+  // and no mechanics at all is an empty list, not an error
+  assert.deepEqual(await mergeMechanicsContent([], null), []);
+  assert.deepEqual(await mergeMechanicsContent(null, null), []);
 });
 
 test('mergeMechanicsContent: slug = file name, source = the file as written; same slug replaces, new slugs append in file-name order', async (t) => {
