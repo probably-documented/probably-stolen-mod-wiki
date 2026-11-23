@@ -59,14 +59,25 @@ function makeSlug(title, usedCounts) {
 //   6. [[item id]] wikilinks (last, per the plan's state machine)
 //   7. restore code spans and images
 function renderInline(text, ctx) {
-  const codes = [];
+  const codes = []; // what was set aside, as HTML: put back at the very end
+  const codeTexts = []; // the code spans as plain escaped text, for attribute values
   const park = (html) => {
     codes.push(html);
     return `\u0000${codes.length - 1}\u0000`;
   };
-  let out = text.replace(/`([^`]+)`/g, (_, code) => park(`<code>${escapeHtml(code)}</code>`));
+  let out = text.replace(/`([^`]+)`/g, (_, code) => {
+    codeTexts.push(escapeHtml(code));
+    return park(`<code>${codeTexts[codeTexts.length - 1]}</code>`);
+  });
 
   out = escapeHtml(out);
+
+  // An attribute holds the TEXT of a code span written in it, never its
+  // markup: ![a `b` c](x.png) gives alt="a b c". An image is set aside as a
+  // whole tag, so a placeholder inside it would never be put back — it used
+  // to stay in the page as a NUL character; in the href of a link it was put
+  // back, as a <code> element inside the attribute.
+  const plainText = (value) => value.replace(CODE_SENTINEL, (_, i) => codeTexts[Number(i)]);
 
   // ![alt](src "title"): an image (task 6b B4, ruling Z). The address is kept
   // exactly as written — relative or not — because what may be loaded is the
@@ -79,8 +90,8 @@ function renderInline(text, ctx) {
   // What the syntax does not cover (a single-quoted title, an address with a
   // space in it) stays as written.
   out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, alt, src, title) => {
-    const attributeText = (value) => value.replace(/"/g, '&quot;');
-    return park(`<img src="${src.replace(/"/g, '%22')}" alt="${attributeText(alt)}"`
+    const attributeText = (value) => plainText(value).replace(/"/g, '&quot;');
+    return park(`<img src="${plainText(src).replace(/"/g, '%22')}" alt="${attributeText(alt)}"`
       + (title === undefined ? '' : ` title="${attributeText(title)}"`) + '>');
   });
 
@@ -89,9 +100,9 @@ function renderInline(text, ctx) {
   // same two attributes templates.js gives the footer credit. Site-relative
   // links, fragments and other schemes stay as they are.
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
-    const safeHref = href.replace(/"/g, '%22');
-    const external = /^https?:\/\//i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : '';
-    return `<a href="${safeHref}"${external}>${label}</a>`;
+    const address = plainText(href);
+    const external = /^https?:\/\//i.test(address) ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return `<a href="${address.replace(/"/g, '%22')}"${external}>${label}</a>`;
   });
 
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');

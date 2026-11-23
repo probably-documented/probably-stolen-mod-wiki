@@ -425,3 +425,38 @@ test('B4 — 不支持的写法保持原样,不猜:单引号标题、带空格�
     assert.ok(html.includes(md), `${md}: kept as written`);
   }
 });
+
+// ===== review Important 2 (of 2c486cd): code spans inside an image =====
+//
+// A `code` span is set aside as a placeholder while the line is rendered, and
+// put back at the very end. An image is set aside too — as a whole tag — so
+// the placeholder inside its alt text, title or address was never put back:
+// it stayed in the page as a NUL character (and an address holding one made
+// the dangling-link check report a target with a NUL in its name). In an
+// attribute the code span is plain text; in the text of a link it is still
+// a code span.
+
+test('review Important 2 — a code span in an image\'s alt text, title or address is plain text there: no placeholder is left in the page (the reviewer\'s two)', () => {
+  const ctx = makeCtx();
+  assert.equal(mdToHtml('![a `b` c](x.png)', ctx.lookup, ctx.renderInline).html, '<p><img src="x.png" alt="a b c"></p>');
+  assert.equal(mdToHtml('![a](`x.png`)', ctx.lookup, ctx.renderInline).html, '<p><img src="x.png" alt="a"></p>');
+  assert.equal(mdToHtml('![a](x.png "t `b` t")', ctx.lookup, ctx.renderInline).html, '<p><img src="x.png" alt="a" title="t b t"></p>');
+  assert.equal(mdToHtml('[![`a`](x.png)](`p.html`)', ctx.lookup, ctx.renderInline).html, '<p><a href="p.html"><img src="x.png" alt="a"></a></p>');
+  // …and the characters of the code span are escaped as in any attribute
+  assert.equal(mdToHtml('![`a<b & "c"`](x.png)', ctx.lookup, ctx.renderInline).html,
+    '<p><img src="x.png" alt="a&lt;b &amp; &quot;c&quot;"></p>');
+  for (const md of ['![a `b` c](x.png)', '![a](`x.png`)', '![a](x.png "t `b` t")', '[![`a`](x.png)](`p.html`)']) {
+    const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
+    assert.ok(!html.includes('\u0000'), `${md}: the page holds no placeholder character`);
+    assert.ok(!/<img[^>]*<code>/.test(html), `${md}: no markup inside the attribute`);
+  }
+});
+
+test('review Important 2 — the same code span in the address of a link: plain text in href, a code span in the link text', () => {
+  const ctx = makeCtx();
+  // the link is not set aside, so its placeholder used to be put back — as markup, inside href
+  assert.equal(mdToHtml('[a](`x.html`)', ctx.lookup, ctx.renderInline).html, '<p><a href="x.html">a</a></p>');
+  assert.equal(mdToHtml('[a](`https://example.com/`)', ctx.lookup, ctx.renderInline).html,
+    '<p><a href="https://example.com/" target="_blank" rel="noopener noreferrer">a</a></p>');
+  assert.equal(mdToHtml('[a `b` c](`x.html`)', ctx.lookup, ctx.renderInline).html, '<p><a href="x.html">a <code>b</code> c</a></p>');
+});
