@@ -1419,3 +1419,43 @@ test('the decoder — its edges, as a control: a reference to 0, to a surrogate,
   });
   assert.deepEqual(brief(violations), [7, 8, 9].map((n) => `${HTML}:${n} [script-url]`));
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — ruling AC(3): the time the audit takes
+//
+// Three places grew with the square. The report snippet was built for every
+// attribute of a tag — eagerly, as an argument — though only a tag with a
+// violation ever shows one; the names seen on a tag were kept in a list and
+// scanned for each further attribute; and the line of every violation was
+// counted from the top of the file, one violation after another. 32 000
+// attributes took 46 seconds. The third the re-review did not name: with
+// 8 000 distinct event attributes, 3.7 s at the top of a file and 25 s after
+// a megabyte of it. One shape of it is in the CSS path too: the line a
+// violation is on was searched for from the top, and to the end, each time.
+//
+// What is asserted is an upper bound with room: linear reading takes a few
+// milliseconds on these files, the square took seconds.
+// ---------------------------------------------------------------------------
+
+const letters = (n) => { let s = ''; do { s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; };
+
+test('ruling AC(3) — time grows with the size, not with its square: one tag of 6000 attributes (3000 distinct event attributes), 300 000 lines into the file', async (t) => {
+  const attributes = Array.from({ length: 6000 }, (_, n) => (n % 2 ? `data-a${n}="1"` : `on${letters(n)}="x${n}()"`)).join(' ');
+  const linesBefore = 300000;
+  const started = performance.now();
+  const violations = await auditOf(t, { [HTML]: `${'p\n'.repeat(linesBefore)}<div ${attributes}></div>\n` });
+  const ms = performance.now() - started;
+  assert.equal(violations.length, 3000, 'one entry per event attribute');
+  assert.ok(violations.every((v) => v.code === 'inline-event-handler' && v.line === linesBefore + 1), 'each on the line the tag is on');
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to take seconds here, and minutes with more attributes`);
+});
+
+test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an outside address, and not one line break in it', async (t) => {
+  const css = Array.from({ length: 8000 }, (_, i) => `c${i}{background:url("https://evil.example/${i}.png")}`).join('');
+  const started = performance.now();
+  const violations = await auditOf(t, { 'css/theme.css': css });
+  const ms = performance.now() - started;
+  assert.equal(violations.length, 8000);
+  assert.ok(violations.every((v) => v.code === 'css-external-url' && v.line === 1));
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to grow with the square of the number of addresses`);
+});

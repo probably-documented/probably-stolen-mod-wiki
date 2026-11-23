@@ -298,11 +298,38 @@ const isDataBlockType = (raw) => DATA_BLOCK_TYPES.has(decodeCharacterReferences(
 // Every scanner reports through `report(index, code, detail)`: one violation,
 // anchored at `index` in the text it was found in.
 
+/**
+ * The lines of a text, for the report. `lineBreaksOf` collects where every
+ * line ends once; `lineText` then finds the line that holds `index` by
+ * halving, and `lineNumber` is 1 plus the number of line breaks before it.
+ * (Both used to search from the top of the text for every violation — once
+ * per attribute of a tag with many, once per address of a long stylesheet:
+ * time grew with the square. Ruling AC 3.)
+ */
+function lineBreaksOf(text) {
+  const breaks = [];
+  for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) breaks.push(at);
+  return breaks;
+}
+
+/** The number of line breaks before `index`: the text is cut in halves until it is known. */
+function breaksBefore(breaks, index) {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (breaks[middle] < index) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 /** The line of `text` that holds `index`, trimmed and cut to 160 characters. */
-function lineText(text, index) {
-  const from = text.lastIndexOf('\n', index - 1) + 1;
-  const to = text.indexOf('\n', index);
-  return text.slice(from, to < 0 ? text.length : to).trim().slice(0, 160);
+function lineText(text, breaks, index) {
+  const line = breaksBefore(breaks, index);
+  const from = line === 0 ? 0 : breaks[line - 1] + 1;
+  const to = line < breaks.length ? breaks[line] : text.length;
+  return text.slice(from, to).trim().slice(0, 160);
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +663,7 @@ function parseStartTag(text, start) {
   const tagName = name === null ? '' : name[0].toLowerCase();
   i += name === null ? 0 : name[0].length;
   const attributes = [];
+  const seen = new Set();
   while (i < text.length) {
     const c = text[i];
     if (c === '>') { i += 1; break; }
@@ -667,7 +695,9 @@ function parseStartTag(text, start) {
     // browser keeps the FIRST — and on an HTML element `TYPE` and `type` are
     // one name. Reading the last one let a script the browser runs pass as a
     // data block: <script type="text/javascript" type="application/json">.
-    if (attributes.some((known) => known.name === attributeName)) continue;
+    // The names seen are a set: a tag may carry tens of thousands.
+    if (seen.has(attributeName)) continue;
+    seen.add(attributeName);
     attributes.push({ name: attributeName, value });
   }
   return { name: tagName, attributes, end: i };
@@ -679,7 +709,11 @@ function parseStartTag(text, start) {
  * tag spans lines — and reported in document order.
  */
 function checkTag(text, start, tag, report) {
-  const snippet = () => text.slice(start, tag.end).replace(/\s+/g, ' ').trim().slice(0, 160);
+  // The snippet is made once per tag, and only when the tag has something to
+  // report (ruling AC 3). It used to be built for every attribute, as an
+  // argument: a tag of 32 000 attributes took 46 seconds.
+  let shown = null;
+  const snippet = () => shown ??= text.slice(start, tag.end).replace(/\s+/g, ' ').trim().slice(0, 160);
   const isBase = tag.name === 'base';
   if (isBase) report(start, 'base-tag', snippet());
   if (tag.name === 'meta' && tag.attributes.some((a) => a.name === 'http-equiv')) report(start, 'meta-http-equiv', snippet());
@@ -719,7 +753,8 @@ function checkTag(text, start, tag, report) {
   }
 }
 
-function scanHtml(text, report) {
+/** A page. `detailOf(index)` gives the line of the text that holds `index` (for what a <style> reports). */
+function scanHtml(text, report, detailOf) {
   let i = 0;
   while (i < text.length) {
     const lt = text.indexOf('<', i);
@@ -746,7 +781,7 @@ function scanHtml(text, report) {
       // it, so the line number is the line a contributor finds it on.
       const contentEnd = found === null ? text.length : found.index;
       const contentStart = tag.end;
-      scanCss(text.slice(contentStart, contentEnd), report, (offset) => contentStart + offset, (index) => lineText(text, index));
+      scanCss(text.slice(contentStart, contentEnd), report, (offset) => contentStart + offset, detailOf);
     }
     if (found === null) return;
     const gt = text.indexOf('>', found.index);
@@ -754,18 +789,18 @@ function scanHtml(text, report) {
   }
 }
 
-/** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption — and no slot for a data: image either, so A9 is not applied here. */
-function scanScriptText(text, report) {
+/** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption — and no slot for a data: image either, so A9 is not applied here. `detailOf(index)`: the line that holds `index`. */
+function scanScriptText(text, report, detailOf) {
   const noDataUrls = { dataUrls: false };
-  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, lineText(text, m.index), noDataUrls);
-  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, lineText(text, m.index), noDataUrls);
-  scanCss(text, report, (offset) => offset, (index) => lineText(text, index), { literalsAreCss: true, dataUrls: false });
+  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, detailOf(m.index), noDataUrls);
+  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, detailOf(m.index), noDataUrls);
+  scanCss(text, report, (offset) => offset, detailOf, { literalsAreCss: true, dataUrls: false });
 }
 
 /** fetch( calls and XMLHttpRequest — not looked for in a page (see auditExternalLinks). */
-function scanCalls(text, report) {
-  for (const m of text.matchAll(/\bfetch\s*\(/g)) report(m.index, 'fetch', lineText(text, m.index));
-  for (const m of text.matchAll(/XMLHttpRequest/g)) report(m.index, 'xhr', lineText(text, m.index));
+function scanCalls(text, report, detailOf) {
+  for (const m of text.matchAll(/\bfetch\s*\(/g)) report(m.index, 'fetch', detailOf(m.index));
+  for (const m of text.matchAll(/XMLHttpRequest/g)) report(m.index, 'xhr', detailOf(m.index));
 }
 
 // ---------------------------------------------------------------------------
@@ -793,21 +828,24 @@ async function auditExternalLinks(dir) {
       violations.push({ file: relative, line: 0, code: 'unreadable', detail: err.message });
       continue;
     }
+    // The lines of this file are found once for everything it reports (ruling
+    // AC 3): every violation's line used to be counted from the top of the
+    // file, one after another.
+    const breaks = lineBreaksOf(text);
+    const detailOf = (index) => lineText(text, breaks, index);
     const found = [];
     const report = (index, code, detail) => { found.push({ index, code, detail }); };
-    if (/\.html$/i.test(file)) scanHtml(text, report);
-    else if (/\.css$/i.test(file)) scanCss(text, report, (offset) => offset, (index) => lineText(text, index));
-    else scanScriptText(text, report);
+    if (/\.html$/i.test(file)) scanHtml(text, report, detailOf);
+    else if (/\.css$/i.test(file)) scanCss(text, report, (offset) => offset, detailOf);
+    else scanScriptText(text, report, detailOf);
     // fetch( and XMLHttpRequest are not looked for in a page (ruling AB c):
     // there they can be nothing but text — A4 leaves no way to run a script —
     // and reporting them failed the build on a sentence. The .js files are
     // still read for them, and so is a stylesheet, as before: the ruling
     // names pages only.
-    if (!/\.html$/i.test(file)) scanCalls(text, report);
+    if (!/\.html$/i.test(file)) scanCalls(text, report, detailOf);
     for (const { index, code, detail } of found.sort((a, b) => a.index - b.index)) {
-      let line = 1;
-      for (let k = index - 1; k >= 0; k -= 1) if (text.charCodeAt(k) === 10) line += 1;
-      violations.push({ file: relative, line, code, detail });
+      violations.push({ file: relative, line: breaksBefore(breaks, index) + 1, code, detail });
     }
   }
   return violations;
