@@ -37,7 +37,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildSkeleton, validateItemContentIds, formatAuditViolations,
+  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY,
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
@@ -820,10 +820,9 @@ test('buildSkeleton removes the old dist with fs.rm retries (maxRetries / retryD
   assert.ok(rmOfDist !== undefined, 'fs.rm was called for dist');
   assert.equal(rmOfDist.opts.recursive, true);
   assert.equal(rmOfDist.opts.force, true);
-  assert.ok(Number.isInteger(rmOfDist.opts.maxRetries) && rmOfDist.opts.maxRetries >= 1,
-    `maxRetries is set, got ${JSON.stringify(rmOfDist.opts)}`);
-  assert.ok(Number.isInteger(rmOfDist.opts.retryDelay) && rmOfDist.opts.retryDelay > 0,
-    `retryDelay is set, got ${JSON.stringify(rmOfDist.opts)}`);
+  // D4 (task 6b): to the letter the one retry policy, the same object pack.js uses.
+  assert.deepEqual({ ...rmOfDist.opts }, { recursive: true, force: true, ...RETRY },
+    `fs.rm(dist, { recursive, force, …RETRY }), got ${JSON.stringify(rmOfDist.opts)}`);
   await assert.rejects(fs.access(path.join(distDir, 'stale.html')), '…and the rm still does its job');
 });
 

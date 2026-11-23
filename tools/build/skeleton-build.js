@@ -62,6 +62,16 @@ class BuildError extends Error {
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
+ * The retry policy for file operations that meet a handle another process
+ * still holds on Windows (EBUSY / EPERM / ENOTEMPTY, typically on something
+ * just written): fs.rm's own options — 3 more tries, 100 ms, linear backoff —
+ * as the tests' cleanup uses them too. The ONE copy (task 6b D4): the rm of
+ * distDir below spreads it, and tools/pack.js spreads the same object into
+ * its own rm and reads it for its retrying rename.
+ */
+const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
+
+/**
  * Repo-shipped static assets → dist path. Each dest is exactly the path the
  * rendered pages or theme.css reference (templates.js layout, render.js
  * search.html + items.html, theme.css @font-face + body background): dist
@@ -510,10 +520,11 @@ async function buildSkeleton({
     const rendered = await renderSite(data, { contentDir });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
-    //    Retries: on Windows the rm of a directory that was just written
-    //    can answer ENOTEMPTY/EBUSY while handles are still being released
-    //    (seen in the tests' own cleanup) — the same retry policy as there.
-    await fs.rm(distPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    //    Retries (RETRY): on Windows the rm of a directory that was just
+    //    written can answer ENOTEMPTY/EBUSY while handles are still being
+    //    released — the same retry policy as the tests' own cleanup and as
+    //    tools/pack.js.
+    await fs.rm(distPath, { recursive: true, force: true, ...RETRY });
 
     // 4. Write pages (posix rel paths from renderSite → platform paths).
     for (const [rel, content] of rendered) {
@@ -581,4 +592,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildSkeleton, validateItemContentIds, formatAuditViolations };
+module.exports = { buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY };

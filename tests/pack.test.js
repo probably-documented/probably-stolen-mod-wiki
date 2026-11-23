@@ -455,3 +455,43 @@ test('packSite: the temporary zip is renamed onto the final name through the ret
   assert.ok(Number.isInteger(rmOfTmp.opts.retryDelay) && rmOfTmp.opts.retryDelay > 0, `retryDelay, got ${JSON.stringify(rmOfTmp.opts)}`);
   await assert.rejects(fs.access(tmpZip), 'no temp zip left behind');
 });
+
+// ---------- Task 6b D4 — the retry policy lives in ONE place ----------
+//
+// There used to be two copies of { maxRetries: 3, retryDelay: 100 }: one in
+// pack.js, one spelled out in the fs.rm call of the build entry. Equal values
+// in two places are exactly what drifts apart. The build entry now owns the
+// object and exports it; pack.js uses that same object.
+
+test('D4 — the retry policy is one object: what pack.js uses is the very object buildSkeleton hands to fs.rm', async (t) => {
+  const { RETRY } = require('../tools/pack.js');
+  const { RETRY: buildRetry } = require('../tools/build/skeleton-build.js');
+  assert.equal(typeof buildRetry, 'object', 'the build entry exports its retry policy');
+  assert.ok(Object.isFrozen(buildRetry), '…frozen: a policy is not edited at run time');
+  assert.deepEqual({ ...buildRetry }, { maxRetries: 3, retryDelay: 100 }, 'the values the tests above pin, unchanged');
+  assert.equal(RETRY, buildRetry, 'pack.js re-exports that same object — there is no second copy to drift');
+
+  // …and both entries really hand it to the fs: what reaches fs.rm is
+  // { recursive, force, …RETRY } / { force, recursive, …RETRY }, to the letter.
+  const seen = { rm: [] };
+  const real = { rm: fs.rm, rename: fs.rename };
+  fs.rm = async (p, opts) => { seen.rm.push({ p: path.resolve(p), opts: { ...opts } }); return real.rm(p, opts); };
+  fs.rename = async (a, b) => real.rename(a, b);
+  t.after(() => { fs.rm = real.rm; fs.rename = real.rename; });
+  const root = await tmpDir(t, 'one-retry-policy');
+  const distDir = path.join(root, 'dist');
+  const zipPath = path.join(root, 'offline-wiki-test.zip');
+
+  const { err } = await capturingExitCode(() => packSite({
+    distDir, zipPath, contentDir: null, adminDir: null, warn: noop,
+    executable: path.join(root, 'no-such-dir', 'bsdtar'), // not there: the build runs, the packing fails — both get observed
+  }));
+  assert.ok(err instanceof Error, `the packing fails for want of bsdtar, after the build ran, got ${err}`);
+  assert.match(err.message, /bsdtar not found/);
+
+  const rmOfDist = seen.rm.find((call) => call.p === path.resolve(distDir));
+  const rmOfTmpZip = seen.rm.find((call) => call.p === path.resolve(`${zipPath}.tmp.zip`));
+  assert.ok(rmOfDist !== undefined && rmOfTmpZip !== undefined, `fs.rm was called for dist and for the temp zip, got ${JSON.stringify(seen.rm)}`);
+  assert.deepEqual(rmOfDist.opts, { recursive: true, force: true, ...buildRetry }, 'the build entry: fs.rm(dist, { recursive, force, …RETRY })');
+  assert.deepEqual(rmOfTmpZip.opts, { force: true, recursive: true, ...buildRetry }, 'pack.js: fs.rm(tmp zip, { force, recursive, …RETRY })');
+});

@@ -36,7 +36,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
-const { buildSkeleton } = require('./build/skeleton-build.js');
+const { buildSkeleton, RETRY } = require('./build/skeleton-build.js');
 const { isInsideDir } = require('./build/paths.js');
 
 const execFileP = promisify(execFile);
@@ -220,13 +220,11 @@ function leakedAdminEntries(entries) {
 // Retries (task 5b D2, ruling P)
 // ---------------------------------------------------------------------------
 
-/**
- * fs.rm's own retry options (3 tries, 100 ms, linear backoff), as the tests'
- * cleanup already uses them: on Windows an operation on a file that was just
- * written can answer EBUSY/EPERM/ENOTEMPTY while a handle is still being
- * released.
- */
-const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
+// RETRY — fs.rm's own retry options (3 tries, 100 ms, linear backoff) — is
+// the build entry's (skeleton-build.js), re-exported from here: one copy for
+// the rm of dist, the rm of the temporary zip and the retrying rename below
+// (task 6b D4). On Windows an operation on a file that was just written can
+// answer EBUSY/EPERM/ENOTEMPTY while a handle is still being released.
 
 /** The error codes Node's fs.rm retries — the same set, for the rename below. */
 const RETRYABLE_RENAME_ERRORS = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']);
@@ -368,5 +366,5 @@ if (require.main === module) {
 
 module.exports = {
   BSDTAR, MAX_ZIP_BYTES, resolveBsdtar, readVersion, zipName, assertUnderSizeLimit,
-  runBsdtar, createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries,
+  runBsdtar, createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, RETRY,
 };
