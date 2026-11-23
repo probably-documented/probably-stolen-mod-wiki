@@ -449,12 +449,14 @@ async function buildSkeleton({
   try {
     // 0. Pre-flight — nothing on disk has changed yet.
     //    rm guard (paths.js isAllowedDistDir): the recursive rm in step 3
-    //    may only ever hit a directory inside the repo, or inside the system
-    //    temp directory — and never the repo root or one of its ancestors.
+    //    may only ever hit the repo's own dist directory, or a directory
+    //    inside the system temp directory — never the repo root, one of its
+    //    ancestors, or any other directory inside the repo (task 6b D6).
     const distPath = path.resolve(distDir);
     if (!isAllowedDistDir(distPath, REPO_ROOT)) {
-      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it must be a directory inside the repo `
-        + `(${REPO_ROOT}) or inside the system temp directory (${os.tmpdir()}), and never the repo root or one of its ancestors`);
+      throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: the build only ever removes the repo's own dist directory `
+        + `(${path.join(REPO_ROOT, 'dist')}) or a directory inside the system temp directory (${os.tmpdir()}) — `
+        + 'never the repo root, one of its ancestors, or any other directory inside the repo');
     }
     //    CMS shell source — all three answers known up front (see
     //    resolveAdminSource): inside dist → refused (step 3 would delete it

@@ -5,8 +5,9 @@
 //
 // One comparison on purpose. This single predicate is what three safety
 // guards rest on:
-//   - the rm guard — buildSkeleton only removes a distDir that is inside the
-//     repo or inside the system temp directory (isAllowedDistDir below);
+//   - the rm guard — buildSkeleton only removes a distDir that is the repo's
+//     own dist directory, or a directory inside the system temp directory
+//     (isAllowedDistDir below);
 //   - the CMS-shell guard — an adminDir inside distDir would be deleted by rm
 //     dist before it is injected;
 //   - the self-inclusion guard — a zip written inside dist could archive its
@@ -48,20 +49,32 @@ function isStrictlyInsideDir(dir, p) {
   return path.relative(path.resolve(dir), path.resolve(p)) !== '' && isInsideDir(dir, p);
 }
 
+/** Is `p` the directory `dir` itself? Asked the way isInsideDir asks, so win32 case folding agrees. */
+function isSameDir(dir, p) {
+  return path.relative(path.resolve(dir), path.resolve(p)) === '';
+}
+
+/** The one directory inside the repo a build may remove: the repo's own dist. */
+const DIST_DIR_NAME = 'dist';
+
 /**
  * May buildSkeleton remove `distDir` recursively? (task 5b D1, ruling P — a
- * positive allow-list.) Only two kinds of location are allowed:
+ * positive allow-list; task 6b D6 — tightened inside the repo.) Only two
+ * kinds of location are allowed:
  *
- *   - a directory inside the repo — but not the repo root itself;
+ *   - the repo's own `dist` directory — exactly that one, nothing else
+ *     inside the repo (before D6 any subdirectory would do, and a build
+ *     pointed at content/ or .git/ deleted it);
  *   - a directory inside the system temp directory — but not that directory
  *     itself (where the tests build).
  *
- * Everything else is refused: any other path outside the repo, and — first
- * of all, whatever else is true of the path — the repo root and every one of
- * its ancestors. The ancestor rule outranks the temp rule on purpose: a repo
- * checked out under the temp directory (the test suite's stand-in copies)
- * must not have its parent directories become removable just because they
- * lie under the temp directory too.
+ * Everything else is refused: any other path outside the repo, any other
+ * directory inside it, and — first of all, whatever else is true of the
+ * path — the repo root and every one of its ancestors. The ancestor rule
+ * outranks the temp rule on purpose: a repo checked out under the temp
+ * directory (the test suite's stand-in copies) must not have its parent
+ * directories become removable just because they lie under the temp
+ * directory too.
  *
  * Pure (no fs access; os.tmpdir() reads the environment). Known limits, as
  * for isInsideDir: symlinks/junctions and 8.3 short names.
@@ -76,7 +89,10 @@ function isAllowedDistDir(distDir, repoRoot, tmpRoot = os.tmpdir()) {
   const dist = path.resolve(distDir);
   // The repo, or a directory that contains it → never (repoRoot inside dist).
   if (isInsideDir(dist, repoRoot)) return false;
-  return isInsideDir(repoRoot, dist) || isStrictlyInsideDir(tmpRoot, dist);
+  // Inside the repo: the repo's dist directory, and nothing else.
+  if (isInsideDir(repoRoot, dist)) return isSameDir(path.join(repoRoot, DIST_DIR_NAME), dist);
+  // Inside the system temp directory, but not that directory itself.
+  return isStrictlyInsideDir(tmpRoot, dist);
 }
 
 module.exports = { isInsideDir, isAllowedDistDir };

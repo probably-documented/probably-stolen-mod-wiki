@@ -1,12 +1,16 @@
 'use strict';
 
-// Task 5 D → Task 5b D1 tests: tools/build/paths.js — the containment
-// guards buildSkeleton's recursive `rm dist` rests on.
+// Task 5 D → Task 5b D1 → Task 6b D6/D7 tests: tools/build/paths.js — the
+// containment guards buildSkeleton's recursive `rm dist` rests on.
 //
 // D1 (ruling P): the rm guard is a positive allow-list. A resolved distDir
-// is allowed only when it is a directory INSIDE the repo (not the repo root)
-// or INSIDE the system temp directory; everything else is refused — before,
-// any path outside the repo could be removed.
+// is allowed only when it is a directory INSIDE the repo or INSIDE the system
+// temp directory; everything else is refused — before, any path outside the
+// repo could be removed.
+//
+// D6 (task 6b): inside the repo the list has exactly one entry — the repo's
+// own `dist` directory. Before, any subdirectory of the repo would do (.git,
+// content, …), and a build pointed there would delete it.
 //
 // Pure functions only: paths are built as strings and nothing is touched on
 // disk. The real repo root is never used — the stand-in below is a path
@@ -57,13 +61,32 @@ test('isAllowedDistDir: the repo root and its ancestors are refused', () => {
   }
 });
 
-test('isAllowedDistDir: a directory inside the repo (not the root) is allowed', () => {
-  assert.equal(isAllowedDistDir(path.join(REPO, 'dist'), REPO), true, 'an ordinary subdirectory');
-  assert.equal(isAllowedDistDir(path.join(REPO, 'out', 'nested', 'deeper'), REPO), true, 'a nested subdirectory');
+test('isAllowedDistDir (D6): inside the repo, only the dist directory of the repo is allowed', () => {
+  assert.equal(isAllowedDistDir(path.join(REPO, 'dist'), REPO), true, 'the dist directory of the repo');
   assert.equal(isAllowedDistDir(path.join(REPO, 'dist', '..', 'dist'), REPO), true, 'resolved first');
   assert.equal(isAllowedDistDir(`${path.join(REPO, 'dist')}${path.sep}`, REPO), true, 'trailing separator');
   if (process.platform === 'win32') {
     assert.equal(isAllowedDistDir(path.join(REPO, 'DIST').toUpperCase(), REPO.toUpperCase()), true, 'win32: case does not matter');
+  }
+});
+
+test('isAllowedDistDir (D6): any other directory inside the repo is refused — a build pointed there would delete it', () => {
+  const cases = [
+    [['out'], 'an ordinary subdirectory'],
+    [[path.join('out', 'nested', 'deeper')], 'a nested subdirectory'],
+    [['content'], 'the content directory'],
+    [[path.join('content', 'mechanics')], 'inside the content directory'],
+    [['.git'], '.git'],
+    [['tools'], 'the tools directory'],
+    [[path.join('dist', '..', 'out')], 'a path that normalizes to another subdirectory'],
+    [[path.join('dist', 'deeper')], 'a directory INSIDE dist: not dist itself'],
+    [[path.join('dist-sibling')], 'a sibling whose name extends "dist"'],
+    [[path.join('tools', '..', 'content', '..', '.git', 'objects')], 'deeper, after normalizing'],
+  ];
+  for (const [segments, what] of cases) {
+    assert.equal(isAllowedDistDir(path.join(REPO, ...segments), REPO), false, what);
+  }
+  if (process.platform === 'win32') {
     assert.equal(isAllowedDistDir(REPO.toUpperCase(), REPO), false, '…and the repo root is still recognised');
   }
 });
@@ -97,7 +120,9 @@ test('isAllowedDistDir: relative paths resolve against the cwd like the fs call 
   assert.equal(isAllowedDistDir('.', cwd), false, '"." from the repo root is the repo root');
   assert.equal(isAllowedDistDir('', cwd), false, '"" resolves to the cwd as well');
   assert.equal(isAllowedDistDir('..', cwd), false, '".." from the repo root is its parent — an ancestor, wherever the repo lives');
-  assert.equal(isAllowedDistDir('dist', cwd), true, 'a relative subdirectory of the repo is fine');
+  assert.equal(isAllowedDistDir('dist', cwd), true, 'the relative "dist" of the npm scripts: the dist directory of the repo');
+  assert.equal(isAllowedDistDir('out', cwd), false, '(D6) any other relative subdirectory of the repo');
+  assert.equal(isAllowedDistDir(path.join('dist', 'x'), cwd), false, '(D6) not a directory inside dist either');
 });
 
 test('isAllowedDistDir: a repo that itself lives under the temp dir (this test suite\'s stand-in copies) — its ancestors stay refused, the temp branch never overrides that', () => {
