@@ -1478,3 +1478,59 @@ test('C1 — 违规的是一个 <img>(通常是图片写法生成的):报告说�
   assert.match(frame[2], /^     问题:.*页面里是这段:<iframe src="https:\/\/example\.com\/">$/);
   assert.ok(!frame[2].includes('图片写法'));
 });
+
+// ---------------------------------------------------------------------------
+// Reports, after the review of 2c486cd — the "how to fix" line names the
+// kind of tag it is talking about
+//
+// The fix for an outside address said 本站暂不支持插入外部图片 whatever the
+// tag was — a script or a stylesheet included. It now depends on the tag.
+// And the check for javascript: stays on every attribute (ruling AB d): it
+// is what catches <animate values="javascript:…">. Its fix says so.
+// ---------------------------------------------------------------------------
+
+const FIX_LINE = 3;
+
+/** The report's "怎么改" line for one violation, as a contributor reads it. */
+function fixLine(code, detail) {
+  const report = formatAuditViolations([{ file: 'mechanics/a.html', line: 7, code, detail }], {
+    sourceOf: () => 'content/mechanics/a.md',
+  });
+  return report.split('\n')[FIX_LINE];
+}
+
+test('文案 — an outside address: the fix names the kind of thing the tag is — an image, a script, a stylesheet, an embedded page, anything else', () => {
+  const image = fixLine('external-url', '<img src="https://evil.example/x.png" alt="">');
+  assert.match(image, /^     怎么改:.*图片。.*!\[说明\]\(地址\).*本站暂不支持插入外部图片。$/);
+  assert.match(fixLine('external-url', '<img srcset="https://evil.example/x.png 1x" alt="">'), /^     怎么改:.*图片/, 'an <img> by its srcset too');
+  assert.match(fixLine('external-url', '<source srcset="https://evil.example/x.png 1x">'), /^     怎么改:.*图片.*音视频/, 'a <source>: an image or a media file');
+  assert.match(fixLine('external-url', '<video src="https://evil.example/v.mp4"></video>'), /^     怎么改:.*音视频/, 'a media file');
+  assert.match(fixLine('external-url', '<audio src="https://evil.example/a.mp3"></audio>'), /^     怎么改:.*音视频/);
+
+  const script = fixLine('external-url', '<script src="https://evil.example/x.js"></script>');
+  assert.match(script, /^     怎么改:.*脚本/, 'a script');
+  assert.match(fixLine('external-url', '<link rel="stylesheet" href="https://evil.example/x.css">'), /^     怎么改:.*样式/, 'a stylesheet');
+
+  const embedded = fixLine('external-url', '<iframe src="https://evil.example/"></iframe>');
+  assert.match(embedded, /^     怎么改:.*嵌入/, 'an embedded page');
+  assert.match(fixLine('external-url', '<object data="https://evil.example/o.svg"></object>'), /^     怎么改:.*嵌入/);
+  assert.match(fixLine('external-url', '<embed src="https://evil.example/e.svg">'), /^     怎么改:.*嵌入/);
+
+  const other = fixLine('external-url', '<div data-x="https://evil.example/">x</div>');
+  assert.match(other, /^     怎么改:删掉这个标签里以 http:\/\/ 或 https:\/\/ 开头的那一项。想链接到外部网页,请写成普通的链接:\[文字\]\(https:\/\/网址\)。$/);
+
+  // …and "外部图片" is said for an image only
+  for (const detail of ['<script src="https://evil.example/x.js"></script>', '<link rel="stylesheet" href="https://evil.example/x.css">',
+    '<iframe src="https://evil.example/"></iframe>', '<div data-x="https://evil.example/">x</div>', '<video src="https://evil.example/v.mp4"></video>']) {
+    assert.ok(!fixLine('external-url', detail).includes('插入外部图片'), `${detail}: not told about images`);
+  }
+});
+
+test('ruling AB(d) — a javascript: address: the fix says that an attribute value must not start with javascript:', () => {
+  const fix = fixLine('script-url', '<a href="javascript:alert(1)">');
+  assert.match(fix, /^     怎么改:属性值不能以 javascript: 开头。.+。$/, fix);
+  assert.ok(!fix.includes('链接'), 'it is not only links: any attribute');
+  for (const detail of ['<div onclick="x()">t</div>', '<img src="x.png" alt="">', '<a href="https://evil.example/">']) {
+    assert.ok(!fixLine('external-url', detail).includes('javascript:'), `${detail}: that is another matter`);
+  }
+});

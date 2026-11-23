@@ -305,15 +305,37 @@ function editableSourceOf(distFile, contentDir) {
 }
 
 /**
+ * What to do about an outside address, by the kind of tag it sits in — read
+ * off the tag the report quotes. One sentence for all of them said
+ * 「暂不支持插入外部图片」 to a contributor who had written a script, a
+ * stylesheet or an embedded page.
+ */
+function fixOutsideUrl(detail) {
+  const tag = /^<([a-z][a-z0-9-]*)/i.exec(detail ?? '')?.[1].toLowerCase() ?? '';
+  if (tag === 'img' || tag === 'picture') {
+    return '删掉这张图片。如果它是由图片写法 ![说明](地址) 生成的,请删掉那一段图片写法。本站暂不支持插入外部图片。';
+  }
+  if (tag === 'source') return '删掉这个标签,或其中的地址。本站不支持加载外部的图片和音视频。';
+  if (tag === 'video' || tag === 'audio' || tag === 'track') return '删掉这个标签,或其中的地址。本站不支持加载外部的音视频。';
+  if (tag === 'script') return '删掉这个脚本标签。页面里只能引用本站自带的脚本。';
+  if (tag === 'link') return '删掉这个标签。样式只能使用本站自带的样式表。';
+  if (tag === 'iframe' || tag === 'frame' || tag === 'embed' || tag === 'object' || tag === 'portal') {
+    return '删掉这个标签。本站不允许嵌入外部的网页。';
+  }
+  return '删掉这个标签里以 http:// 或 https:// 开头的那一项。想链接到外部网页,请写成普通的链接:[文字](https://网址)。';
+}
+
+/**
  * What each audit code means and what to do, for a contributor who does not
  * program (task 6b C1). Keyed by the `code` of an audit.js violation — one
  * entry per code; tests/skeleton-build.test.js checks that the audit's own
- * tests never expect a code missing here.
+ * tests never expect a code missing here. `fix` is a string, or a function
+ * of the violation's `detail` when the right advice depends on the tag.
  */
 const AUDIT_ADVICE = Object.freeze({
   'external-url': {
     problem: '有一个标签从外部地址(http:// 或 https:// 开头)加载资源,例如图片、视频、脚本或样式。本站不允许加载外部资源。',
-    fix: '删掉这个标签,或那一段图片写法。本站暂不支持插入外部图片。',
+    fix: fixOutsideUrl,
   },
   'protocol-relative-url': {
     problem: '有一个地址以 // 开头(例如 //cdn.example.com/x.png)。这种写法等同于从外部站点加载,本站不允许。',
@@ -362,8 +384,8 @@ const AUDIT_ADVICE = Object.freeze({
     fix: '删掉这个属性(从 on 开头,到它的值结束)。',
   },
   'script-url': {
-    problem: '有一个链接的地址以 javascript: 或 vbscript: 开头,点开就会执行脚本。',
-    fix: '改成普通的 https:// 网页地址,或者删掉这个链接。',
+    problem: '有一个属性的值以 javascript: 或 vbscript: 开头——不一定是链接,任何属性都算。读者一点、或者页面一加载,它就会执行脚本。',
+    fix: '属性值不能以 javascript: 开头。请删掉这个属性,或把它改成一个普通的地址(例如以 https:// 开头的网页地址)。',
   },
   'base-tag': {
     problem: '页面里有 <base> 标签,它会改变整页所有相对地址的指向。',
@@ -403,8 +425,10 @@ function formatAuditViolations(violations, { sourceOf = () => null } = {}) {
   const sourceOfEntry = (v) => (v.code === 'unreadable' ? null : sourceOf(v.file));
   const entries = violations.map((v, i) => {
     const source = sourceOfEntry(v);
-    const { problem, fix } = AUDIT_ADVICE[v.code]
+    const advice = AUDIT_ADVICE[v.code]
       ?? { problem: '构建发现了一处不允许的写法,但没有对应的说明。', fix: '' };
+    const { problem } = advice;
+    const fix = typeof advice.fix === 'function' ? advice.fix(v.detail) : advice.fix;
     const place = v.line > 0 ? ` 第 ${v.line} 行附近` : '';
     const where = source === null
       ? `文件:(构建生成的)${v.file}${place}`

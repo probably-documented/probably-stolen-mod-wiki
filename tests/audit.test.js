@@ -1094,3 +1094,15 @@ test('ruling AB(b) / A9 — a data: address is read as a browser reads it: chara
   // (the second tag spans two lines, so the third one is on line 4)
   assert.deepEqual(brief(violations), [1, 2, 4].map((n) => `${HTML}:${n} [data-url]`));
 });
+
+test('ruling AB(d) — a javascript: address is refused in ANY attribute, on any tag: that is what catches SVG animation', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<animate values="javascript:alert(1)">',
+      '<set attributeName="href" to="javascript:alert(2)">',
+      '<a href=" JaVaScRiPt:alert(3)">x</a>',
+      '<form action="vbscript:msgbox(4)"></form>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4].map((n) => `${HTML}:${n} [script-url]`));
+});
