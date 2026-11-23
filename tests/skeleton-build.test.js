@@ -64,7 +64,10 @@ const build = (options) => buildSkeleton({ adminDir: null, ...options });
 
 async function tmpDir(t, label) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `skeleton-${label}-`));
-  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  // Windows may answer ENOTEMPTY to the final rmdir of a recursive rm while a
+  // just-deleted entry is still pending (seen about once in 14 full runs).
+  // That is the cleanup failing, not the test — fs.rm retries such errors.
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
   return dir;
 }
 
