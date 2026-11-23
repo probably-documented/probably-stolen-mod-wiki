@@ -274,3 +274,19 @@ test('packSite: a failed build aborts packing — no zip is written and a previo
   assert.equal(await fs.readFile(zipPath, 'utf8'), 'previous zip', 'the previous zip is untouched');
   await assert.rejects(fs.access(path.join(root, 'dist')), 'dist was not even created');
 });
+
+test('packSite: a zip path inside dist is refused before the build — the previous dist is left alone', async (t) => {
+  const root = await tmpDir(t, 'pack-guard');
+  const distDir = path.join(root, 'dist');
+  await fs.mkdir(distDir, { recursive: true });
+  const sentinel = path.join(distDir, 'sentinel-from-previous-build.html');
+  await fs.writeFile(sentinel, '<title>previous build</title>');
+
+  await assert.rejects(
+    packSite({ distDir, zipPath: path.join(distDir, 'offline-wiki-test.zip'), contentDir: null, adminDir: null, warn: noop }),
+    /outside dist/,
+    'the self-inclusion guard fires',
+  );
+  assert.equal(await fs.readFile(sentinel, 'utf8'), '<title>previous build</title>', 'refused before the build touched dist');
+  assert.deepEqual((await fs.readdir(distDir)).sort(), ['sentinel-from-previous-build.html'], 'dist otherwise untouched');
+});

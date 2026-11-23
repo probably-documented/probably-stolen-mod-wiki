@@ -734,3 +734,19 @@ test('buildSkeleton fails loudly when adminDir exists but is not a directory (in
   assert.equal(exitCode, 1);
   await assert.rejects(fs.access(path.join(distDir, 'admin')), 'nothing is copied');
 });
+
+test('buildSkeleton refuses an adminDir inside distDir instead of letting rm dist delete the shell and then "skip" it', async (t) => {
+  const distDir = await tmpDir(t, 'admin-inside-dist');
+  const adminDir = path.join(distDir, 'admin'); // the CMS shell living inside the output directory
+  await fs.mkdir(adminDir);
+  await fs.writeFile(path.join(adminDir, 'index.html'), 'shell');
+
+  const { err, exitCode } = await capturingExitCode(() =>
+    buildSkeleton({ distDir, contentDir: null, adminDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the adminDir-inside-distDir build to be refused, got ${err}`);
+  assert.match(err.message, /adminDir .*inside distDir/);
+  assert.equal(exitCode, 1);
+  // Refused up front: rm dist has not run, the shell is still where it was.
+  assert.equal(await fs.readFile(path.join(adminDir, 'index.html'), 'utf8'), 'shell', 'the shell source was not deleted');
+});

@@ -125,6 +125,18 @@ function isInsideDir(dir, p) {
 }
 
 /**
+ * Self-inclusion guard: the zip must live OUTSIDE dist. bsdtar archives while
+ * it walks, so a zip inside dist could end up holding its own half-written
+ * bytes. Pure (no I/O) — called before anything is built or written.
+ * @throws {Error} when zipPath is distDir itself or underneath it
+ */
+function assertZipOutsideDist(distDir, zipPath) {
+  if (isInsideDir(distDir, zipPath)) {
+    throw new Error(`[pack] refusing to write the zip inside dist: ${path.resolve(zipPath)} — it must be outside dist so bsdtar can never archive its own output`);
+  }
+}
+
+/**
  * Run bsdtar; a missing executable becomes an explicit, actionable error.
  * @returns {Promise<{stdout: string, stderr: string}>}
  */
@@ -149,17 +161,14 @@ async function runBsdtar(args) {
  * The exclusion holds whether or not dist/admin exists.
  *
  * Guards, both before bsdtar runs:
- *   - zipPath must live OUTSIDE distDir (self-inclusion: bsdtar archives
- *     while it walks, a zip inside dist could hold its own half-written bytes)
+ *   - zipPath must live OUTSIDE distDir (assertZipOutsideDist)
  *   - at least one entry must remain; with no operands some bsdtar builds fall
  *     back to archiving the whole -C directory, admin/ included
  */
 async function createZip(distDir, zipPath) {
   const dist = path.resolve(distDir);
   const zip = path.resolve(zipPath);
-  if (isInsideDir(dist, zip)) {
-    throw new Error(`[pack] refusing to write the zip inside dist: ${zip} — it must be outside dist so bsdtar can never archive its own output`);
-  }
+  assertZipOutsideDist(dist, zip);
   let names;
   try {
     names = await fs.readdir(dist);
@@ -247,6 +256,8 @@ async function packSite({
 } = {}) {
   const version = readVersion(await fs.readFile(packageJsonPath, 'utf8'));
   const zip = path.resolve(zipPath ?? path.join(path.dirname(path.resolve(packageJsonPath)), zipName(version)));
+  // 0. Self-inclusion guard first: a mis-placed zip must not cost a rebuild.
+  assertZipOutsideDist(distDir, zip);
 
   // 1. Fresh build — logs and failure semantics exactly those of `npm run build`.
   const build = await buildSkeleton({ distDir, contentDir, assetsDir, adminDir, warn });

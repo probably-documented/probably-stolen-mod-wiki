@@ -6,12 +6,14 @@
 // Unlike modwiki's full builder this never touches the game directory or the
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
-//   0. pre-flight, nothing on disk touched: rm guard → id lint → asset sources
-//   1. data prep (drop missing icons, merge content/mechanics) → render
-//   2. rm dist → write files → copy repo assets → auditExternalLinks(dist)
-//   3. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
-// Step 0 and the rendering in step 1 come BEFORE the old dist is removed, so
-// every failure they can spot leaves the previous output in place.
+//   0. pre-flight, nothing on disk touched:
+//      rm guard → admin source outside dist → id lint → asset sources
+//   1. data prep (drop missing icons, merge content/mechanics)
+//   2. render
+//   3. rm dist → 4. write files → 5. copy repo assets → 6. auditExternalLinks(dist)
+//   7. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
+// Steps 0–2 come BEFORE the old dist is removed (step 3), so every failure
+// they can spot leaves the previous output in place.
 //
 // Failure discipline: any lint/render/write/asset/admin-copy failure or
 // external-link audit violation throws with process.exitCode = 1, so a broken
@@ -60,17 +62,28 @@ const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-build
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
 /**
+ * Is `p` `dir` itself or somewhere underneath it? Both sides are resolved
+ * first, so `.`, `..`, trailing separators and `x/..` segments all normalize
+ * before the comparison. path.relative compares case-insensitively on win32,
+ * like the file system; a `p` on another drive comes back as an absolute
+ * path and is never "inside".
+ */
+function isInsideDir(dir, p) {
+  const rel = path.relative(path.resolve(dir), path.resolve(p));
+  // '' → same directory. A bare relative path (not '..', not '../…', not
+  // absolute) → p is underneath dir.
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/**
  * Would the recursive `rm distDir` take the repo with it? True when the
- * resolved distDir is the repo root itself or one of its ancestors.
+ * resolved distDir is the repo root itself or one of its ancestors — asked
+ * literally: does repoRoot lie inside distDir. So `distDir: '.'` run from
+ * the repo root IS the repo root, while a sibling whose name merely extends
+ * the repo's (`<repo>-copy`) stays allowed.
  *
  * Pure (no fs access) so it can be unit-tested against a stand-in repo root —
  * the real one must never be passed to buildSkeleton to prove the guard.
- * Both paths are resolved first, so `.`, `..`, `''` (all cwd-relative),
- * trailing separators and `dist/..` segments normalize before the comparison:
- * `distDir: '.'` run from the repo root IS the repo root. The question asked
- * is literally the dangerous one — does repoRoot lie inside distDir — so a
- * sibling whose name merely extends the repo's (`<repo>-copy`) stays allowed.
- * path.relative compares case-insensitively on win32, like the file system.
  *
  * Not covered: aliases of the same directory through symlinks/junctions or
  * 8.3 short names (that would need fs.realpath, i.e. I/O).
@@ -80,12 +93,7 @@ const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code ===
  * @returns {boolean}
  */
 function isUnsafeDistDir(distDir, repoRoot) {
-  const dist = path.resolve(distDir);
-  const rel = path.relative(dist, path.resolve(repoRoot));
-  // '' → same directory. A bare relative path (not '..', not '../…', and not
-  // absolute — which is what another drive comes back as) → repoRoot is
-  // underneath distDir.
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+  return isInsideDir(distDir, repoRoot);
 }
 
 /**
@@ -269,12 +277,13 @@ async function injectAdmin(adminDir, distDir) {
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   adminInjected = whether an admin tree was copied into dist.
  * @throws {Error} when distDir resolves to the repo root or one of its
- *   ancestors (nothing is removed), when a content/items markdown file is not
- *   named `<item.id>.md`, when an asset source is missing, on any
+ *   ancestors, when adminDir lies inside distDir (both refused before
+ *   anything is removed), when a content/items markdown file is not named
+ *   `<item.id>.md`, when an asset source is missing, on any
  *   render/write/asset-copy/admin-copy failure, or on an external-link audit
- *   violation; process.exitCode is set to 1 before the throw. The rm-guard,
- *   id-lint, missing-asset-source and render failures happen before the old
- *   dist is removed, which therefore stays as it was.
+ *   violation; process.exitCode is set to 1 before the throw. The pre-flight
+ *   (step 0) and render failures happen before the old dist is removed, which
+ *   therefore stays as it was.
  */
 async function buildSkeleton({
   distDir = 'dist',
@@ -285,10 +294,17 @@ async function buildSkeleton({
 } = {}) {
   try {
     // 0. Pre-flight — nothing on disk has changed yet.
-    //    rm guard: the recursive rm in step 2 must never eat the repo.
+    //    rm guard: the recursive rm in step 3 must never eat the repo.
     const distPath = path.resolve(distDir);
     if (isUnsafeDistDir(distPath, REPO_ROOT)) {
       throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it is the repo root or one of its ancestors`);
+    }
+    //    admin source outside dist: step 3 would delete the shell before
+    //    step 7 reads it — and a deleted shell reads as "missing", i.e. as
+    //    the "skip silently" case.
+    if (adminDir != null && isInsideDir(distPath, adminDir)) {
+      throw new Error(`[build:skeleton] refusing: adminDir ${path.resolve(adminDir)} is inside distDir ${distPath} `
+        + '(rm dist would delete the CMS shell before it is injected)');
     }
     //    id lint (the CMS can create content/items files under any slug).
     if (contentDir != null) {
