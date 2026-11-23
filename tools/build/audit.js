@@ -385,7 +385,8 @@ function reportUrl(index, url, attribute, tagName, report, detail) {
 
 /**
  * A start tag at `start`: its name, its attributes (name, value — null when
- * it has none — and the position of the name), and where it ends.
+ * it has none), and where it ends. Of repeated attributes only the first is
+ * kept, as a browser does.
  */
 function parseStartTag(text, start) {
   let i = start + 1;
@@ -420,7 +421,13 @@ function parseStartTag(text, start) {
       }
       i = j;
     }
-    attributes.push({ name: attribute[0].toLowerCase(), value });
+    const attributeName = attribute[0].toLowerCase();
+    // HTML parsing drops an attribute whose name is already on the tag: the
+    // browser keeps the FIRST — and on an HTML element `TYPE` and `type` are
+    // one name. Reading the last one let a script the browser runs pass as a
+    // data block: <script type="text/javascript" type="application/json">.
+    if (attributes.some((known) => known.name === attributeName)) continue;
+    attributes.push({ name: attributeName, value });
   }
   return { name: tagName, attributes, end: i };
 }

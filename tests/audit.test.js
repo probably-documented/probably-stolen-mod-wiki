@@ -831,3 +831,65 @@ test('AA — an escape changes the lengths; the line reported is still the line 
   });
   assert.deepEqual(brief(violations), ['css/theme.css:3 [css-external-url]', 'css/theme.css:5 [css-root-relative]', `${HTML}:1 [css-external-url]`]);
 });
+
+// ---------------------------------------------------------------------------
+// Review of 2c486cd — Critical 1: a repeated attribute
+//
+// HTML parsing drops every attribute whose name is already on the tag: the
+// browser keeps the FIRST. The audit kept the last one for `type` and `src`,
+// so a script the browser runs passed as a data block. The first four lines
+// below are the reviewer's strings, tried in Chromium 152: the first three
+// ran, and the fourth loads the CMS shell's script.
+// ---------------------------------------------------------------------------
+
+test('review Critical 1 — a repeated attribute: the browser keeps the first, and so does the audit (the reviewer\'s strings)', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script type="text/javascript" type="application/json">alert(1)</script>',
+      '<script type="module" type="application/json">alert(2)</script>',
+      '<script type="module" type="text/plain">alert(3)</script>',
+      '<script src="admin/vendor/cms.js" src="data.js"></script>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [script-inline]`,
+    `${HTML}:2 [script-inline]`,
+    `${HTML}:3 [script-inline]`,
+    `${HTML}:4 [script-src]`, // the first src is not on the allow-list; the second is dropped
+  ]);
+});
+
+test('review Critical 1 — the other way round: the first attribute is the harmless one, so there is nothing to report', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script type="application/json" type="text/javascript">{"a": 1}</script>', // a data block: the second type is dropped
+      '<script src="data.js" src="admin/vendor/cms.js"></script>', // the first src is on the allow-list
+      '<img src="a.png" src="https://evil.example/x.png">', // the browser loads a.png, not the outside address
+      '<a href="https://example.com/x" href="/y">an outside link</a>',
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('review Critical 1 — every rule reads the first of a repeated attribute, names compared without case', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<img src="/x.png" src="a.png">', // root-relative: the address the browser loads
+      '<img src="https://evil.example/y.png" src="a.png">', // outside
+      '<a href="/y" href="https://example.com/x">link</a>', // root-relative link
+      '<img SRC="/z.png" src="a.png">', // the names are the same to the parser
+      '<script TYPE="application/json" type="text/javascript">{"a": 1}</script>', // …so this is a data block
+      '<div onclick="x()" title="y" onclick="z()">an event attribute is reported once</div>',
+      '<img src="https://evil.example/w.png" onclick="x()" src="v.png">', // the outside address is the first one
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [root-relative-url]`,
+    `${HTML}:2 [external-url]`,
+    `${HTML}:3 [root-relative-url]`,
+    `${HTML}:4 [root-relative-url]`,
+    `${HTML}:6 [inline-event-handler]`,
+    `${HTML}:7 [external-url]`,
+    `${HTML}:7 [inline-event-handler]`,
+  ]);
+});
