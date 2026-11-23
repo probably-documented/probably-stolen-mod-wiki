@@ -1446,3 +1446,29 @@ test('D11 — the CLI:中文文件名的机制页 → 非零退出,stderr 是中
   assert.match(lines.at(-1), /^提示:.*请把文件名改成小写英文单词,单词之间用短横线,例如 `install-compat`。$/, `the last stderr line says how to rename, got: ${lines.at(-1)}`);
   assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
 });
+
+// Found in the self-review at the end of task 6b: this report — a failure a
+// contributor triggers by filling in 顶部导航上的名字 on a second page — was
+// Chinese, named the files and printed no stack, but listed the files AFTER
+// its "please keep one" sentence, so the last line on stderr was a path, not
+// the hint. Every other contributor-facing report ends with its hint.
+
+test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(与其余面向贡献者的报告同一格式)', async (t) => {
+  const distDir = await tmpDir(t, 'nav-format');
+  const contentDir = await tmpDir(t, 'nav-format-content');
+  await fs.mkdir(path.join(contentDir, 'mechanics'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'first.md'), '---\ntitle: 第一页\nnav_label: 关于本站\n---\n\n正文。\n');
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'second.md'), '---\ntitle: 第二页\nnav_label: 桶装指南\n---\n\n正文。\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the nav_label conflict to throw, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 4, err.message);
+  assert.match(lines[0], /^\[nav\] FAIL — 2 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口\(first、second\)。$/);
+  assert.equal(lines[1], `  ${toPosix(path.join(contentDir, 'mechanics', 'first.md'))}(nav_label: 关于本站)`);
+  assert.equal(lines[2], `  ${toPosix(path.join(contentDir, 'mechanics', 'second.md'))}(nav_label: 桶装指南)`);
+  assert.match(lines[3], /^提示:.*nav_label.*[\u4e00-\u9fff]。$/, 'the report ENDS with the hint');
+});

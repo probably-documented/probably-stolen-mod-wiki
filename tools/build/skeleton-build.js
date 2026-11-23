@@ -612,12 +612,14 @@ async function buildSkeleton({
     //    be two 关于本站 entries. Known right now, before rm dist.
     const aboutPages = mechanicsWithNavLabel(data.mechanics);
     if (aboutPages.length > 1) {
+      // Heading, the pages, then the hint as the last line — the shape of
+      // every contributor-facing report.
       const files = aboutPages.map((m) => `  ${toPosix(path.join(contentDir ?? 'content', 'mechanics', `${m.slug}.md`))}(nav_label: ${m.navLabel})`);
       throw new BuildError(
         `[nav] FAIL — ${aboutPages.length} 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口`
         + `(${aboutPages.map((m) => m.slug).join('、')})。\n`
-        + '请只保留其中一个页面的 nav_label,删掉下面其余文件 frontmatter 里的 `nav_label` 这一行:\n'
-        + files.join('\n'));
+        + files.join('\n')
+        + '\n提示:请只保留其中一个页面的 nav_label;其余文件请打开,把开头 frontmatter 里的 `nav_label` 这一行删掉。');
     }
 
     // 2. Render — before rm, so a failed build keeps the previous dist.
