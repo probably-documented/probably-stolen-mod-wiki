@@ -21,6 +21,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -28,6 +29,7 @@ const path = require('node:path');
 const {
   buildSkeleton, validateItemContentIds, isUnsafeDistDir,
 } = require('../tools/build/skeleton-build.js');
+const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 const { auditExternalLinks, BWIKI_CREDIT_URL } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
@@ -127,37 +129,9 @@ async function countRenderedFiles(distDir) {
   return files.filter((f) => /\.html$/i.test(f) || toPosix(path.relative(distDir, f)) === 'data.js').length;
 }
 
-/**
- * Every relative href/src in dist/*.html and url() in dist/*.css that does not
- * resolve to a file inside dist. Skipped: schemes (http:, mailto:, data: …),
- * root-relative and protocol-relative refs, fragment-only refs.
- */
-async function findDanglingRefs(distDir) {
-  const files = await listFiles(distDir);
-  const shipped = new Set(files.map((f) => path.resolve(f)));
-  const dangling = [];
-  for (const file of files) {
-    let refs;
-    if (/\.html$/i.test(file)) {
-      refs = [...(await fs.readFile(file, 'utf8')).matchAll(/\b(?:href|src)\s*=\s*["']([^"']*)["']/gi)]
-        .map((m) => m[1]);
-    } else if (/\.css$/i.test(file)) {
-      refs = [...(await fs.readFile(file, 'utf8')).matchAll(/url\(\s*["']?([^"')]*)["']?\s*\)/g)]
-        .map((m) => m[1].trim());
-    } else {
-      continue;
-    }
-    for (const ref of refs) {
-      if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(ref)) continue;
-      const clean = ref.split(/[?#]/)[0];
-      if (clean === '') continue;
-      if (!shipped.has(path.resolve(path.dirname(file), clean))) {
-        dangling.push(`${toPosix(path.relative(distDir, file))} → ${ref}`);
-      }
-    }
-  }
-  return dangling;
-}
+// The dangling-reference check is the build's own (tools/build/dangling-refs.js,
+// task 5b B) — these tests reuse it, there is no second implementation here.
+// Its own unit tests live in tests/dangling-refs.test.js.
 
 async function readDataJs(distDir) {
   const dataJs = await fs.readFile(path.join(distDir, 'data.js'), 'utf8');
@@ -360,7 +334,7 @@ test('A2 — 删掉带 nav_label 的页面后构建照常通过:顶部导航没�
     assert.ok(!html.includes('关于本站'), `${toPosix(path.relative(distDir, file))}: the nav has no about entry`);
     assert.ok(!html.includes('install-compat'), `${toPosix(path.relative(distDir, file))}: nothing refers to the deleted page`);
   }
-  assert.deepEqual(await findDanglingRefs(distDir), [], 'zero dangling references after deleting the page');
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, [], 'zero dangling references after deleting the page');
 });
 
 test('A3 — 多于一个机制页带 nav_label → 构建失败(exitCode 1),中文报错列出这些页面;上一个 dist 保留', async (t) => {
@@ -386,6 +360,101 @@ test('A3 — 多于一个机制页带 nav_label → 构建失败(exitCode 1),中
   assert.doesNotMatch(err.message, /third/, 'a blank nav_label counts as not set');
   assert.doesNotMatch(err.message, /\[audit\]/, 'fails long before the audit');
   assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (refused before rm dist)');
+});
+
+// ---------------------------------------------------------------------------
+// Task 5b B — the dangling-reference check is part of the build
+//
+// Deleting a page is safe when nothing else links at it (A2). When
+// something does, the link must not deploy — and the contributor who
+// deleted the page (or typed the link) has to learn WHICH file to edit.
+// The check runs on what was written (pages + assets), skips the CMS shell
+// (admin/, which is not the site's own content), and fails the build with
+// a Chinese, file-naming report.
+// ---------------------------------------------------------------------------
+
+/** A copy of the repo's content/ with one more line appended to a mechanics page. */
+async function contentWithLink(t, label, slug, markdownLink) {
+  const contentDir = await tmpDir(t, `${label}-content`);
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  await fs.appendFile(path.join(contentDir, 'mechanics', `${slug}.md`), `\n## 相关阅读\n\n${markdownLink}\n`);
+  return contentDir;
+}
+
+test('B1/B2 — 机制页正文里一个指向不存在页面的链接 → 构建失败(exitCode 1),报错是面向贡献者的中文清单,每行「页面 → 缺失的目标」', async (t) => {
+  const distDir = await tmpDir(t, 'links-fail');
+  const contentDir = await contentWithLink(t, 'links-fail', 'install-compat', '见 [不存在的页面](no-such-page.html)。');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the dangling link to fail the build, got ${err}`);
+  assert.equal(exitCode, 1);
+  assert.match(err.message, /^\[links\] FAIL — 1 处链接指向不存在的文件:/, 'the report starts with a count');
+  const source = toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'));
+  assert.equal(
+    err.message.split('\n')[1],
+    `  mechanics/install-compat.html → mechanics/no-such-page.html(编辑 ${source})`,
+    'page path → missing target path, and the file the contributor edits',
+  );
+  const lines = err.message.split('\n');
+  assert.match(lines.at(-1), /^提示:/, 'the report ENDS with one actionable hint');
+  for (const word of ['删除', '恢复', '修正']) assert.ok(lines.at(-1).includes(word), `the hint mentions ${word}`);
+  assert.doesNotMatch(err.message, /\[audit\]/, 'not the external-link audit');
+  // Flow: the check runs on what was written — the offending page is on disk.
+  await fs.access(path.join(distDir, 'mechanics', 'install-compat.html'));
+  await assert.rejects(fs.access(path.join(distDir, 'mechanics', 'no-such-page.html')), '…and the missing target really is missing');
+});
+
+test('B2 — 每个悬空引用一行;同一次构建里的所有断链一次报完', async (t) => {
+  const distDir = await tmpDir(t, 'links-many');
+  const contentDir = await tmpDir(t, 'links-many-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  await fs.appendFile(path.join(contentDir, 'mechanics', 'install-compat.md'), '\n[a](a.html) [b](../b.html) [ok](../items.html)\n');
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'other.md'), '---\ntitle: 另一页\n---\n\n[c](c.html)\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the dangling links to fail the build, got ${err}`);
+  assert.equal(exitCode, 1);
+  assert.equal(err.message.split('\n')[0], '[links] FAIL — 3 处链接指向不存在的文件:');
+  assert.deepEqual(err.message.split('\n').slice(1, -1), [
+    `  mechanics/install-compat.html → mechanics/a.html(编辑 ${toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'))})`,
+    `  mechanics/install-compat.html → b.html(编辑 ${toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'))})`,
+    `  mechanics/other.html → mechanics/c.html(编辑 ${toPosix(path.join(contentDir, 'mechanics', 'other.md'))})`,
+  ]);
+});
+
+test('B1 — admin/ 不参与断链检查:CMS 壳里的断链不会让构建失败', async (t) => {
+  const distDir = await tmpDir(t, 'links-admin');
+  const adminDir = await tmpDir(t, 'links-admin-src');
+  await fs.writeFile(path.join(adminDir, 'index.html'), '<a href="missing.html">dangling link inside the shell</a>\n');
+  await fs.mkdir(path.join(adminDir, 'vendor'), { recursive: true });
+  await fs.writeFile(path.join(adminDir, 'vendor', 'cms.css'), 'a{background:url(../missing.png)}\n');
+
+  const { exitCode, before } = await capturingExitCode(() =>
+    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));
+
+  assert.equal(exitCode, before, 'the build passes');
+  assert.ok((await fs.readFile(path.join(distDir, 'admin', 'index.html'), 'utf8')).includes('missing.html'), 'the shell IS in dist');
+  // Asked about this very dist (shell included), the check still reports nothing.
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
+});
+
+test('B2 — the CLI:stderr 是中文清单加提示,提示是最后一行,后面没有堆栈', async (t) => {
+  // The real entry point, run with a temp dir as cwd: distDir/contentDir/
+  // adminDir default to paths relative to the cwd, so `npm run build` there
+  // is exactly what a contributor's failing build looks like.
+  const cwd = await tmpDir(t, 'links-cli');
+  await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
+  await fs.appendFile(path.join(cwd, 'content', 'mechanics', 'install-compat.md'), '\n见 [不存在的页面](no-such-page.html)。\n');
+
+  const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
+  assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
+  assert.match(run.stderr, /\[build:skeleton\] fatal: \[links\] FAIL — 1 处链接指向不存在的文件:/);
+  assert.ok(run.stderr.includes('  mechanics/install-compat.html → mechanics/no-such-page.html(编辑 content/mechanics/install-compat.md)'), run.stderr);
+  const lines = run.stderr.trim().split(/\r?\n/);
+  assert.match(lines.at(-1), /^提示:/, `the last stderr line is the hint, got: ${lines.at(-1)}`);
+  assert.ok(!run.stderr.includes('    at '), `no stack trace after the report:\n${run.stderr}`);
 });
 
 test('content/mechanics: same-slug file replaces the fixture entry; title falls back h1 → slug', async (t) => {
@@ -444,12 +513,17 @@ test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no t
   }
 });
 
-test('dist never references a file it does not ship (html href/src + css url)', async (t) => {
+test('dist never references a file it does not ship (html href/src + css url) — and the build itself now checks it', async (t) => {
   const distDir = await tmpDir(t, 'dangling');
-  await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
+  // A clean build passing IS the check passing: since task 5b B a dangling
+  // reference fails buildSkeleton, so reaching this line means none was found.
+  const { exitCode, before } = await capturingExitCode(() => build({ distDir, contentDir: REPO_CONTENT, warn: noop }));
+  assert.equal(exitCode, before, 'a site without dangling references builds');
 
-  const dangling = await findDanglingRefs(distDir);
-  assert.deepEqual(dangling, [], 'every relative href/src/url() in dist must resolve to a shipped file');
+  // B3: the check tells "0 dangling" apart from "0 scanned" — assert a floor.
+  const { scanned, dangling } = await findDanglingRefs(distDir);
+  assert.deepEqual(dangling, [], 'every relative href/src/url() in dist resolves to a shipped file');
+  assert.ok(scanned >= 20, `the check really scanned the site (21 pages + theme.css), got ${scanned}`);
 });
 
 test('dropMissingIcons (migrated): existing icon kept, missing → null, already-null untouched', async (t) => {
