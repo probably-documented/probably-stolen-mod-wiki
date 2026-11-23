@@ -29,6 +29,14 @@
 //         included, and each candidate of srcset) holds an address that
 //         starts with /; css-root-relative: the same in CSS. Dead under
 //         file://, and pointing past the site on a GitHub Pages project site.
+//   A9  data-url / css-data-url (ruling AB b): a data: address is allowed
+//         only as an image that is not SVG (image/*, but not
+//         image/svg+xml), in the src / srcset of an <img> or a <source>, or
+//         the poster of a <video>. Anywhere else — any other tag or
+//         attribute, any other type — and anywhere in CSS, it is a
+//         violation: in an iframe, an object or an embed, data:text/html runs
+//         its script, and so does data:image/svg+xml wherever a browser
+//         treats the drawing as a document. Not applied to .js files.
 //   A4  in *.html only:
 //         an executable inline <script>: any script block but one whose
 //         type is exactly application/json, text/plain or application/ld+json
@@ -95,6 +103,7 @@ const ALLOWED_SCRIPT_SRC = Object.freeze(['assets/js/item-filter.js', 'assets/js
 const CODES = Object.freeze([
   'protocol-relative-url', 'external-url', 'root-relative-url',
   'css-external-url', 'css-root-relative',
+  'data-url', 'css-data-url',
   'fetch', 'xhr',
   'script-inline', 'script-src', 'inline-event-handler', 'script-url', 'base-tag', 'meta-http-equiv', 'srcdoc',
   'unreadable',
@@ -336,15 +345,24 @@ function tokenizeCss(css) {
   return tokens;
 }
 
-/** How an address written in CSS refers to something: an outside site (by scheme, or protocol-relative), the site root — or nothing that concerns the audit. */
+/**
+ * How an address written in CSS refers to something: an outside site (by
+ * scheme, or protocol-relative), the site root, a data: address — or nothing
+ * that concerns the audit.
+ */
 function cssAddressKind(raw) {
   const url = readUrl(raw);
   if (url.startsWith('//') || /^https?:\/\//i.test(url)) return 'external';
   if (url.startsWith('/')) return 'root-relative';
+  if (/^data:/i.test(url)) return 'data';
   return null;
 }
 
-const CODE_OF_CSS_ADDRESS = Object.freeze({ external: 'css-external-url', 'root-relative': 'css-root-relative' });
+const CODE_OF_CSS_ADDRESS = Object.freeze({
+  external: 'css-external-url',
+  'root-relative': 'css-root-relative',
+  data: 'css-data-url',
+});
 
 /** The index of the token that closes what the function token or `(` at `open` opens; -1 when nothing does. */
 function matchingParen(tokens, open) {
@@ -366,26 +384,28 @@ const isCssChar = (token, value) => token.type === 'char' && token.value === val
 /**
  * A2, A3 and A9 for CSS: in a stylesheet, a <style> block or a style=""
  * attribute, @import, url() and image-set() may hold neither an outside nor
- * a root-relative address. The text is read once by tokenizeCss, and the
- * addresses are looked for on its tokens:
+ * a root-relative address, nor a data: address (ruling AB b: in CSS there is
+ * no image slot). The text is read once by tokenizeCss, and the addresses are
+ * looked for on its tokens:
  *   url(…)     an unquoted address, or the one string inside the parentheses
  *              (url( "…" ) included); otherwise the pieces are joined
  *   @import    the first string after it, before the end of the at-rule;
  *              @import url(…) is read by the line above
  *   image-set(…)  every string of its list, an address that is a url(…)
- *              having been read already
+ * anchor, an address that is a url(…) having been read already
  * `at(offset)` gives the position in the reported text a violation is
  * anchored at; `describe` its detail. `literalsAreCss` is for a .js file,
  * where the CSS sits inside the script's own string literals: there every
  * string is read as CSS in its turn (once — what is a string inside that is
- * an address, not CSS again).
+ * an address, not CSS again). `dataUrls` off: A9 does not apply to a .js file.
  */
-function scanTokens(tokens, report, at, describe, { literalsAreCss = false } = {}) {
+function scanTokens(tokens, report, at, describe, { literalsAreCss = false, dataUrls = true } = {}) {
   const seen = new Set();
   const hit = (offset, raw) => {
     const kind = cssAddressKind(raw);
     if (kind === null || seen.has(offset)) return;
     seen.add(offset);
+    if (kind === 'data' && !dataUrls) return; // a .js file is read as text: A9 does not apply to it
     report(at(offset), CODE_OF_CSS_ADDRESS[kind], describe(at(offset)));
   };
   const inner = (k) => {
@@ -398,7 +418,7 @@ function scanTokens(tokens, report, at, describe, { literalsAreCss = false } = {
   for (let k = 0; k < tokens.length; k += 1) {
     const token = tokens[k];
     if (token.type === 'string' && literalsAreCss) {
-      scanTokens(tokenizeCss(token.value), report, (offset) => at(token.at + offset), (index) => describe(at(token.at + index)));
+      scanTokens(tokenizeCss(token.value), report, (offset) => at(token.at + offset), (index) => describe(at(token.at + index)), { dataUrls });
     } else if (token.type === 'url') {
       hit(token.at, token.value);
     } else if (isCssFunction(token, 'url')) {
@@ -430,8 +450,8 @@ function scanTokens(tokens, report, at, describe, { literalsAreCss = false } = {
 }
 
 /** A stylesheet, a <style> block or a style="" attribute: read once, then read for its addresses. */
-function scanCss(css, report, at, describe, { literalsAreCss = false } = {}) {
-  scanTokens(tokenizeCss(css), report, at, describe, { literalsAreCss });
+function scanCss(css, report, at, describe, { literalsAreCss = false, dataUrls = true } = {}) {
+  scanTokens(tokenizeCss(css), report, at, describe, { literalsAreCss, dataUrls });
 }
 
 /** The addresses an attribute value holds: one — or each candidate of srcset (comma separated, its first token) or of ping / archive (blank separated). */
@@ -446,17 +466,40 @@ function urlCandidates(attribute, url) {
 }
 
 /**
- * A2 and A3 for one attribute value (ruling AA — by class, not by named
- * attribute). `url` is the value as a browser reads it (readUrl).
+ * May this data: address stay? (ruling AB b — A9.) A data: address is a
+ * whole document written into the page: in an iframe, an object or an
+ * embed, data:text/html runs its script, and so does data:image/svg+xml
+ * wherever a browser treats the drawing as a document. So it is allowed
+ * only as an image that is not SVG — image/*, but not image/svg+xml — and
+ * only in the src / srcset of an <img> or a <source>, or the poster of a
+ * <video>. Anywhere else it is a violation, whatever its type.
+ * `url` is the address as a browser reads it (readUrl). Its type is what
+ * precedes the first ; or , (RFC 2397); a data: address without one is
+ * text/plain.
+ */
+function dataUrlAllowed(url, attribute, tagName) {
+  const type = (url.slice('data:'.length).split(/[;,]/)[0].trim().toLowerCase()) || 'text/plain';
+  if (!type.startsWith('image/') || type === 'image/svg+xml') return false;
+  const imageSlot = (tagName === 'img' || tagName === 'source') && (attribute === 'src' || attribute === 'srcset');
+  const posterSlot = tagName === 'video' && attribute === 'poster';
+  return imageSlot || posterSlot;
+}
+
+/**
+ * A2, A3 and A9 for one attribute value (ruling AA — by class, not by named
+ * attribute; ruling AB b). `url` is the value as a browser reads it (readUrl).
  *   protocol-relative-url  it starts with // — any attribute, <a href> included
  *   external-url           it holds an http:// or https:// address — any
  *                          attribute but the href of an <a>, wherever in the
  *                          value the address sits (srcset, content, style…)
  *   root-relative-url      a URL-bearing attribute (URL_ATTRIBUTES) holds an
  *                          address that starts with / — <a href> included
- * One value may break two rules; that is two entries.
+ *   data-url               it holds a data: address outside the image slots
+ *                          (dataUrlAllowed)
+ * One value may break several rules; that is several entries. `dataUrls`
+ * is off for a .js file: read as text, it has no tag to tell the slots.
  */
-function reportUrl(index, url, attribute, tagName, report, detail) {
+function reportUrl(index, url, attribute, tagName, report, detail, { dataUrls = true } = {}) {
   const candidates = urlCandidates(attribute, url);
   // protocol-relative: the value itself, or any of the addresses it lists
   if (candidates.some((candidate) => candidate.startsWith('//'))) {
@@ -466,6 +509,9 @@ function reportUrl(index, url, attribute, tagName, report, detail) {
   }
   if (URL_ATTRIBUTES.has(attribute) && candidates.some((candidate) => candidate.startsWith('/') && !candidate.startsWith('//'))) {
     report(index, 'root-relative-url', detail);
+  }
+  if (dataUrls && candidates.some((candidate) => /^data:/i.test(candidate) && !dataUrlAllowed(candidate, attribute, tagName))) {
+    report(index, 'data-url', detail);
   }
 }
 
@@ -596,11 +642,12 @@ function scanHtml(text, report) {
   }
 }
 
-/** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption. */
+/** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption — and no slot for a data: image either, so A9 is not applied here. */
 function scanScriptText(text, report) {
-  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, lineText(text, m.index));
-  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, lineText(text, m.index));
-  scanCss(text, report, (offset) => offset, (index) => lineText(text, index), { literalsAreCss: true });
+  const noDataUrls = { dataUrls: false };
+  for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, lineText(text, m.index), noDataUrls);
+  for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, lineText(text, m.index), noDataUrls);
+  scanCss(text, report, (offset) => offset, (index) => lineText(text, index), { literalsAreCss: true, dataUrls: false });
 }
 
 /** fetch( calls and XMLHttpRequest, wherever they are written. */

@@ -75,6 +75,7 @@ test('A6 — the exported CODES is exactly what the rules report: one input per 
       '<base href="x/">',
       '<meta http-equiv="refresh" content="1">',
       '<iframe srcdoc="x"></iframe>',
+      '<iframe src="data:text/html,x"></iframe>', // A9
       'fetch("/x")',
       'XMLHttpRequest',
     ),
@@ -82,6 +83,7 @@ test('A6 — the exported CODES is exactly what the rules report: one input per 
       'a{background:url(https://evil.example/a.png)}',
       'b{background:url(//cdn.example.com/b.png)}',
       'c{background:url(/c.png)}',
+      'd{background:url(data:image/png;base64,AAAA)}', // A9
     ),
   });
   const reported = [...new Set(violations.map((v) => v.code))].sort();
@@ -279,12 +281,12 @@ test('A3 — root-relative href="/…", src="/…" and CSS url(/…) are violati
   ]);
 });
 
-test('A3 — site-relative paths, fragments, query strings and data: URLs are not root-relative (nothing reported)', async (t) => {
+test('A3 — site-relative paths, fragments, query strings are not root-relative (nothing reported); a data: address is A9\'s business, not A3\'s', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<a href="items.html">a</a> <a href="../items.html">b</a> <a href="#x">c</a> <a href="?q=1">d</a> <a href="">e</a>',
       '<img src="assets/a.png"/> <img src="../assets/b.png"/> <img src="./c.png"/>',
-      '<style>a{background:url(data:image/png;base64,AAAA)} b{fill:url(#grad)} c{background:url()}</style>',
+      '<style>b{fill:url(#grad)} c{background:url()}</style>',
       '<a href="https://example.com/a/b">an external link is not root-relative either</a>',
     ),
   });
@@ -773,13 +775,12 @@ test('AA — the two CSS gaps are closed: @import "https://…" and image-set("h
   ]);
 });
 
-test('AA — …and the same with site-relative addresses, data:, a fragment, none at all — or inside a string, a comment or running text — is not reported', async (t) => {
+test('AA — …and the same with site-relative addresses, a fragment, none at all — or inside a string, a comment or running text — is not reported', async (t) => {
   const violations = await auditOf(t, {
     'css/theme.css': page(
       '@import "theme-more.css";',
       '@import url(../base.css) layer(base);',
       'a{background:image-set("a.png" 1x, "../b.png" 2x)}',
-      'b{background:url(data:image/png;base64,AAAA)}',
       'c{fill:url(#grad)}',
       'd{background:url()}',
       'e{background:url( "theme-more.png" )}', // blanks and quotes, a site-relative address
@@ -993,4 +994,98 @@ test('review Important 1 — …and read right the other way round too: an escap
     ].join('\n'),
   });
   assert.deepEqual(brief(violations), ['css/theme.css:5 [css-external-url]', 'css/theme.css:6 [css-external-url]']);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AB(b) — A9: data: addresses
+//
+// A data: address is a whole document written into the page. In an iframe,
+// an object or an embed, data:text/html runs its script; data:image/svg+xml
+// runs the script of the drawing wherever a browser treats it as a document.
+// So: a data: address is allowed only as an image that is not SVG (image/*,
+// but not image/svg+xml), and only in the src / srcset of <img> or <source>
+// or the poster of <video>. Anywhere else — any other tag or attribute, any
+// other type — and in CSS, it is a violation: `data-url`, `css-data-url`.
+// ---------------------------------------------------------------------------
+
+test('ruling AB(b) / A9 — a data: address is refused outside the image slots: the iframe / object / embed that can run a document, an SVG image, a link, a script, a non-image', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<iframe src="data:text/html,<script>alert(1)</script>"></iframe>',
+      '<object data="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="></object>',
+      '<embed src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=">',
+      '<img src="data:image/svg+xml;base64,AAAA">', // an SVG image is not on the list, even in an <img>
+      '<img src="DATA:IMAGE/SVG+XML;base64,AAAA">', // …in any case
+      '<img src="data:image/svg+xml;charset=utf-8,<svg></svg>">', // …with a parameter
+      '<a href="data:text/html,<b>x</b>">a link to a data: document</a>',
+      '<img src="data:text/plain,hello">', // not an image
+      '<img src="data:;base64,AAAA">', // no type: text/plain, the default
+      '<video poster="data:image/svg+xml;base64,AAAA"></video>',
+      '<img srcset="data:image/svg+xml;base64,AAAA 1x">',
+      '<div style="background:url(data:image/svg+xml;base64,AAAA)">x</div>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${HTML}:${n} [data-url]`),
+    `${HTML}:8 [data-url]`,
+    `${HTML}:9 [data-url]`,
+    `${HTML}:10 [data-url]`,
+    `${HTML}:11 [data-url]`,
+    `${HTML}:12 [css-data-url]`,
+  ]);
+});
+
+test('ruling AB(b) / A9 — …and in a script tag, a stylesheet, a form, a stray attribute: no slot is left', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script src="data:text/javascript,alert(1)"></script>', // a data: address, and a script source off the list
+      '<link rel="stylesheet" href="data:text/css,body{color:red}">',
+      '<form action="data:text/html,<script>alert(1)</script>"></form>',
+      '<div data-x="data:text/html,x">a custom attribute</div>',
+      '<svg><image href="data:image/svg+xml,<svg></svg>"/></svg>',
+      '<img src="a.png" longdesc="data:text/plain,hello">',
+    ),
+    'css/theme.css': page(
+      'a{background:url(data:image/svg+xml;base64,AAAA)}',
+      'b{background:url(data:image/png;base64,AAAA)}', // an image — in CSS it is refused all the same
+      "c{list-style-image:url('data:image/png;base64,AAAA')}",
+      '@import "data:text/css,body{color:red}";',
+      'd{background:image-set("data:image/png;base64,AAAA" 1x)}',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    ...[1, 2, 3, 4, 5].map((n) => `css/theme.css:${n} [css-data-url]`),
+    `${HTML}:1 [data-url]`,
+    `${HTML}:1 [script-src]`,
+    ...[2, 3, 4, 5, 6].map((n) => `${HTML}:${n} [data-url]`),
+  ]);
+});
+
+test('ruling AB(b) / A9 — allowed: an image that is not SVG, as the src / srcset of an <img> or a <source>, or the poster of a <video>', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<img src="data:image/png;base64,AAAA" alt="">',
+      '<img src="data:image/gif;base64,AAAA">',
+      '<img src="data:image/webp;base64,AAAA">',
+      '<img src="DATA:IMAGE/PNG;base64,AAAA">',
+      '<img src="data:image/png;charset=utf-8;base64,AAAA">',
+      '<img srcset="data:image/png;base64,AAAA 1x, b.png 2x">',
+      '<picture><source srcset="data:image/avif;base64,AAAA" type="image/avif"><img src="b.png"></picture>',
+      '<video poster="data:image/jpeg;base64,AAAA" src="v.mp4"></video>',
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('ruling AB(b) / A9 — a data: address is read as a browser reads it: character references, a line break, blanks, all folded away first', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<iframe src="&#100;ata:text/html,<b>x</b>"></iframe>', // &#100; is d
+      '<iframe src="da\nta:text/html,x"></iframe>',
+      '<iframe src="  data:text/html,x  "></iframe>',
+      '<img src=" DATA:image/png;base64,AAAA " alt="">', // …and so is this one: still an image in an <img>
+    ),
+  });
+  // (the second tag spans two lines, so the third one is on line 4)
+  assert.deepEqual(brief(violations), [1, 2, 4].map((n) => `${HTML}:${n} [data-url]`));
 });
