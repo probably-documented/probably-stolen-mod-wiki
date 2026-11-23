@@ -4,12 +4,14 @@
 // GitHub Actions) runs.
 //
 // Unlike modwiki's full builder this never touches the game directory or the
-// decompile cache: the site is rendered entirely from the frozen FIXTURE_DATA
-// literal plus the hand-written content/ layer. Flow (task contract):
-//   rm dist → renderSite(structuredClone(FIXTURE_DATA), { contentDir })
-//   → write files → auditExternalLinks(dist)
+// decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
+// plus the hand-written content/ layer. Flow (task contract + ruling C):
+//   drop missing icons → merge content/mechanics → renderSite
+//   → rm dist → write files → copy repo assets → auditExternalLinks(dist)
+// Rendering comes BEFORE the old dist is removed, so a failed build leaves
+// the previous output in place.
 //
-// Failure discipline: a render/write failure or any external-link audit
+// Failure discipline: any render/write/asset failure or external-link audit
 // violation throws with process.exitCode = 1, so a broken build can never
 // deploy silently (file:// offline discipline).
 
@@ -18,42 +20,146 @@ const path = require('node:path');
 
 const { renderSite } = require('./render.js');
 const { auditExternalLinks } = require('./audit.js');
+const { dropMissingIcons } = require('./item-textures.js');
+const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
+
+const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
+
+/**
+ * Repo-shipped static assets → dist path. Each dest is exactly the path the
+ * rendered pages or theme.css reference (templates.js layout, render.js
+ * search.html, theme.css @font-face + body background): dist must ship every
+ * file it points at (rulings A + B). Every entry is required — the pages
+ * reference it, so a missing one is a dangling reference, never a graceful
+ * degradation.
+ */
+const ASSET_MAP = Object.freeze([
+  ['theme.css', 'css/theme.css'],
+  ['search.js', 'assets/js/search.js'],
+  ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'],
+  ['bwiki/bg.png', 'assets/bwiki/bg.png'],
+  ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'],
+  ['bwiki/fonts/PSLubrifontSC.woff2', 'assets/fonts/PSLubrifontSC.woff2'],
+  ['bwiki/fonts/PSTektur.woff2', 'assets/fonts/PSTektur.woff2'],
+]);
+
+/**
+ * Fixture builds have no item-texture source (they never read the game's
+ * Mods/ directory). Pointing dropMissingIcons at a path that cannot exist
+ * makes every declared icon take the real build's missing-texture path:
+ * warn → item.icon = null → the templates' 无图 fallback.
+ */
+const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-builds');
+
+const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+
+/** frontmatter `title` > first ATX h1 > slug (modwiki merge.js readMechanics order). */
+function mechanicTitle(source, slug) {
+  const { fm, body } = splitFrontmatter(source);
+  const fromFm = fm.title;
+  if (typeof fromFm === 'string' && fromFm.trim() !== '') return fromFm.trim();
+  const h1 = body.match(/^#\s+(.+)$/m);
+  return h1 ? h1[1].trim() : slug;
+}
+
+/**
+ * content/mechanics/<slug>.md → mechanic pages (the hand-written layer). Same
+ * contract as modwiki merge.js readMechanics: slug = file name, title =
+ * frontmatter `title` > first ATX h1 > slug, source = the file as written. A
+ * slug already present in `mechanics` is replaced by the file; new slugs are
+ * appended in file-name order. A missing directory leaves `mechanics` as is.
+ * @returns {Promise<Array<{slug: string, title: string, source: string}>>}
+ */
+async function mergeMechanicsContent(mechanics, contentDir) {
+  if (contentDir == null) return mechanics;
+  const dir = path.join(contentDir, 'mechanics');
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (isMissing(err)) return mechanics;
+    throw err;
+  }
+  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, m]));
+  const names = entries
+    .filter((e) => e.isFile() && /\.md$/i.test(e.name))
+    .map((e) => e.name)
+    .sort();
+  for (const name of names) {
+    const source = await fs.readFile(path.join(dir, name), 'utf8');
+    const slug = name.replace(/\.md$/i, '');
+    bySlug.set(slug, { slug, title: mechanicTitle(source, slug), source });
+  }
+  return [...bySlug.values()];
+}
+
+/** Copy every ASSET_MAP entry into distDir; a missing source fails the build. */
+async function copyAssets(assetsDir, distDir) {
+  let copied = 0;
+  for (const [src, dest] of ASSET_MAP) {
+    const from = path.join(assetsDir, ...src.split('/'));
+    const to = path.join(distDir, ...dest.split('/'));
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    try {
+      await fs.copyFile(from, to);
+    } catch (err) {
+      throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+    }
+    copied += 1;
+  }
+  return copied;
+}
 
 /**
  * Render the fixture site into distDir.
- * @param {{distDir?: string, contentDir?: string|null}} [options]
- *   contentDir supplies the optional content/items/<id>.md hand-written
- *   layer (pass null to skip the 详解 section entirely).
- * @returns {Promise<{pages: number}>} number of files rendered into distDir.
- * @throws {Error} on any render/write failure or external-link audit
+ * @param {{distDir?: string, contentDir?: string|null, assetsDir?: string,
+ *   warn?: (message: string) => void}} [options]
+ *   contentDir supplies the hand-written content/items/<id>.md and
+ *   content/mechanics/<slug>.md layers (null skips both).
+ *   assetsDir is the repo's assets-src/ tree; warn receives the
+ *   dropped-icon notices (defaults to console.warn).
+ * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number}>}
+ *   pages = rendered pages + data.js (assets are not pages).
+ * @throws {Error} on any render/write/asset failure or external-link audit
  *   violation; process.exitCode is set to 1 before the throw.
  */
-async function buildSkeleton({ distDir = 'dist', contentDir = 'content' } = {}) {
+async function buildSkeleton({
+  distDir = 'dist',
+  contentDir = 'content',
+  assetsDir = DEFAULT_ASSETS_DIR,
+  warn = console.warn,
+} = {}) {
   try {
-    // 1. Clean rebuild → idempotent file list (no stale pages survive).
+    // 1. Data prep — touches only a private clone of the frozen literal.
+    const data = structuredClone(FIXTURE_DATA);
+    const iconsDropped = await dropMissingIcons(data.items, { modsDir: NO_TEXTURES_DIR, warn });
+    data.mechanics = await mergeMechanicsContent(data.mechanics, contentDir);
+
+    // 2. Render — before rm, so a failed build keeps the previous dist.
+    const rendered = await renderSite(data, { contentDir });
+
+    // 3. Clean rebuild → idempotent file list (no stale pages survive).
     await fs.rm(distDir, { recursive: true, force: true });
 
-    // 2. Render. FIXTURE_DATA is a frozen shared literal — structuredClone
-    //    thaws a private copy so rendering can never mutate (or trip on) it
-    //    (modwiki build.js L469 precedent).
-    const rendered = await renderSite(structuredClone(FIXTURE_DATA), { contentDir });
-
-    // 3. Write pages (posix rel paths from renderSite → platform paths).
+    // 4. Write pages (posix rel paths from renderSite → platform paths).
     for (const [rel, content] of rendered) {
       const dest = path.join(distDir, ...rel.split('/'));
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, content);
     }
 
-    // 4. External-link audit (offline discipline): any violation fails the build.
+    // 5. Repo assets → the paths the pages reference.
+    const assetsCopied = await copyAssets(assetsDir, distDir);
+
+    // 6. External-link audit (offline discipline): any violation fails the build.
     const violations = await auditExternalLinks(distDir);
     if (violations.length > 0) {
       const lines = violations.map((v) => `  ${v.file}:${v.line} [${v.code}] ${v.detail}`);
       throw new Error(`[audit] FAIL — ${violations.length} external-link violation(s):\n${lines.join('\n')}`);
     }
 
-    return { pages: rendered.size };
+    return { pages: rendered.size, iconsDropped, assetsCopied };
   } catch (err) {
     process.exitCode = 1;
     throw err;
@@ -62,7 +168,11 @@ async function buildSkeleton({ distDir = 'dist', contentDir = 'content' } = {}) 
 
 async function main() {
   const result = await buildSkeleton();
+  if (result.iconsDropped > 0) {
+    console.log(`[build:skeleton] icons dropped: ${result.iconsDropped} (no fixture textures → 无图 fallback)`);
+  }
   console.log(`[build:skeleton] rendered ${result.pages} files → dist/`);
+  console.log(`[build:skeleton] assets copied: ${result.assetsCopied} → dist/`);
   console.log('[audit] OK — no external-link violations');
 }
 
