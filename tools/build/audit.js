@@ -21,13 +21,14 @@
 //         any attribute, <a href> included
 //         external-url — an attribute value that holds an http:// or
 //         https:// address, any attribute but the href of an <a>
-//         in CSS (a stylesheet, a <style> block, a style="" attribute): the
-//         outside and protocol-relative addresses of url()
+//         css-external-url — in CSS (a stylesheet, a <style> block, a
+//         style="" attribute), an outside address of @import, url() or
+//         image-set(): by scheme, or protocol-relative
 //         a fetch( call, the word XMLHttpRequest
 //   A3  root-relative-url: a URL-bearing attribute (URL_ATTRIBUTES — <a href>
 //         included, and each candidate of srcset) holds an address that
-//         starts with /; in CSS, url(/…). Dead under file://, and pointing
-//         past the site on a GitHub Pages project site.
+//         starts with /; css-root-relative: the same in CSS. Dead under
+//         file://, and pointing past the site on a GitHub Pages project site.
 //   A4  in *.html only:
 //         an executable inline <script> (no src, and no type or a JavaScript
 //         one); a script block whose type is not executable is a data block
@@ -60,12 +61,16 @@
 //     <style>'s content is read as CSS. A browser keeps a script element open
 //     past a nested <script> that follows <!--; the audit stops at the first
 //     </script> — so that one case is over-reported, never under-reported.
+//   • CSS is read after its comments are blanked and its escapes undone
+//     (\68 ttps:// is https://), with a map back to the text as written for
+//     the line number. A quoted string is text, not syntax: content:"url(…)"
+//     is no url().
 //   • An address written in running text, outside every tag, is not a
 //     violation: a contributor may write a URL in a sentence (ruling AA).
 //   • A tag's attributes are read with the scanner whatever the rule: a >
 //     inside a quoted value does not end the tag, so nothing hides behind it.
-//   • Not covered, on purpose: @import "…" and image-set("…") in CSS, and CSS
-//     escapes.
+//   • Not covered: a quote escaped inside a CSS string (it ends that string
+//     early); in a .js file only src=, href= and CSS are read, as text.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -88,7 +93,7 @@ const ALLOWED_SCRIPT_SRC = Object.freeze(['assets/js/item-filter.js', 'assets/js
  */
 const CODES = Object.freeze([
   'protocol-relative-url', 'external-url', 'root-relative-url',
-  'css-url-http', 'css-url-protocol-relative', 'css-url-root-relative',
+  'css-external-url', 'css-root-relative',
   'fetch', 'xhr',
   'script-inline', 'script-src', 'inline-event-handler', 'script-url', 'base-tag', 'meta-http-equiv', 'srcdoc',
   'unreadable',
@@ -173,15 +178,6 @@ function readUrl(raw) {
     .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
 }
 
-/** How a URL as written refers to something. */
-function urlKind(raw) {
-  const url = readUrl(raw);
-  if (/^https?:\/\//i.test(url)) return 'http';
-  if (url.startsWith('//')) return 'protocol-relative';
-  if (url.startsWith('/')) return 'root-relative';
-  return 'other';
-}
-
 const isScriptUrl = (raw) => /^(?:javascript|vbscript):/i.test(readUrl(raw));
 
 /**
@@ -208,17 +204,147 @@ function lineText(text, index) {
   return text.slice(from, to < 0 ? text.length : to).trim().slice(0, 160);
 }
 
+// ---------------------------------------------------------------------------
+// CSS
+// ---------------------------------------------------------------------------
+
 /**
- * `url(…)` values of a stylesheet: external, protocol-relative and
- * root-relative ones are violations. `at(cssOffset)` gives the position in
- * the reported text the violation is anchored at; `describe` its detail.
+ * CSS escapes undone (CSS Syntax 3 §4.3.7). `\XXXXXX` — one to six hex
+ * digits, and one optional blank after them, which is consumed — is that
+ * code point; `\c`, a backslash before anything else, is that character; a
+ * backslash before a newline is no escape and both stay. Returns the text
+ * and, for each of its characters, where it was in the input: unescaping
+ * changes lengths, and the line reported must be the input's.
  */
-function scanCss(css, report, at, describe) {
-  // Comments are blanked out with their length kept, so offsets stay true.
+function decodeCssEscapes(css) {
+  let text = '';
+  const map = [];
+  const isHex = (c) => c !== undefined && /[0-9a-f]/i.test(c);
+  const isBlank = (c) => c !== undefined && /[ \t\n\r\f]/.test(c);
+  for (let i = 0; i < css.length; i += 1) {
+    const ch = css[i];
+    if (ch !== '\\' || i + 1 >= css.length) { // the backslash itself, or one at the very end
+      text += ch;
+      map.push(i);
+      continue;
+    }
+    const next = css[i + 1];
+    if (next === '\n' || next === '\r' || next === '\f') { // no escape: keep both characters
+      text += ch;
+      map.push(i);
+      continue;
+    }
+    if (isHex(next)) {
+      let end = i + 1;
+      while (end < css.length && end < i + 7 && isHex(css[end])) end += 1;
+      const code = Number.parseInt(css.slice(i + 1, end), 16);
+      if (isBlank(css[end])) end += 1; // the blank after the digits is part of the escape
+      text += code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ? '\ufffd' : String.fromCodePoint(code);
+      map.push(i);
+      i = end - 1;
+      continue;
+    }
+    text += next; // a character escape: the character itself
+    map.push(i);
+    i += 1;
+  }
+  return { text, map };
+}
+
+/** The quoted strings of a CSS text as [start, end] with both quotes: what lies between them is not CSS syntax. */
+function stringSpans(text) {
+  const spans = [];
+  let i = 0;
+  while (i < text.length) {
+    const quote = text[i];
+    if (quote !== '"' && quote !== "'") { i += 1; continue; }
+    const end = text.indexOf(quote, i + 1);
+    const stop = end < 0 ? text.length : end;
+    spans.push([i, stop]);
+    i = stop + 1;
+  }
+  return spans;
+}
+
+/** What is between the `(` at `open` and the `)` that closes it, nested parentheses and quoted strings accounted for. */
+function balancedArgs(text, open) {
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote !== null) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === '(') {
+      depth += 1;
+    } else if (c === ')') {
+      depth -= 1;
+      if (depth === 0) return text.slice(open + 1, i);
+    }
+  }
+  return text.slice(open + 1);
+}
+
+/** How an address written in CSS refers to something: an outside site (by scheme, or protocol-relative), the site root — or nothing that concerns the audit. */
+function cssAddressKind(raw) {
+  const url = readUrl(raw);
+  if (url.startsWith('//') || /^https?:\/\//i.test(url)) return 'external';
+  if (url.startsWith('/')) return 'root-relative';
+  return null;
+}
+
+const CODE_OF_CSS_ADDRESS = Object.freeze({ external: 'css-external-url', 'root-relative': 'css-root-relative' });
+
+/**
+ * A2 and A3 for CSS (ruling AA): in a stylesheet, a <style> block or a
+ * style="" attribute, @import, url() and image-set() may hold neither an
+ * outside nor a root-relative address. Read in three steps, each on the
+ * text the one before produced:
+ *   1. comments are blanked with their length kept — a backslash inside one
+ *      is no escape;
+ *   2. escapes are undone (\68 ttps:// is https://), with a map back to the
+ *      input for the line number;
+ *   3. the addresses are looked for — outside quoted strings, which are
+ *      text: content:"url(…)" is no url().
+ * `at(inputOffset)` gives the position in the reported text a violation is
+ * anchored at; `describe` its detail. `literalsAreCss` is for a .js file,
+ * where the CSS sits inside the script's own string literals: there a
+ * string is exactly where the address is written.
+ * Not read as a browser would (the safe side, or rare): a quote escaped
+ * inside a string ends that string early; an escaped `\@import` is
+ * reported like an @import although it is a mere name to a browser.
+ */
+function scanCss(css, report, at, describe, { literalsAreCss = false } = {}) {
   const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ' '));
-  for (const m of blanked.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi)) {
-    const kind = urlKind(m[2]);
-    if (kind !== 'other') report(at(m.index), `css-url-${kind}`, describe(at(m.index)));
+  const { text, map } = decodeCssEscapes(blanked);
+  const spans = stringSpans(text);
+  const inString = literalsAreCss ? () => false : (index) => spans.some(([from, to]) => index > from && index < to);
+  const seen = new Set();
+  const hit = (index, raw) => {
+    const kind = cssAddressKind(raw);
+    if (kind === null || seen.has(index)) return;
+    seen.add(index);
+    report(at(map[index]), CODE_OF_CSS_ADDRESS[kind], describe(at(map[index])));
+  };
+  const urlSpans = [];
+  for (const m of text.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi)) {
+    urlSpans.push([m.index, m.index + m[0].length]);
+    if (!inString(m.index)) hit(m.index, m[2]);
+  }
+  for (const m of text.matchAll(/@import\s+(["'])(.*?)\1/gi)) {
+    if (!inString(m.index)) hit(m.index, m[2]);
+  }
+  for (const m of text.matchAll(/(?:-[a-z]+-)?image-set\(/gi)) {
+    const open = m.index + m[0].length - 1;
+    if (inString(open)) continue;
+    const args = balancedArgs(text, open);
+    for (const s of args.matchAll(/(["'])(.*?)\1/g)) {
+      const atString = open + 1 + s.index;
+      // image-set(url("…") 1x): that address is the url()'s, reported there already.
+      if (urlSpans.some(([from, to]) => atString > from && atString < to)) continue;
+      hit(atString, s[2]);
+    }
   }
 }
 
@@ -365,8 +491,8 @@ function scanHtml(text, report) {
     close.lastIndex = tag.end;
     const found = close.exec(text);
     if (tag.name === 'style') {
-      // Read as written (no character references decoded): decoding would
-      // move the offsets, and the line number is what a contributor needs.
+      // The content is read as written: the CSS scanner keeps a map back to
+      // it, so the line number is the line a contributor finds it on.
       const contentEnd = found === null ? text.length : found.index;
       const contentStart = tag.end;
       scanCss(text.slice(contentStart, contentEnd), report, (offset) => contentStart + offset, (index) => lineText(text, index));
@@ -381,7 +507,7 @@ function scanHtml(text, report) {
 function scanScriptText(text, report) {
   for (const m of text.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'src', '', report, lineText(text, m.index));
   for (const m of text.matchAll(/\bhref\s*=\s*(["'])(.*?)\1/gi)) reportUrl(m.index, readUrl(m[2]), 'href', '', report, lineText(text, m.index));
-  scanCss(text, report, (offset) => offset, (index) => lineText(text, index));
+  scanCss(text, report, (offset) => offset, (index) => lineText(text, index), { literalsAreCss: true });
 }
 
 /** fetch( calls and XMLHttpRequest, wherever they are written. */

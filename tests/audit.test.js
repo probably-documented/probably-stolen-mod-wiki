@@ -104,7 +104,7 @@ test('A6 — returns an array of { file, line, code, detail }, sorted by file th
 
   assert.deepEqual(violations.map((v) => `${v.file}:${v.line} [${v.code}]`), [
     'a-first.html:1 [root-relative-url]',
-    'css/theme.css:1 [css-url-http]',
+    'css/theme.css:1 [css-external-url]',
     'z-last.html:1 [external-url]',
     'z-last.html:3 [external-url]',
   ]);
@@ -198,7 +198,7 @@ test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) hr
   assert.deepEqual(brief(violations), [1, 2, 3, 4, 5].map((n) => `${HTML}:${n} [external-url]`));
 });
 
-test('A2 — CSS url(http…) is a violation (css-url-http): in a <style> block, in a style attribute, in a .css file', async (t) => {
+test('A2 — CSS url(http…) is a violation (css-external-url): in a <style> block, in a style attribute, in a .css file', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<style>',
@@ -211,10 +211,10 @@ test('A2 — CSS url(http…) is a violation (css-url-http): in a <style> block,
     'css/theme.css': '@font-face{src:url(https://evil.example/f.woff2) format("woff2")}',
   });
   assert.deepEqual(brief(violations), [
-    'css/theme.css:1 [css-url-http]',
-    `${HTML}:2 [css-url-http]`,
-    `${HTML}:3 [css-url-http]`,
-    `${HTML}:5 [css-url-http]`,
+    'css/theme.css:1 [css-external-url]',
+    `${HTML}:2 [css-external-url]`,
+    `${HTML}:3 [css-external-url]`,
+    `${HTML}:5 [css-external-url]`,
   ]);
 });
 
@@ -231,7 +231,7 @@ test('A2 — protocol-relative references (src="//…", href="//…", url(//…)
     `${HTML}:1 [protocol-relative-url]`,
     `${HTML}:2 [protocol-relative-url]`,
     `${HTML}:3 [protocol-relative-url]`,
-    `${HTML}:4 [css-url-protocol-relative]`,
+    `${HTML}:4 [css-external-url]`,
   ]);
 });
 
@@ -268,13 +268,13 @@ test('A3 — root-relative href="/…", src="/…" and CSS url(/…) are violati
     'css/theme.css': 'a{background:url(/x.png)}',
   });
   assert.deepEqual(brief(violations), [
-    'css/theme.css:1 [css-url-root-relative]',
+    'css/theme.css:1 [css-root-relative]',
     `${HTML}:1 [root-relative-url]`,
     `${HTML}:2 [root-relative-url]`,
     `${HTML}:3 [root-relative-url]`,
     `${HTML}:4 [root-relative-url]`,
-    `${HTML}:5 [css-url-root-relative]`,
-    `${HTML}:6 [css-url-root-relative]`,
+    `${HTML}:5 [css-root-relative]`,
+    `${HTML}:6 [css-root-relative]`,
     `${HTML}:7 [root-relative-url]`,
   ]);
 });
@@ -558,8 +558,8 @@ test('A5 — …but A2 and A3 apply to them as literal text: a script can assemb
     'assets/js/y.js:2 [external-url]',
     'assets/js/y.js:3 [root-relative-url]',
     'assets/js/y.js:4 [protocol-relative-url]',
-    'assets/js/y.js:6 [css-url-http]',
-    'css/z.css:1 [css-url-root-relative]',
+    'assets/js/y.js:6 [css-external-url]',
+    'css/z.css:1 [css-root-relative]',
   ]);
 });
 
@@ -719,5 +719,115 @@ test('AA — a style="" attribute is judged as CSS, once: it is not reported aga
   const violations = await auditOf(t, {
     [HTML]: '<div style="background:url(https://evil.example/a.png)">x</div>',
   });
-  assert.deepEqual(brief(violations), [`${HTML}:1 [css-url-http]`]);
+  assert.deepEqual(brief(violations), [`${HTML}:1 [css-external-url]`]);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AA — CSS
+//
+// In a stylesheet, a <style> block or a style="" attribute: @import, url()
+// and image-set() may hold neither an outside nor a root-relative address.
+// Escapes are undone before anything is looked for (\68 ttps:// is
+// https://), and what is inside a quoted string, or a comment, is not CSS
+// syntax: content:"url(…)" is text. The two gaps below (@import "…",
+// image-set("…")) and the escape were shown to slip through by a probe
+// before this change.
+// ---------------------------------------------------------------------------
+
+test('AA — the two CSS gaps are closed: @import "https://…" and image-set("https://…"), in a stylesheet, a <style> block and a style attribute', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': page(
+      '@import "https://fonts.example.com/x.css";',
+      "@import 'https://fonts.example.com/y.css' print;",
+      '@import "https://fonts.example.com/z.css" screen and (min-width: 100px);',
+      'a{background:image-set("https://evil.example/a.png" 1x, "b.png" 2x)}',
+      'b{background:-webkit-image-set(url("https://evil.example/c.png") 1x)}',
+      'c{background:image-set("//evil.example/d.png" 1x)}',
+      'd{background:image-set("d.png" 1x, "https://evil.example/e.png" 2x)}', // the second of the list
+      'e{background:url( "https://evil.example/quoted.png" )}', // blanks and quotes around the address
+    ),
+    [HTML]: page(
+      '<style>@import "https://fonts.example.com/x.css";</style>',
+      "<div style=\"background:image-set('https://evil.example/a.png' 1x)\">x</div>",
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `css/theme.css:${n} [css-external-url]`),
+    `${HTML}:1 [css-external-url]`,
+    `${HTML}:2 [css-external-url]`,
+  ]);
+});
+
+test('AA — …and the same with site-relative addresses, data:, a fragment, none at all — or inside a string, a comment or running text — is not reported', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': page(
+      '@import "theme-more.css";',
+      '@import url(../base.css) layer(base);',
+      'a{background:image-set("a.png" 1x, "../b.png" 2x)}',
+      'b{background:url(data:image/png;base64,AAAA)}',
+      'c{fill:url(#grad)}',
+      'd{background:url()}',
+      'e{background:url( "theme-more.png" )}', // blanks and quotes, a site-relative address
+      '.f::before{content:"url(https://example.com/this-is-text)"}', // a string is not a url()
+      '.g::before{content:"@import https://example.com/this-is-text-too"}', // …nor an @import
+      '.h::before{content:"image-set(https://example.com/text) 1x"}', // …nor an image-set()
+      '/* @import "https://evil.example/commented.css"; i{background:url(https://evil.example/c.png)} */',
+    ),
+    [HTML]: '<p>正文里写 url(https://example.com/x.png) 或 @import "https://example.com/y.css" 只是文字。</p>',
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('AA — CSS escapes are undone first: \\68 ttps://, \\75 rl(, \\2f\\2f … cannot get past', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': page(
+      String.raw`a{background:\75 rl(https://evil.example/a.png)}`, // \75 + blank = u
+      String.raw`b{background:url(\68 ttps://evil.example/b.png)}`, // \68 + blank = h
+      String.raw`c{background:url(h\74 tps://evil.example/c.png)}`, // \74 + blank = t
+      String.raw`d{background:url(\2f\2f evil.example/d.png)}`, // \2f = /, twice: a protocol-relative address
+      String.raw`e{background:\40 import "https://evil.example/e.css";`, // \40 + blank = @
+      String.raw`f{background:url(\2f root-relative.png)}`, // one \2f: root-relative
+      String.raw`g{background:url(\2f\2f\65 vil.example/g.png)}`, // \65 + blank = e
+      String.raw`h{background:url(\000068 ttps://evil.example/h.png)}`, // six hex digits
+      String.raw`i{background:url(\48TTPS://evil.example/i.png)}`, // the escape ends at the first non-hex digit, upper-case hex included
+      String.raw`j{background:\u\rl(https://evil.example/j.png)}`, // character escapes: \u is u, \r is r
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    ...[1, 2, 3, 4, 5].map((n) => `css/theme.css:${n} [css-external-url]`),
+    'css/theme.css:6 [css-root-relative]',
+    ...[7, 8, 9, 10].map((n) => `css/theme.css:${n} [css-external-url]`),
+  ]);
+});
+
+test('AA — an escaped @ is reported like an @import, although a browser reads it as a mere name: the safe side', async (t) => {
+  const violations = await auditOf(t, { 'css/theme.css': String.raw`a{background:\@import "https://evil.example/k.css";` });
+  assert.deepEqual(brief(violations), ['css/theme.css:1 [css-external-url]']);
+});
+
+test('AA — …and escapes that spell no address stay what they are: a class name, a string of text', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': page(
+      String.raw`.\31 a{color:red}`, // the class "1a"
+      String.raw`.a\@b{color:blue}`,
+      String.raw`.c::before{content:"\68 ttps://example.com/is just text"}`, // inside a string
+      String.raw`.d::after{content:"\2014"}`, // an em dash
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('AA — an escape changes the lengths; the line reported is still the line the address is written on', async (t) => {
+  const violations = await auditOf(t, {
+    'css/theme.css': [
+      'a{color:red}',
+      'b{',
+      String.raw`  background:url(\68 ttps://evil.example/b.png)`, // line 3
+      '}',
+      String.raw`@import "\2f x.css";`, // line 5, root-relative
+    ].join('\n'),
+    // a tag across lines: reported where it starts
+    [HTML]: '<div\n  style="background:image-set(\\75 rl(\\2f\\2f root.png) 1x)">x</div>',
+  });
+  assert.deepEqual(brief(violations), ['css/theme.css:3 [css-external-url]', 'css/theme.css:5 [css-root-relative]', `${HTML}:1 [css-external-url]`]);
 });

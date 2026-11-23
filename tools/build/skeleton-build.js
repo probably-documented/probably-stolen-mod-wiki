@@ -323,17 +323,14 @@ const AUDIT_ADVICE = Object.freeze({
     problem: '有一个地址以 / 开头(这叫「根相对路径」)。这种地址在本站的网址下会指到错误的位置,离线打开时直接失效。',
     fix: '改成相对于当前页面的路径,例如 [物品图鉴](../items.html) 或 ../assets/图片名.png。',
   },
-  'css-url-http': {
-    problem: '样式里的 url(https://…) 从外部地址加载图片或字体。本站不允许加载外部资源。',
-    fix: '删掉这条样式。',
+  'css-external-url': {
+    problem: '样式里有一处引用了外部地址(以 http:// 或 https:// 开头,或以 // 开头),'
+      + '例如 url(…)、@import "…"、image-set(…) 里的图片或字体。本站不允许加载外部资源。',
+    fix: '删掉这条样式,或改成站内的相对路径。',
   },
-  'css-url-protocol-relative': {
-    problem: '样式里的 url(//…) 等同于从外部地址加载图片或字体,本站不允许。',
-    fix: '改成站内的相对路径,或者删掉这条样式。',
-  },
-  'css-url-root-relative': {
-    problem: '样式里的 url(/…) 是「根相对路径」,在本站的网址下会指到错误的位置。',
-    fix: '改成相对于当前页面的路径。',
+  'css-root-relative': {
+    problem: '样式里有一处地址以 / 开头(这叫「根相对路径」),例如 url(/…)、@import "/…"。这种地址在本站的网址下会指到错误的位置。',
+    fix: '改成相对于当前样式表的路径,例如 ../assets/图片名.png。',
   },
   fetch: {
     problem: '出现了 fetch( 。本站的页面不向网络发送请求。',
