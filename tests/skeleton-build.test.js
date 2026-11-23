@@ -614,3 +614,57 @@ test('buildSkeleton refuses a distDir that is the repo root or one of its ancest
   assert.deepEqual(await snapshotTree(standIn), before, 'nothing inside the repo was removed');
   assert.deepEqual((await fs.readdir(copyRoot)).sort(), parentBefore, 'nothing inside its parent was removed');
 });
+
+// ---------------------------------------------------------------------------
+// Task 5 F — the previous dist survives every failure that can be spotted up
+// front, and copyAssets names the real cause of a failure.
+//   (4a) a missing asset source is known before anything renders: check it
+//        before rm dist, not after the previous dist is already gone
+//   (4b) "required asset missing" is only said when the source really is
+//        missing; permission/disk/target failures propagate unchanged
+// ---------------------------------------------------------------------------
+
+test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 7 sources, checked before rm dist', async (t) => {
+  const base = await tmpDir(t, 'asset-precheck');
+  let i = 0;
+  for (const [src, dest] of EXPECTED_ASSETS) {
+    const distDir = path.join(base, `dist-${i}`);
+    const assetsDir = path.join(base, `assets-${i}`);
+    i += 1;
+    await fs.mkdir(distDir);
+    await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+    const before = await snapshotTree(distDir);
+    await fs.cp(REPO_ASSETS, assetsDir, { recursive: true });
+    await fs.rm(path.join(assetsDir, ...src.split('/'))); // exactly one source gone
+
+    const { err, exitCode } = await capturingExitCode(() =>
+      build({ distDir, contentDir: null, assetsDir, warn: noop }));
+
+    assert.ok(err instanceof Error, `${src}: expected the missing source to throw, got ${err}`);
+    assert.match(err.message, /required asset missing/, `${src}: attributed as a missing source`);
+    assert.ok(err.message.includes(dest), `${src}: the error names the asset (${dest})`);
+    assert.equal(exitCode, 1, `${src}: exitCode`);
+    assert.deepEqual(await snapshotTree(distDir), before, `${src}: previous dist untouched`);
+  }
+});
+
+test('copyAssets says "required asset missing" only for a genuinely missing source; any other copy failure propagates unchanged', async (t) => {
+  const distDir = await tmpDir(t, 'asset-other-failure');
+  const assetsDir = await tmpDir(t, 'assets-dir-instead-of-file');
+  await fs.cp(REPO_ASSETS, assetsDir, { recursive: true });
+  // The source path exists (so an existence check passes) but is not a
+  // regular file: copying it fails for a reason other than "missing".
+  await fs.rm(path.join(assetsDir, 'theme.css'));
+  await fs.mkdir(path.join(assetsDir, 'theme.css'));
+
+  const { err, exitCode } = await capturingExitCode(() =>
+    build({ distDir, contentDir: null, assetsDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the copy failure to throw, got ${err}`);
+  assert.doesNotMatch(err.message, /required asset missing/, 'a failure whose source is present must not be labelled "missing"');
+  // EISDIR on POSIX, EPERM (ERROR_ACCESS_DENIED) on Windows — the original
+  // code either way, on the original error object (not wrapped).
+  assert.ok(['EISDIR', 'EPERM', 'EACCES'].includes(err.code), `original error code kept, got ${err.code}`);
+  assert.equal(err.cause, undefined, 'rethrown as is, not wrapped');
+  assert.equal(exitCode, 1);
+});

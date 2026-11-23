@@ -6,7 +6,7 @@
 // Unlike modwiki's full builder this never touches the game directory or the
 // decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
-//   0. pre-flight, nothing on disk touched: rm guard → id lint
+//   0. pre-flight, nothing on disk touched: rm guard → id lint → asset sources
 //   1. drop missing icons → merge content/mechanics → renderSite
 //   2. rm dist → write files → copy repo assets → auditExternalLinks(dist)
 // Step 0 and the rendering in step 1 come BEFORE the old dist is removed, so
@@ -162,17 +162,60 @@ async function mergeMechanicsContent(mechanics, contentDir) {
   return [...bySlug.values()];
 }
 
-/** Copy every ASSET_MAP entry into distDir; a missing source fails the build. */
+/** Absolute path of an ASSET_MAP source inside assetsDir. */
+const assetSource = (assetsDir, src) => path.join(assetsDir, ...src.split('/'));
+
+/**
+ * Fail now — before anything is rendered, let alone removed — when an
+ * ASSET_MAP source is absent. A missing source is a certain build failure
+ * (copyAssets needs every entry), so it must not cost the previous dist
+ * (ruling 4a). Existence only: a source that exists but cannot be copied is
+ * left for copyAssets to report with its real cause.
+ */
+async function assertAssetSources(assetsDir) {
+  for (const [src, dest] of ASSET_MAP) {
+    const from = assetSource(assetsDir, src);
+    try {
+      await fs.access(from);
+    } catch (err) {
+      if (isMissing(err)) throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+      throw err;
+    }
+  }
+}
+
+/** Is `file` really absent (ENOENT / ENOTDIR)? Any other answer is rethrown. */
+async function sourceIsMissing(file) {
+  try {
+    await fs.access(file);
+    return false;
+  } catch (err) {
+    if (isMissing(err)) return true;
+    throw err;
+  }
+}
+
+/**
+ * Copy every ASSET_MAP entry into distDir.
+ * @throws {Error} "required asset missing" only when the source file really
+ *   is absent. Any other failure — permissions, disk full, a source that is a
+ *   directory, an unwritable target — is rethrown untouched (ruling 4b).
+ */
 async function copyAssets(assetsDir, distDir) {
   let copied = 0;
   for (const [src, dest] of ASSET_MAP) {
-    const from = path.join(assetsDir, ...src.split('/'));
+    const from = assetSource(assetsDir, src);
     const to = path.join(distDir, ...dest.split('/'));
     await fs.mkdir(path.dirname(to), { recursive: true });
     try {
       await fs.copyFile(from, to);
     } catch (err) {
-      throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+      // "Missing" is a claim about the SOURCE, and ENOENT alone does not
+      // establish it: copyFile reports ENOENT for a broken target path too.
+      if (isMissing(err) && await sourceIsMissing(from)) {
+        throw new Error(`required asset missing: ${from} → ${dest} (${err.message})`, { cause: err });
+      }
+      throw err;
     }
     copied += 1;
   }
@@ -191,10 +234,11 @@ async function copyAssets(assetsDir, distDir) {
  *   pages = rendered pages + data.js (assets are not pages).
  * @throws {Error} when distDir resolves to the repo root or one of its
  *   ancestors (nothing is removed), when a content/items markdown file is not
- *   named `<item.id>.md`, on any render/write/asset failure, or on an
- *   external-link audit violation; process.exitCode is set to 1 before the
- *   throw. The rm-guard, id-lint and render failures happen before the old
- *   dist is removed, which therefore stays as it was.
+ *   named `<item.id>.md`, when an asset source is missing, on any
+ *   render/write/asset-copy failure, or on an external-link audit violation;
+ *   process.exitCode is set to 1 before the throw. The rm-guard, id-lint,
+ *   missing-asset-source and render failures happen before the old dist is
+ *   removed, which therefore stays as it was.
  */
 async function buildSkeleton({
   distDir = 'dist',
@@ -204,12 +248,12 @@ async function buildSkeleton({
 } = {}) {
   try {
     // 0. Pre-flight — nothing on disk has changed yet.
-    //    rm guard: the recursive rm in step 3 must never eat the repo.
+    //    rm guard: the recursive rm in step 2 must never eat the repo.
     const distPath = path.resolve(distDir);
     if (isUnsafeDistDir(distPath, REPO_ROOT)) {
       throw new Error(`[build:skeleton] refusing to remove distDir ${distPath}: it is the repo root or one of its ancestors`);
     }
-    //    id lint (CMS can create content/items files under any slug).
+    //    id lint (the CMS can create content/items files under any slug).
     if (contentDir != null) {
       const violations = await validateItemContentIds(
         path.join(contentDir, 'items'), FIXTURE_DATA.items.map((it) => it.id));
@@ -219,6 +263,8 @@ async function buildSkeleton({
           + violations.map((v) => `  content/items/${v}`).join('\n'));
       }
     }
+    //    asset sources: a missing one is a certain failure, known right now.
+    await assertAssetSources(assetsDir);
 
     // 1. Data prep — touches only a private clone of the frozen literal.
     const data = structuredClone(FIXTURE_DATA);
