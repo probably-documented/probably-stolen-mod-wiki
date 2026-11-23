@@ -13,7 +13,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { mergeMechanicsContent, mechanicTitle } = require('../tools/build/mechanics.js');
+const { mergeMechanicsContent, mechanicTitle, mechanicsWithNavLabel } = require('../tools/build/mechanics.js');
 
 const REPO_CONTENT = path.join(__dirname, '..', 'content');
 
@@ -89,13 +89,57 @@ test('mergeMechanicsContent: slug = file name, source = the file as written; sam
   const replaced = merged.find((m) => m.slug === 'barrel-system');
   assert.equal(replaced.source, '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', 'source is the file as written');
   assert.equal(merged.find((m) => m.slug === 'night-settlement').source, BASE()[0].source, 'an untouched base entry keeps its source');
-  assert.equal(Object.keys(replaced).sort().join(','), 'slug,source,title', 'an entry carries exactly slug, title, source');
+  assert.deepEqual(Object.keys(replaced).sort(), ['navLabel', 'slug', 'source', 'title'], 'an entry carries exactly slug, title, source, navLabel');
 });
 
 test('mergeMechanicsContent: the repo\'s content/mechanics/install-compat.md merges as the page it is', async () => {
   const raw = await fs.readFile(path.join(REPO_CONTENT, 'mechanics', 'install-compat.md'), 'utf8');
   const merged = await mergeMechanicsContent(BASE(), REPO_CONTENT);
   const page = merged.find((m) => m.slug === 'install-compat');
-  assert.deepEqual(page, { slug: 'install-compat', title: '安装与兼容性', source: raw });
+  assert.deepEqual(page, { slug: 'install-compat', title: '安装与兼容性', source: raw, navLabel: '关于本站' });
   assert.equal(merged.length, BASE().length + 1);
+});
+
+// ---------- Task 5b A — nav_label ----------
+
+test('navLabel: frontmatter `nav_label` → the label (trimmed); empty, blank, missing or not a string → null', async (t) => {
+  const contentDir = await contentWith(t, 'nav-label', {
+    'set.md': '---\ntitle: A\nnav_label: 关于本站\n---\n\n正文',
+    'padded.md': '---\nnav_label:   关于本站  \n---\n\n正文',
+    'quoted.md': '---\nnav_label: "关于本站"\n---\n\n正文',
+    'single-quoted.md': "---\nnav_label: '关于本站'\n---\n\n正文",
+    'empty.md': '---\nnav_label: ""\n---\n\n正文',
+    'bare.md': '---\nnav_label:\n---\n\n正文', // a key without a value parses to ''
+    'blank.md': '---\nnav_label: "   "\n---\n\n正文',
+    'number.md': '---\nnav_label: 123\n---\n\n正文', // the YAML subset parses numbers → not a string
+    'boolean.md': '---\nnav_label: true\n---\n\n正文',
+    'list.md': '---\nnav_label:\n  - 关于本站\n---\n\n正文', // a block list → not a string
+    'none.md': '---\ntitle: 没有 nav_label\n---\n\n正文',
+  });
+
+  const merged = await mergeMechanicsContent(BASE(), contentDir);
+  const navLabelOf = Object.fromEntries(merged.map((m) => [m.slug, m.navLabel]));
+
+  assert.deepEqual(navLabelOf, {
+    'night-settlement': null, // base entries: nothing declared
+    'barrel-system': null,
+    set: '关于本站', padded: '关于本站', quoted: '关于本站', 'single-quoted': '关于本站',
+    empty: null, bare: null, blank: null, number: null, boolean: null, list: null, none: null,
+  });
+  for (const m of merged) {
+    assert.ok(m.navLabel === null || (typeof m.navLabel === 'string' && m.navLabel.trim() !== '' && m.navLabel === m.navLabel.trim()),
+      `${m.slug}: navLabel is null or a trimmed non-empty string, got ${JSON.stringify(m.navLabel)}`);
+  }
+});
+
+test('mechanicsWithNavLabel: the entries that declare a nav label, in order', async (t) => {
+  const none = [{ slug: 'a', title: 'A', source: 's', navLabel: null }, { slug: 'b', title: 'B', source: 's' }];
+  assert.deepEqual(mechanicsWithNavLabel(none), [], 'nothing declared → empty');
+  assert.deepEqual(mechanicsWithNavLabel(null), [], 'no mechanics at all → empty');
+  const two = [
+    { slug: 'a', title: 'A', source: 's', navLabel: '关于本站' },
+    { slug: 'b', title: 'B', source: 's', navLabel: null },
+    { slug: 'c', title: 'C', source: 's', navLabel: '另一个' },
+  ];
+  assert.deepEqual(mechanicsWithNavLabel(two).map((m) => m.slug), ['a', 'c'], 'order kept');
 });

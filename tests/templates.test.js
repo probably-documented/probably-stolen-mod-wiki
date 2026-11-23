@@ -10,6 +10,7 @@ const path = require('node:path');
 
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, cssVars,
+  NAV_ITEMS, navLinks, aboutNavItem,
 } = require('../tools/build/templates.js');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'assets-src', 'theme.css');
@@ -242,22 +243,76 @@ test('layout: 不传 noticeHtml 则无 top-news', () => {
   assert.ok(!html.includes('class="top-news"'));
 });
 
-test('layout: menu-row 含“关于本站”、ps-site__links 含“物品检索器”,占位互斥', () => {
+/** The two nav spots of a layout() document, as arrays of `<a …>…</a>` strings. */
+function navOf(html, spot) {
+  return html.split(`class="${spot}"`)[1].split('</div>')[0].match(/<a [^>]*>.*?<\/a>/g) ?? [];
+}
+
+test('layout: 无 aboutNav 时两处导航都没有“关于本站”;ps-site__links 以“物品检索器”结尾,占位互斥', () => {
   const html = layout({ title: 'x', relRoot: '', activeNav: null, breadcrumb: [], bodyHtml: '' });
-  const menuRow = html.split('class="menu-row"')[1].split('</div>')[0];
-  const siteLinks = html.split('class="ps-site__links"')[1].split('</div>')[0];
+  const menuRow = navOf(html, 'menu-row');
+  const siteLinks = navOf(html, 'ps-site__links');
   for (const label of ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志']) {
-    assert.ok(menuRow.includes(`>${label}</a>`), label);
-    assert.ok(siteLinks.includes(`>${label}</a>`), label);
+    assert.ok(menuRow.some((a) => a.endsWith(`>${label}</a>`)), `menu-row: ${label}`);
+    assert.ok(siteLinks.some((a) => a.endsWith(`>${label}</a>`)), `ps-site__links: ${label}`);
   }
-  assert.ok(menuRow.includes('>关于本站</a>'));
-  assert.ok(!menuRow.includes('物品检索器'));
-  assert.ok(siteLinks.includes('>物品检索器</a>'));
-  assert.ok(!siteLinks.includes('关于本站'));
-  // Task 8(Ruling 6)接线后的真实目标,不再有 '#' 占位
-  assert.ok(menuRow.includes('href="mechanics/install-compat.html"'));
-  assert.ok(siteLinks.includes('href="search.html"'));
+  // Task 5b A2: the about entry is DECLARED by a page (nav_label); with no
+  // page declaring it the top nav simply has none.
+  assert.ok(!html.includes('关于本站'));
+  assert.ok(!html.includes('mechanics/install-compat.html'));
+  assert.deepEqual(menuRow.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志'], 'menu-row ends with 更新日志');
+  assert.deepEqual(siteLinks.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '物品检索器'], 'ps-site__links ends with 物品检索器');
+  assert.ok(siteLinks.some((a) => a.includes('href="search.html"')));
   assert.ok(!html.includes('href="#"'));
+});
+
+test('layout: aboutNav → menu-row 得到“关于本站”一项,位置在更新日志之后;ps-site__links 不含;relRoot 前缀', () => {
+  const about = aboutNavItem('关于本站', 'install-compat');
+  const html = layout({ title: 'x', relRoot: '', activeNav: null, breadcrumb: [], bodyHtml: '', aboutNav: about });
+  const menuRow = navOf(html, 'menu-row');
+  assert.deepEqual(menuRow.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '关于本站'],
+    'menu-row: 关于本站 comes right after 更新日志, as the last item');
+  assert.ok(menuRow.at(-1).includes('href="mechanics/install-compat.html"'), `about href, got ${menuRow.at(-1)}`);
+  assert.ok(!navOf(html, 'ps-site__links').some((a) => a.includes('关于本站')), 'onlyIn: menu-row');
+
+  const deep = layout({ title: 'x', relRoot: '../', activeNav: null, breadcrumb: [], bodyHtml: '', aboutNav: about });
+  assert.ok(navOf(deep, 'menu-row').at(-1).includes('href="../mechanics/install-compat.html"'), 'sub pages: the relRoot prefix');
+});
+
+// ---------- Task 5b A — the about entry is declared by a page ----------
+
+test('NAV_ITEMS: 没有 about 项,也没有任何一项指向具体内容页', () => {
+  assert.deepEqual(NAV_ITEMS.map((it) => it.key), ['home', 'items', 'mechanics', 'guides', 'mods', 'changelog', 'searchtools']);
+  for (const it of NAV_ITEMS) {
+    assert.ok(!/^mechanics\/[^/]+\.html$/.test(it.href), `${it.key}: ${it.href} points at a content page`);
+    assert.ok(['home', 'items', 'mechanics', 'guides', 'mods', 'changelog', 'searchtools'].includes(it.key));
+  }
+});
+
+test('aboutNavItem: { key: about, label, href: mechanics/<slug>.html, onlyIn: menu-row }', () => {
+  assert.deepEqual(aboutNavItem('关于本站', 'install-compat'), {
+    key: 'about', label: '关于本站', href: 'mechanics/install-compat.html', onlyIn: 'menu-row',
+  });
+});
+
+test('navLinks / aboutNavItem: label 与 href 来自页面数据,一律转义', () => {
+  const about = aboutNavItem('<b>关于 & 本站"', 'a&b');
+  assert.equal(about.label, '<b>关于 & 本站"', 'the label is kept as data; escaping happens at render');
+  const html = navLinks('', null, 'menu-row', about);
+  assert.ok(html.includes('<a href="mechanics/a&amp;b.html">&lt;b&gt;关于 &amp; 本站&quot;</a>'), html);
+  // …and the hard-coded entries still render exactly as before
+  assert.ok(html.includes('<a href="index.html">首页</a>'));
+  assert.ok(html.includes('<a href="mechanics.html">机制说明</a>'));
+  assert.ok(html.includes('<a href="index.html#mod-family">模组介绍</a>'));
+});
+
+test('navLinks: activeNav 只高亮 key 相同的那一项(about 项的 key 是 about)', () => {
+  const about = aboutNavItem('关于本站', 'install-compat');
+  const html = navLinks('', 'about', 'menu-row', about);
+  assert.ok(html.includes('<a href="mechanics/install-compat.html" class="active">关于本站</a>'));
+  assert.equal((html.match(/class="active"/g) || []).length, 1);
+  // without an about entry nothing can be highlighted under that key
+  assert.ok(!navLinks('', 'about', 'menu-row').includes('class="active"'));
 });
 
 // ---------- theme.css 源文件 ----------

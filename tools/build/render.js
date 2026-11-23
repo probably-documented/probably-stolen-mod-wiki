@@ -20,7 +20,7 @@ const { mdToHtml } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
-  layout, infobox, itemCard, itemInline, renderWikiTable,
+  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem,
 } = require('./templates.js');
 
 const MISSING = '<i class="missing">待补充</i>';
@@ -119,7 +119,12 @@ function buildSiteModel(data) {
     for (const alias of it.aliases ?? []) if (!byId.has(alias)) byId.set(alias, it);
   }
   const lookup = (id) => byId.get(id) ?? null;
-  return { mods, modsById, items, lookup };
+  // 顶部导航的「关于本站」由页面自己声明:机制页的 navLabel(mergeMechanicsContent
+  // 读自 content/mechanics/<slug>.md 的 frontmatter `nav_label`,task 5b A)。
+  // 没有页面声明 → null → 导航没有这一项。构建入口保证最多一页带它。
+  const aboutSource = (data.mechanics ?? []).find((m) => typeof m.navLabel === 'string' && m.navLabel.trim() !== '') ?? null;
+  const aboutNav = aboutSource == null ? null : aboutNavItem(aboutSource.navLabel.trim(), aboutSource.slug);
+  return { mods, modsById, items, lookup, aboutNav };
 }
 
 /** 热门物品(确定性规则):price 非 null 的物品按 price 降序、同价 id 升序,取前 10。 */
@@ -215,6 +220,7 @@ ${quickLinks}
     breadcrumb: [{ text: '首页' }],
     bodyHtml: body,
     noticeHtml: baselineNotice(data),
+    aboutNav: model.aboutNav,
   });
 }
 
@@ -307,6 +313,7 @@ ${sections}
     activeNav: 'items',
     breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '物品图鉴' }],
     bodyHtml: body,
+    aboutNav: model.aboutNav,
   });
 }
 
@@ -406,6 +413,7 @@ ${mechLinks}
       { text: item.name == null ? item.id : item.name },
     ],
     bodyHtml: body,
+    aboutNav: model.aboutNav,
   });
 }
 
@@ -440,11 +448,12 @@ function renderMechanicPage(data, model, mech) {
 <div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · 提取自 content/mechanics/${esc(mech.slug)}.md</div>
 ${tocHtml(toc)}
 ${html}`,
+    aboutNav: model.aboutNav,
   });
   return page;
 }
 
-function renderMechanicsIndex(data) {
+function renderMechanicsIndex(data, model) {
   const cards = (data.mechanics ?? []).map((m) => `<div class="mod-card">
 <h4><a href="mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
 <p>${esc(firstParagraphExcerpt(m.source ?? ''))}</p>
@@ -463,6 +472,7 @@ ${cards}
     bodyHtml: `<h1 class="page-title">机制说明</h1>
 <div class="updated">全部机制与玩法指南索引 · 数据基线 ${esc(data.baseline?.date ?? '')}</div>
 ${cardsHtml}`,
+    aboutNav: model.aboutNav,
   });
 }
 
@@ -507,6 +517,7 @@ ${renderWikiTable(['项目', '内容'], infoRows)}
 <h2 class="sec">物品清单(${esc(modItems.length)} 件)</h2>
 ${grid}
 ${changelogHtml}`,
+    aboutNav: model.aboutNav,
   });
 }
 
@@ -529,15 +540,17 @@ ${entries.map((c) => `<h3 class="sub">v${esc(c.version)}</h3>\n<p style="font-si
     bodyHtml: `<h1 class="page-title">更新日志</h1>
 <div class="updated">按模组分组的版本记录 · 数据基线 ${esc(data.baseline?.date ?? '')}</div>
 ${sections === '' ? '<p style="font-size:13px;color:var(--dk-muted)">暂无版本记录。</p>' : sections}`,
+    aboutNav: model.aboutNav,
   });
 }
 
-function renderSearch(data) {
+function renderSearch(data, model) {
   return layout({
     title: '物品检索器',
     relRoot: '',
     activeNav: 'searchtools',
     breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '物品检索器' }],
+    aboutNav: model.aboutNav,
     bodyHtml: `<h1 class="page-title">物品检索器</h1>
 <div class="updated">输入关键词即时筛选 · 数据基线 ${esc(data.baseline?.date ?? '')}</div>
 <p>支持按物品名称、物品 ID、别名、标签与品类检索,结果卡片可直接跳转物品详情页。筛选逻辑由 <code>assets/js/search.js</code> 提供(基于内联 <code>data.js</code> 数据)。</p>
@@ -548,9 +561,10 @@ function renderSearch(data) {
   });
 }
 
-// renderInstallCompat 已删除(final review Important 4):「关于本站」导航改指
-// 真实内容页 mechanics/install-compat.html(templates.js NAV_ITEMS),不再有
-// mods/install-compat.html 占位骨架。
+// renderInstallCompat 已删除(final review Important 4):不再有
+// mods/install-compat.html 占位骨架。「关于本站」导航项由机制页自己声明
+// (frontmatter `nav_label` → navLabel → model.aboutNav,task 5b A),
+// 目前是 content/mechanics/install-compat.md。
 
 /** 精简客户端数据包:不含 provenance / notes 等内部字段;search 由 Task 9 填充。 */
 function renderDataJs(data, model) {
@@ -608,9 +622,9 @@ async function renderSite(data, options = {}) {
 
   out.set('index.html', renderIndex(data, model));
   out.set('items.html', renderItems(data, model));
-  out.set('mechanics.html', renderMechanicsIndex(data));
+  out.set('mechanics.html', renderMechanicsIndex(data, model));
   out.set('changelog.html', renderChangelog(data, model));
-  out.set('search.html', renderSearch(data));
+  out.set('search.html', renderSearch(data, model));
   out.set('data.js', renderDataJs(data, model));
 
   for (const mod of model.mods) {

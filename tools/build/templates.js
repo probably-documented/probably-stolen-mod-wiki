@@ -9,15 +9,19 @@
 // BWIKI credit text link is the single audited whitelist exception.
 //
 // Exports:
-//   layout({title, relRoot, activeNav, breadcrumb, bodyHtml, noticeHtml}) -> string
+//   layout({title, relRoot, activeNav, breadcrumb, bodyHtml, noticeHtml, aboutNav}) -> string
 //     (noticeHtml optional: renders the mockup's top-news bar between the
-//      ps-site banner and the content box; omit for no bar)
+//      ps-site banner and the content box; omit for no bar. aboutNav
+//      optional: the top-nav about entry a page declares — aboutNavItem —
+//      omit for no 关于本站 entry, task 5b A)
 //   infobox(item, relRoot = '../')        -> string  (detail pages are depth 1)
 //   itemCard(item, relRoot = '')          -> string
 //   itemInline(item, relRoot = '')        -> string
 //   renderWikiTable(headers, rows)        -> string  (cells are trusted HTML)
 //   cssVars                                — Global Constraints palette
 //   NAV_ITEMS                              — shared nav (relRoot-prefixed at render)
+//   navLinks(relRoot, activeNav, placement, aboutNav) -> string
+//   aboutNavItem(label, slug)              — the nav entry a page declares
 //
 // Discipline: strictly-null checks for "missing" fields. Empty string is a
 // VALID value (project rule) and must never render as 待补充. price 0 is valid.
@@ -49,10 +53,13 @@ const cssVars = Object.freeze({
 // banner's ps-site__links unless onlyIn restricts them (mirrors the mockup:
 // menu-row ends with 关于本站, ps-site__links ends with 物品检索器). hrefs
 // are relative to the site root, always rendered with the relRoot prefix.
+// Every entry here is an auto-generated structural page. The 关于本站 entry
+// is NOT in this list: it points at a content page, so the page itself
+// declares it (frontmatter `nav_label` → aboutNavItem → layout's aboutNav,
+// task 5b A). Delete that page and the entry is gone; nothing here changes.
 // Placeholders wired by Task 8 (controller Ruling 6): 玩法指南 rides the
-// mechanics index, 关于本站 points at the real install/compat mechanic page
-// (final review Important 4), and the search tools entry points at the
-// client-side search page.
+// mechanics index, and the search tools entry points at the client-side
+// search page.
 const NAV_ITEMS = Object.freeze([
   { key: 'home', label: '首页', href: 'index.html' },
   { key: 'items', label: '物品图鉴', href: 'items.html' },
@@ -60,9 +67,11 @@ const NAV_ITEMS = Object.freeze([
   { key: 'guides', label: '玩法指南', href: 'mechanics.html' },
   { key: 'mods', label: '模组介绍', href: 'index.html#mod-family' },
   { key: 'changelog', label: '更新日志', href: 'changelog.html' },
-  { key: 'about', label: '关于本站', href: 'mechanics/install-compat.html', onlyIn: 'menu-row' },
   { key: 'searchtools', label: '物品检索器', href: 'search.html', onlyIn: 'site-links' },
 ].map(Object.freeze));
+
+/** Where the about entry sits in the nav order: right after 更新日志. */
+const ABOUT_SLOT = NAV_ITEMS.findIndex((it) => it.key === 'changelog') + 1;
 
 function esc(text) {
   return String(text)
@@ -84,14 +93,29 @@ function itemHref(item, relRoot) {
   return `${relRoot}item/${item.id}.html`;
 }
 
+// The top-nav about entry a mechanic page provides through its frontmatter
+// `nav_label` (task 5b A1): shown in the wiki-header menu-row only, right
+// after 更新日志, linking at that page. `label` is page data and `slug` a
+// file name — both are escaped where they are rendered (navLinks).
+function aboutNavItem(label, slug) {
+  return { key: 'about', label, href: `mechanics/${slug}.html`, onlyIn: 'menu-row' };
+}
+
+/** The nav in order, with the declared about entry (if any) in its slot. */
+function navItems(aboutNav) {
+  if (aboutNav == null) return NAV_ITEMS;
+  return [...NAV_ITEMS.slice(0, ABOUT_SLOT), aboutNav, ...NAV_ITEMS.slice(ABOUT_SLOT)];
+}
+
 // placement: 'menu-row' | 'site-links'; items flagged onlyIn render in one
-// spot only, everything else shows in both.
-function navLinks(relRoot, activeNav, placement) {
-  return NAV_ITEMS
+// spot only, everything else shows in both. aboutNav (task 5b A): the entry
+// declared by a page (aboutNavItem), or null/omitted when no page declares one.
+function navLinks(relRoot, activeNav, placement, aboutNav = null) {
+  return navItems(aboutNav)
     .filter((it) => !it.onlyIn || it.onlyIn === placement)
     .map(({ key, label, href }) => {
       const cls = key === activeNav ? ' class="active"' : '';
-      return `<a href="${esc(relRoot + href)}"${cls}>${label}</a>`;
+      return `<a href="${esc(relRoot + href)}"${cls}>${esc(label)}</a>`;
     })
     .join('');
 }
@@ -115,7 +139,9 @@ function searchForm(relRoot, cls, placeholder) {
     + '</form>';
 }
 
-function layout({ title, relRoot = '', activeNav = null, breadcrumb = null, bodyHtml = '', noticeHtml = null }) {
+// aboutNav (task 5b A): the top-nav about entry declared by a page
+// (templates.aboutNavItem), or null/omitted when no page declares one.
+function layout({ title, relRoot = '', activeNav = null, breadcrumb = null, bodyHtml = '', noticeHtml = null, aboutNav = null }) {
   // top-news 全站通知条(数据基线等),仅首页等显式传入时渲染
   const notice = noticeHtml == null ? '' : `<div class="top-news">${noticeHtml}</div>`;
   return `<!DOCTYPE html>
@@ -130,7 +156,7 @@ function layout({ title, relRoot = '', activeNav = null, breadcrumb = null, body
 <div class="page-wrap">
 <div class="wiki-header">
 <div class="wiki-logo-text">${SITE_NAME}<small>${SITE_LOGO_SMALL}</small></div>
-<div class="menu-row">${navLinks(relRoot, activeNav, 'menu-row')}</div>
+<div class="menu-row">${navLinks(relRoot, activeNav, 'menu-row', aboutNav)}</div>
 ${searchForm(relRoot, 'header-search', '搜索物品、机制…')}
 </div>
 <div class="ps-site">
@@ -145,7 +171,7 @@ ${searchForm(relRoot, 'header-search', '搜索物品、机制…')}
 <div class="ps-site__notice">${SITE_NOTICE}</div>
 </div>
 <div class="ps-site__nav">
-<div class="ps-site__links">${navLinks(relRoot, activeNav, 'site-links')}</div>
+<div class="ps-site__links">${navLinks(relRoot, activeNav, 'site-links', aboutNav)}</div>
 ${searchForm(relRoot, 'ps-site__search', '搜索本 Wiki')}
 </div>
 </div>
@@ -251,4 +277,6 @@ module.exports = {
   renderWikiTable,
   cssVars,
   NAV_ITEMS,
+  navLinks,
+  aboutNavItem,
 };

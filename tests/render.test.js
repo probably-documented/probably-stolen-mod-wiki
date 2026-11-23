@@ -367,9 +367,10 @@ test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)
   assert.ok(!index.includes('href="#"'), '导航占位必须清除');
   assert.ok(index.includes('href="mechanics.html"'));
   assert.ok(index.includes('href="search.html"'));
-  // 关于本站 → 真实的安装兼容机制页(final review:不再指占位骨架)
-  assert.ok(index.includes('href="mechanics/install-compat.html"'), '导航「关于本站」指向 mechanics/install-compat.html');
   assert.ok(index.includes('href="index.html#mod-family"'));
+  // Task 5b A2:顶部导航的「关于本站」不再硬编码——没有页面用 navLabel 声明它,
+  // 导航就没有这一项(见下面的 A 组测试)
+  assert.ok(!index.includes('href="mechanics/install-compat.html"'), '导航不再硬编码指向 install-compat');
 });
 
 // ---------- mods 页 / changelog / search / install-compat ----------
@@ -409,14 +410,85 @@ test('search.html:输入框 + results 容器 + 引用 data.js 与 assets/js/sear
   assert.ok(html.includes('<script src="data.js"></script>\n<script src="assets/js/search.js"></script>'));
 });
 
-test('关于本站:占位页已删,导航指向 mechanics/install-compat.html,全站无占位文案', async () => {
+test('关于本站:占位页已删,全站无占位文案', async () => {
   const out = await buildFixture({ contentDir: null });
   assert.ok(!out.has('mods/install-compat.html'), '占位页必须删除');
   for (const [rel, html] of out) {
     if (rel === 'data.js') continue;
     assert.ok(!html.includes('本页为占位骨架'), `${rel} 残留占位文案`);
   }
-  // 子页(relRoot ../)导航同样指向机制页
-  const item = out.get('item/wondrous_milk.html');
-  assert.ok(item.includes('href="../mechanics/install-compat.html"'), '子页导航指向');
+});
+
+// ---------- Task 5b A — 顶部导航的 about 项由页面自己声明(nav_label) ----------
+//
+// 机制页的 frontmatter `nav_label`(mergeMechanicsContent 读成 navLabel)使该页
+// 成为顶部导航的 about 项。没有页面声明 → 导航没有这一项;删掉这页,导航里的
+// 「关于本站」随之消失——这就是贡献者可以在 CMS 里安全删除一个机制页的原因。
+
+/** A copy of FIXTURE whose mechanic `slug` carries `navLabel` (undefined = none). */
+function fixtureWithNavLabel(slug, navLabel) {
+  const data = structuredClone(FIXTURE);
+  const mech = data.mechanics.find((m) => m.slug === slug);
+  if (navLabel === undefined) delete mech.navLabel;
+  else mech.navLabel = navLabel;
+  return data;
+}
+
+/** The nav anchors of one spot ('menu-row' | 'ps-site__links') of a page, as [text, html] pairs. */
+function navAnchors(html, spot) {
+  const inner = html.split(`class="${spot}"`)[1].split('</div>')[0];
+  return (inner.match(/<a [^>]*>.*?<\/a>/g) ?? []).map((a) => [a.replace(/<a [^>]*>|<\/a>/g, ''), a]);
+}
+
+test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLabel、href = mechanics/<slug>.html、只在 menu-row、位于更新日志之后、全站每页都有', async () => {
+  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { contentDir: null });
+  for (const [rel, html] of out) {
+    if (rel === 'data.js') continue;
+    const prefix = rel.includes('/') ? '../' : '';
+    const menuRow = navAnchors(html, 'menu-row');
+    assert.deepEqual(menuRow.map(([text]) => text), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '桶装指南'],
+      `${rel}: menu-row ends with the about entry, right after 更新日志`);
+    assert.equal(menuRow.at(-1)[1], `<a href="${prefix}mechanics/barrel-system.html">桶装指南</a>`, `${rel}: the about entry`);
+    assert.ok(!navAnchors(html, 'ps-site__links').some(([text]) => text === '桶装指南'), `${rel}: not in ps-site__links`);
+  }
+  // navLabel is build-time data: the client payload still carries slug + title only
+  assert.ok(!out.get('data.js').includes('navLabel'), 'data.js does not serialize navLabel');
+});
+
+test('A2 — 没有任何页面带 navLabel → 顶部导航没有 about 项;其余页面照常渲染', async () => {
+  const out = await renderSite(fixtureWithNavLabel('barrel-system'), { contentDir: null });
+  assert.equal(out.size, 6 + 6 + 7 + 2, 'every route is still rendered');
+  for (const [rel, html] of out) {
+    if (rel === 'data.js') continue;
+    const labels = ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志'];
+    assert.deepEqual(navAnchors(html, 'menu-row').map(([text]) => text), labels, `${rel}: menu-row`);
+    assert.deepEqual(navAnchors(html, 'ps-site__links').map(([text]) => text), [...labels, '物品检索器'], `${rel}: ps-site__links`);
+  }
+});
+
+test('A4 — navLabel 为空串或仅空白 → 视为未设置(无 about 项)', async () => {
+  for (const bad of ['', '   ', '\t\n']) {
+    const out = await renderSite(fixtureWithNavLabel('barrel-system', bad), { contentDir: null });
+    const menuRow = navAnchors(out.get('index.html'), 'menu-row');
+    assert.equal(menuRow.at(-1)[0], '更新日志', `navLabel ${JSON.stringify(bad)}: menu-row ends with 更新日志, i.e. no about entry`);
+  }
+  // …while surrounding whitespace of a real label is not part of it
+  const padded = await renderSite(fixtureWithNavLabel('barrel-system', '  桶装指南 \n'), { contentDir: null });
+  assert.equal(navAnchors(padded.get('index.html'), 'menu-row').at(-1)[0], '桶装指南');
+});
+
+test('A6 — about 页的高亮与改动前一致:active 的是「机制说明」,about 项本身不高亮', async () => {
+  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { contentDir: null });
+  const page = out.get('mechanics/barrel-system.html');
+  for (const spot of ['menu-row', 'ps-site__links']) {
+    assert.deepEqual(
+      navAnchors(page, spot).filter(([, a]) => a.includes('class="active"')).map(([text, a]) => [text, a]),
+      [['机制说明', '<a href="../mechanics.html" class="active">机制说明</a>']],
+      `${spot}: 机制说明 is the highlighted entry`,
+    );
+  }
+  assert.equal((page.match(/class="active"/g) || []).length, 2, 'exactly the two nav spots, one highlighted entry each');
+  assert.ok(page.includes('<a href="../mechanics/barrel-system.html">桶装指南</a>'), 'the about entry is on its own page and is NOT highlighted');
+  assert.match(page, /<h1 class="page-title">桶装系统<\/h1>/, 'it is still the mechanic page it always was');
+  assert.ok(page.includes('<a href="../mechanics.html">机制说明</a> &gt; 桶装系统'), 'breadcrumb: 首页 &gt; 机制说明 &gt; 标题');
 });

@@ -8,7 +8,8 @@
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
 //      rm guard → CMS shell source → id lint → asset sources
-//   1. data prep (drop missing icons, merge content/mechanics — mechanics.js)
+//   1. data prep (drop missing icons, merge content/mechanics — mechanics.js,
+//      at most one page declaring the top-nav about entry)
 //   2. render
 //   3. rm dist → 4. write files → 5. copy repo assets → 6. auditExternalLinks(dist)
 //   7. admin/ → dist/admin, strictly after the audit (online-only CMS shell)
@@ -18,6 +19,11 @@
 // Failure discipline: any lint/render/write/asset/admin-copy failure or
 // external-link audit violation throws with process.exitCode = 1, so a broken
 // build can never deploy silently (file:// offline discipline).
+//
+// Contributor-facing failures (BuildError): the CMS lets contributors edit
+// and delete pages, so several checks exist only to tell THEM what to fix.
+// Their message is the whole report — the files, and what to do — and main()
+// prints it without a stack trace.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -26,10 +32,19 @@ const { renderSite } = require('./render.js');
 const { auditExternalLinks } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { isInsideDir } = require('./paths.js');
-const { mergeMechanicsContent } = require('./mechanics.js');
+const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
+
+const toPosix = (p) => p.split(path.sep).join('/');
+
+/**
+ * A failure the build itself diagnosed for a contributor. The message is the
+ * complete, readable report (which files, what to do), so the CLI prints it
+ * as is — a stack trace after the last line of advice would only bury it.
+ */
+class BuildError extends Error {}
 
 /** The repo this builder ships in — the tree `rm -rf distDir` must never eat. */
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -300,6 +315,19 @@ async function buildSkeleton({
     const iconsDropped = await dropMissingIcons(data.items, { modsDir: NO_TEXTURES_DIR, warn });
     data.mechanics = await mergeMechanicsContent(data.mechanics, contentDir);
 
+    //    The top-nav about entry is declared by a page (frontmatter
+    //    `nav_label`, task 5b A). Exactly one page may declare it: two would
+    //    be two 关于本站 entries. Known right now, before rm dist.
+    const aboutPages = mechanicsWithNavLabel(data.mechanics);
+    if (aboutPages.length > 1) {
+      const files = aboutPages.map((m) => `  ${toPosix(path.join(contentDir ?? 'content', 'mechanics', `${m.slug}.md`))}(nav_label: ${m.navLabel})`);
+      throw new BuildError(
+        `[nav] FAIL — ${aboutPages.length} 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口`
+        + `(${aboutPages.map((m) => m.slug).join('、')})。\n`
+        + '请只保留其中一个页面的 nav_label,删掉下面其余文件 frontmatter 里的 `nav_label` 这一行:\n'
+        + files.join('\n'));
+    }
+
     // 2. Render — before rm, so a failed build keeps the previous dist.
     const rendered = await renderSite(data, { contentDir });
 
@@ -350,7 +378,8 @@ async function main() {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error('[build:skeleton] fatal:', err);
+    if (err instanceof BuildError) console.error(`[build:skeleton] fatal: ${err.message}`);
+    else console.error('[build:skeleton] fatal:', err);
     process.exitCode = 1; // belt and braces: buildSkeleton already sets it
   });
 }
