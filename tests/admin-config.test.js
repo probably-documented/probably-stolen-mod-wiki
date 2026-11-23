@@ -439,3 +439,62 @@ test('the default build injects the shell: dist/admin/ holds index.html, config.
   // The offline zip never carries dist/admin/: tests/pack.test.js, "packSite:
   // a fresh build + one zip that holds exactly dist minus admin/".
 });
+
+// ---------------------------------------------------------------------------
+// Task 6b D10 — regression pins for config.yml
+//
+// The cases above pin the shape of the configuration. These pin its values —
+// the ones a later edit could change without any test going red:
+//   • nav_label is optional (the hint tells every contributor to leave it
+//     empty): `required: false`
+//   • the two collections have exactly their fields, each with its widget
+//   • backend.branch, backend.repo and site_url, exactly as written today.
+//     OWNER is a placeholder until Task 7 replaces it with the real
+//     organisation; these three assertions change with it.
+//   • an option of the 物品 dropdown is labelled with the item's name
+// Nothing under admin/ changes for this file.
+// ---------------------------------------------------------------------------
+
+test('D10 — nav_label 不是必填项:required 为 false', async () => {
+  const navLabel = fieldsOf(collection(await readConfig(), 'mechanics')).find((field) => value(field, 'name') === 'nav_label');
+  assert.equal(value(navLabel, 'required'), 'false', 'a contributor is told to leave it empty on every page but one');
+});
+
+test('D10 — items 与 mechanics 的字段恰为清单(按顺序),widget 各就各位', async () => {
+  const config = await readConfig();
+  const expect = (collName, expected) => {
+    const fields = fieldsOf(collection(config, collName));
+    assert.deepEqual(fields.map((field) => unquote(value(field, 'name'))), expected.map(([name]) => name),
+      `${collName}: field names, in order`);
+    assert.deepEqual(fields.map((field) => value(field, 'widget')), expected.map(([, widget]) => widget),
+      `${collName}: widgets, in the same order`);
+  };
+  expect('items', [['slug', 'select'], ['body', 'markdown']]);
+  expect('mechanics', [['title', 'string'], ['nav_label', 'string'], ['body', 'markdown']]);
+});
+
+test('D10 — backend.branch、backend.repo、site_url 与 config 当前值精确匹配(OWNER 是 Task 7 之前的占位符,届时这三条断言随它更新)', async () => {
+  const config = await readConfig();
+  const backend = subBlock(config, 'backend');
+  assert.equal(value(backend, 'branch'), 'main');
+  assert.equal(value(backend, 'repo'), 'OWNER/probably-stolen-mod-wiki');
+  assert.equal(value(config, 'site_url'), 'https://OWNER.github.io/probably-stolen-mod-wiki/');
+});
+
+test('D10 — 物品下拉里,fixture 数据中有名字的物品,选项 label 就是它的名字', async () => {
+  const items = collection(await readConfig(), 'items');
+  const slugField = fieldsOf(items).find((field) => value(field, 'name') === 'slug');
+  const labelOf = new Map(listItems(subBlock(slugField, 'options'))
+    .map((option) => [unquote(value(option, 'value')), unquote(value(option, 'label'))]));
+
+  const named = FIXTURE_DATA.items.filter((item) => item.name !== null);
+  assert.ok(named.length >= 1, 'sanity: the fixture has named items');
+  for (const item of named) {
+    assert.ok(labelOf.has(item.id), `${item.id} is in the dropdown`);
+    assert.equal(labelOf.get(item.id), item.name, `${item.id}: labelled with its name`);
+  }
+  // …and an item with no name — a real case in the data — is listed by its id, never as "null"
+  for (const item of FIXTURE_DATA.items.filter((it) => it.name === null)) {
+    assert.equal(labelOf.get(item.id), item.id, `${item.id}: listed by its id`);
+  }
+});
