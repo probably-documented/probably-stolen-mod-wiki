@@ -515,10 +515,59 @@ test('content/mechanics: same-slug file replaces the fixture entry; title falls 
   assert.deepEqual(slugs.slice(FIXTURE_DATA.mechanics.length), ['bare']);
 });
 
+test('an item whose texture is in assets-src/mods/<mod>/Textures/Items/ keeps its icon, and the texture ships under dist/assets/items/<mod>/', async (t) => {
+  const distDir = await tmpDir(t, 'icons-kept');
+  const result = await build({ distDir, contentDir: null, warn: noop });
+
+  // Declared icons split in two: those with a texture in the repo's mirror of the game's
+  // Textures/Items tree, and those without — the fixture keeps a few of the latter on
+  // purpose (names the game has no texture for), so the 无图 fallback stays exercised.
+  const declared = FIXTURE_DATA.items.filter((it) => it.icon != null && it.icon !== '');
+  const inMirror = async (it) => {
+    const file = path.join(REPO_ASSETS, 'mods', it.mod, 'Textures', 'Items', it.icon.split('/').pop());
+    return fs.access(file).then(() => true, () => false);
+  };
+  const withTexture = [];
+  const withoutTexture = [];
+  for (const it of declared) ((await inMirror(it)) ? withTexture : withoutTexture).push(it);
+  assert.ok(withTexture.length >= 1, 'the fixture declares at least one icon with a texture');
+  assert.ok(withoutTexture.length >= 1, 'the fixture declares at least one icon without a texture');
+  assert.equal(result.iconsDropped, withoutTexture.length, 'only the icons without a texture are dropped');
+
+  for (const it of withTexture) {
+    // shipped byte for byte, from where the build looks for textures
+    const shipped = path.join(distDir, 'assets', ...it.icon.split('/'));
+    const source = path.join(REPO_ASSETS, 'mods', it.mod, 'Textures', 'Items', it.icon.split('/').pop());
+    const [built, original] = await Promise.all([fs.readFile(shipped), fs.readFile(source)]);
+    assert.ok(built.equals(original), `${it.id}: dist/assets/${it.icon} is the texture from assets-src/mods`);
+
+    // the item page points at it
+    const page = await fs.readFile(path.join(distDir, 'item', `${it.id}.html`), 'utf8');
+    assert.ok(page.includes(`assets/${it.icon}"`), `${it.id}: the page references its texture`);
+  }
+
+  // data.js carries the kept icons too (client search draws the same cards)
+  const payload = await readDataJs(distDir);
+  for (const it of withTexture) {
+    assert.equal(payload.items.find((x) => x.id === it.id).icon, it.icon, `${it.id}.icon in data.js`);
+  }
+
+  // no texture — or no icon declared at all → still the 无图 fallback
+  const bare = FIXTURE_DATA.items.filter((it) => it.icon == null || it.icon === '');
+  for (const it of [...withoutTexture, ...bare]) {
+    const page = await fs.readFile(path.join(distDir, 'item', `${it.id}.html`), 'utf8');
+    assert.match(page, /class="no-icon">无图</, `${it.id}: 无图 fallback rendered`);
+  }
+});
+
 test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no texture source)', async (t) => {
   const distDir = await tmpDir(t, 'icons');
+  // The repo's assets without their textures: nothing for a declared icon to resolve to.
+  const assetsDir = await tmpDir(t, 'assets-no-textures');
+  await fs.cp(REPO_ASSETS, assetsDir, { recursive: true });
+  await fs.rm(path.join(assetsDir, 'mods'), { recursive: true, force: true });
   const warnings = [];
-  await build({ distDir, contentDir: null, warn: (m) => warnings.push(m) });
+  await build({ distDir, contentDir: null, assetsDir, warn: (m) => warnings.push(m) });
 
   // every item page: no <img> pointing at an unshipped texture, 无图 shown
   for (const item of FIXTURE_DATA.items) {

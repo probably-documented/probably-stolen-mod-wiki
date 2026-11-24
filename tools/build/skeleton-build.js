@@ -101,12 +101,13 @@ const ASSET_MAP = Object.freeze([
 ]);
 
 /**
- * Fixture builds have no item-texture source (they never read the game's
- * Mods/ directory). Pointing dropMissingIcons at a path that cannot exist
- * makes every declared icon take the real build's missing-texture path:
- * warn → item.icon = null → the templates' 无图 fallback.
+ * Item textures are kept in the repo as a mirror of the game's layout:
+ * `<assetsDir>/mods/<mod id>/Textures/Items/<file>`. That is the path
+ * dropMissingIcons probes (item-textures.js, verbatim from the real build;
+ * its MOD_DIRS is id → id here), so a declared icon keeps its texture when
+ * the file is there, and takes the 无图 fallback when it is not.
  */
-const NO_TEXTURES_DIR = path.join(__dirname, '.no-item-textures-in-fixture-builds');
+const TEXTURES_DIR = 'mods';
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
@@ -255,6 +256,45 @@ async function sourceIsMissing(file) {
     if (isMissing(err)) return true;
     throw err;
   }
+}
+
+/**
+ * Copy every kept item texture from the repo's mirror of the game's
+ * Textures/Items tree to the path the pages reference,
+ * `dist/assets/items/<mod id>/<file>`. Run it after dropMissingIcons: an
+ * icon that survived it has a file, found by the same lookup (the item's
+ * own mod first, then the mod named in the icon path).
+ * @returns {Promise<number>} Textures copied.
+ */
+async function copyItemTextures(items, assetsDir, distDir) {
+  const texturesDir = path.join(assetsDir, TEXTURES_DIR);
+  let copied = 0;
+  for (const item of items ?? []) {
+    const rel = item.icon;
+    if (typeof rel !== 'string' || rel === '') continue;
+    const segs = rel.split('/');
+    const fileName = segs.pop();
+    const iconMod = segs.length >= 2 && segs[0] === 'items' ? segs[1] : null;
+    const from = await findTextureFile(texturesDir, item.mod, iconMod, fileName);
+    if (from === null) {
+      // Not a contributor's doing: dropMissingIcons has just kept this icon.
+      throw new Error(`[build:skeleton] item texture not found after it was kept: ${rel}`);
+    }
+    const to = path.join(distDir, 'assets', ...rel.split('/'));
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    await fs.copyFile(from, to);
+    copied += 1;
+  }
+  return copied;
+}
+
+/** The texture file for an item's icon, wherever dropMissingIcons found it. */
+async function findTextureFile(texturesDir, itemMod, iconMod, fileName) {
+  for (const mod of [...new Set([itemMod, iconMod].filter((m) => m != null))]) {
+    const candidate = path.join(texturesDir, mod, 'Textures', 'Items', fileName);
+    if (!(await sourceIsMissing(candidate))) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -576,8 +616,10 @@ async function injectAdmin(adminSource, distDir) {
  *   (relative paths resolve against cwd, like distDir/contentDir). A missing
  *   directory skips the injection; null skips it on purpose.
  * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number,
- *   adminInjected: boolean}>}
+ *   texturesCopied: number, adminInjected: boolean}>}
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
+ *   iconsDropped = declared icons with no texture file (→ 无图 fallback);
+ *   texturesCopied = item textures copied from assets-src/mods/.
  *   adminInjected = whether an admin tree was copied into dist.
  * @throws {Error} when distDir is neither the repo's own dist directory nor
  *   one inside the system temp directory (in particular the repo root, one
@@ -672,7 +714,7 @@ async function buildSkeleton({
 
     // 1. Data prep — touches only a private clone of the frozen literal.
     const data = structuredClone(FIXTURE_DATA);
-    const iconsDropped = await dropMissingIcons(data.items, { modsDir: NO_TEXTURES_DIR, warn });
+    const iconsDropped = await dropMissingIcons(data.items, { modsDir: path.join(assetsDir, TEXTURES_DIR), warn });
     data.mechanics = await mergeMechanicsContent(data.mechanics, contentDir);
 
     //    The top-nav about entry is declared by a page (frontmatter
@@ -710,6 +752,9 @@ async function buildSkeleton({
     // 5. Repo assets → the paths the pages reference.
     const assetsCopied = await copyAssets(assetsDir, distPath);
 
+    // 5b. Item textures → the paths the item pages reference.
+    const texturesCopied = await copyItemTextures(data.items, assetsDir, distPath);
+
     // 6. Dangling references (dangling-refs.js): pages and assets are both on
     //    disk now, so this is the first moment the whole site can be asked
     //    whether it references a file it does not ship. A contributor may
@@ -738,7 +783,7 @@ async function buildSkeleton({
     //    settled in the pre-flight; here it is only copied.
     const adminInjected = adminSource != null && await injectAdmin(adminSource, distPath);
 
-    return { pages: rendered.size, iconsDropped, assetsCopied, adminInjected };
+    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, adminInjected };
   } catch (err) {
     process.exitCode = 1;
     throw err;
@@ -748,10 +793,11 @@ async function buildSkeleton({
 async function main() {
   const result = await buildSkeleton();
   if (result.iconsDropped > 0) {
-    console.log(`[build:skeleton] icons dropped: ${result.iconsDropped} (no fixture textures → 无图 fallback)`);
+    console.log(`[build:skeleton] icons dropped: ${result.iconsDropped} (no texture file → 无图 fallback)`);
   }
   console.log(`[build:skeleton] rendered ${result.pages} files → dist/`);
   console.log(`[build:skeleton] assets copied: ${result.assetsCopied} → dist/`);
+  console.log(`[build:skeleton] item textures copied: ${result.texturesCopied} → dist/assets/items/`);
   console.log('[audit] OK — no violations (external resources, root-relative paths, dangerous HTML)');
   console.log(result.adminInjected
     ? '[build:skeleton] admin: injected → dist/admin/ (after the audit)'
