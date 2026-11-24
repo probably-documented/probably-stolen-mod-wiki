@@ -22,9 +22,8 @@
 // config.yml (task 6 rulings K / L / M / S / V):
 //   K — the skeleton: the GitHub backend with the additions sign-in, a
 //       placeholder media folder (Sveltia CMS 0.271.0 refuses to start
-//       without one; the build never reads it), no base_url until the
-//       sign-in service exists — one known, expected configuration error
-//       in the meantime — and the two collections contributors edit, both
+//       without one; the build never reads it), the URL of the sign-in
+//       service, and the two collections contributors edit, both
 //       creatable and deletable. The body hints carry the ruled link
 //       policy: external links are fine, images are not supported yet.
 //   L — an item page's file name is the item id (the build lints it), so the
@@ -289,7 +288,7 @@ test('L — the 物品 dropdown of the items collection offers exactly the real 
     'the dropdown must list every real item id (aliases are not ids) and nothing else');
 });
 
-test('K — config skeleton: GitHub backend with the additions sign-in, a placeholder media folder, no base_url yet; both collections can be created and deleted', async () => {
+test('K — config skeleton: GitHub backend with the additions sign-in and its service URL, a placeholder media folder; both collections can be created and deleted', async () => {
   const config = await readConfig();
 
   const backend = subBlock(config, 'backend');
@@ -300,11 +299,10 @@ test('K — config skeleton: GitHub backend with the additions sign-in, a placeh
   // declared as an inert placeholder. The build never reads that directory;
   // what happens to images and uploads is decided after the CMS is online.
   assert.equal(unquote(value(config, 'media_folder')), 'assets/uploads');
-  // The sign-in service does not exist until a later task deploys it, so
-  // its URL is left out, and the CMS reports exactly that one configuration
-  // error meanwhile — the expected state in between. A `# base_url:`
-  // example in a comment is fine: comments are not configuration.
-  assert.ok(!has(backend, 'base_url'), 'base_url is not configured yet');
+  // The sign-in service: Sveltia CMS Additions, a Worker on Cloudflare. The
+  // CMS refuses to start without its URL. Written as the service's own
+  // documentation writes it, with no trailing slash.
+  assert.equal(unquote(value(backend, 'base_url')), 'https://sveltia-cms-additions.xiaoxuannocare.workers.dev');
 
   for (const [name, folder] of [['items', 'content/items'], ['mechanics', 'content/mechanics']]) {
     const coll = collection(config, name);

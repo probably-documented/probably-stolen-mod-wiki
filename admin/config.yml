@@ -12,13 +12,9 @@ backend:
   repo: probably-documented/probably-stolen-mod-wiki
   branch: main
   auth_type: additions
-  # TODO(Task 9): 填入 Sveltia CMS Additions Worker 的 URL
-  # 写法示例(部署好之后去掉行首的 # 即可):
-  #   base_url: https://你的-worker.workers.dev
-  # 登录服务部署之前这个地址并不存在,所以先不写。Sveltia CMS 0.271.0 在 auth_type: additions 时
-  # 要求必须有 base_url,因此到 Task 9 之前,打开 /admin/ 会恰好有一项配置错误:
-  # “The base_url option must be the URL of your Sveltia CMS Additions service.”
-  # 这是预期的中间状态,登录服务上线、填入 base_url 之后就会消失。
+  # 登录服务(Sveltia CMS Additions,部署在 Cloudflare Workers 上的一个 Worker)的地址。
+  # 换了服务或换了地址就改这里;末尾不带斜杠。
+  base_url: https://sveltia-cms-additions.xiaoxuannocare.workers.dev
 
 site_url: https://probably-documented.github.io/probably-stolen-mod-wiki/
 
