@@ -406,8 +406,9 @@ const AUDIT_ADVICE = Object.freeze({
     problem: '有一段可以执行的 <script> 脚本。页面里不允许出现脚本:任何编辑者都能写入,会影响所有读者。',
     // One wording, true whether or not the tag closes itself. A <script/> closes itself only inside an <svg> or
     // <math>; in HTML the `/` before `>` is nothing there, and what follows is the script's text up to </script>.
-    // After an <svg> the audit cannot tell the two apart (audit.js, scanHtml), and a tag longer than a snippet
-    // loses its tail — so nothing is read off that tail (review rounds 2 and 3).
+    // The audit reads a <script> by the HTML rules wherever it stands (audit.js, scanHtml; ruling AE 3), so it
+    // cannot tell the two apart — and an <svg> or <math> is refused for its own sake anyway (unsupported-tag). A
+    // tag longer than a snippet loses its tail, so nothing is read off that tail either (review rounds 2 and 3).
     fix: '删掉这个 <script> 标签和它里面的脚本:从 <script> 到 </script> 的全部内容;后面找不到 </script> 时,它后面的内容也算脚本,一并删掉。'
       + '写成 <script/> 的不一定自己闭合——只有写在 <svg> 或 <math> 里面才是,那时删掉标签本身就行;不闭合时,它后面的内容到 </script> 为止同样是脚本。'
       + '想展示一段代码,请把它写成普通文字(用反引号包起来)。',

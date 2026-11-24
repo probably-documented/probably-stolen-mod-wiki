@@ -19,6 +19,11 @@
 //   A5  .js / .css are build output: A4 does not apply to them, A2 and A3 do
 //   A6  the shape: an array of { file, line, code, detail }, sorted by file
 //       then position
+//   AE  (round 4, ruling AE) a tag allow-list: a tag that is not on it is
+//       refused wherever it stands (unsupported-tag); title, meta, link and
+//       style belong in the <head>; there is no foreign content — a page is
+//       read by the HTML rules throughout, and the CSS of every <style> is
+//       read on its own
 //
 // Every case builds a throwaway directory and audits it — nothing here reads
 // the real dist/.
@@ -143,7 +148,9 @@ test('A1 — <a href="http(s)://…"> is an external link and allowed: no whitel
       '<a href="https://example.com/?q=1&amp;r=2#frag">查询串</a>',
     ),
   });
-  assert.deepEqual(violations, []);
+  // (ruling AE 1: an <svg> is not on the allow-list, nor is a <text> — the page is refused for the two. The <a href>
+  // inside is an external link as any other: it is not reported for it)
+  assert.deepEqual(brief(violations), [`${HTML}:7 [unsupported-tag]`, `${HTML}:7 [unsupported-tag]`]);
 });
 
 test('A1 — the footer credit needs no special whitelist any more: audit.js does not export one', () => {
@@ -168,15 +175,17 @@ test('A2 — src="http(s)://…" on any element is a violation (external-url)', 
     ),
   });
   // Line 6 holds a tag that spans lines 6–7, so the next tags sit on 8 and 9.
+  // (ruling AE 1: an <iframe>, a <video>, an <embed> and an <audio> are not on the allow-list — one more entry each,
+  // the tag first; the outside address is still reported)
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [external-url]`,
-    `${HTML}:2 [external-url]`,
-    `${HTML}:3 [external-url]`,
-    `${HTML}:4 [external-url]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [external-url]`,
+    `${HTML}:3 [unsupported-tag]`, `${HTML}:3 [external-url]`,
+    `${HTML}:4 [unsupported-tag]`, `${HTML}:4 [external-url]`,
     `${HTML}:5 [external-url]`,
     `${HTML}:6 [external-url]`, // a tag that spans lines is reported where it starts
     `${HTML}:8 [external-url]`,
-    `${HTML}:9 [external-url]`,
+    `${HTML}:9 [unsupported-tag]`, `${HTML}:9 [external-url]`,
   ]);
 });
 
@@ -197,7 +206,14 @@ test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) hr
       '<a href="https://example.com/fine">a link is fine</a>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5].map((n) => `${HTML}:${n} [external-url]`));
+  // (ruling AE 1: <area>, <use> and <image> are not on the allow-list — one more entry each; the two <link>s are in the <head>)
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [external-url]`,
+    `${HTML}:2 [external-url]`,
+    `${HTML}:3 [unsupported-tag]`, `${HTML}:3 [external-url]`,
+    `${HTML}:4 [unsupported-tag]`, `${HTML}:4 [external-url]`,
+    `${HTML}:5 [unsupported-tag]`, `${HTML}:5 [external-url]`,
+  ]);
 });
 
 test('A2 — CSS url(http…) is a violation (css-external-url): in a <style> block, in a style attribute, in a .css file', async (t) => {
@@ -443,7 +459,12 @@ test('A4 — a javascript: or vbscript: URL is a violation (script-url): any cas
       '<a href="javascript&colon;alert(1)">i</a>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((n) => `${HTML}:${n} [script-url]`));
+  // (ruling AE 1: the <iframe> on line 9 is not on the allow-list — one more entry; the <form> on line 8 is)
+  assert.deepEqual(brief(violations), [
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${HTML}:${n} [script-url]`),
+    `${HTML}:9 [unsupported-tag]`, `${HTML}:9 [script-url]`,
+    ...[10, 11].map((n) => `${HTML}:${n} [script-url]`),
+  ]);
 });
 
 test('A4 — javascript: as text, or inside a longer URL, is not a javascript: URL', async (t) => {
@@ -497,7 +518,14 @@ test('A4 — a srcdoc attribute is a violation (srcdoc): a same-origin frame tha
       '<iframe src="frame.html"></iframe>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [srcdoc]`));
+  // (ruling AE 1: an <iframe> is not on the allow-list — one more entry for each of the three, and for the fourth,
+  // which carries no srcdoc; the <div> on line 3 is on the list)
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [srcdoc]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [srcdoc]`,
+    `${HTML}:3 [srcdoc]`,
+    `${HTML}:4 [unsupported-tag]`,
+  ]);
 });
 
 test('A4 — several violations in one tag are reported one each, in document order', async (t) => {
@@ -507,6 +535,7 @@ test('A4 — several violations in one tag are reported one each, in document or
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [script-url]`, // href comes first in the tag…
     `${HTML}:1 [inline-event-handler]`, // …then onclick
+    `${HTML}:2 [unsupported-tag]`, // (ruling AE 1: an <iframe> is not on the allow-list) — the tag itself…
     `${HTML}:2 [external-url]`,
     `${HTML}:2 [srcdoc]`,
     `${HTML}:2 [inline-event-handler]`,
@@ -622,7 +651,15 @@ test('AA — the six HTML gaps are closed: srcset, poster, object data, action, 
       '<a href="items.html" ping="https://evil.example/track">x</a>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6].map((n) => `${HTML}:${n} [external-url]`));
+  // (ruling AE 1: a <video> and an <object> are not on the allow-list — one more entry each; the <form> and the <button> are)
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [external-url]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [external-url]`,
+    `${HTML}:3 [unsupported-tag]`, `${HTML}:3 [external-url]`,
+    `${HTML}:4 [external-url]`,
+    `${HTML}:5 [external-url]`,
+    `${HTML}:6 [external-url]`,
+  ]);
 });
 
 test('AA — …and the same attributes with site-relative values are not reported', async (t) => {
@@ -637,7 +674,9 @@ test('AA — …and the same attributes with site-relative values are not report
       '<a href="https://example.com/x">an outside link is fine</a>',
     ),
   });
-  assert.deepEqual(violations, []);
+  // (ruling AE 1: a <video> and an <object> are not on the allow-list — the tags are refused, the site-relative
+  // addresses on them are not reported)
+  assert.deepEqual(brief(violations), [`${HTML}:2 [unsupported-tag]`, `${HTML}:3 [unsupported-tag]`]);
 });
 
 test('AA — a plain-text address outside every tag is not a violation; neither is an <a href> to an outside page', async (t) => {
@@ -704,7 +743,9 @@ test('AA — root-relative (A3) applies to every URL-bearing attribute, <a href>
     '<use xlink:href="/s.svg#a"/>',
   ];
   const violations = await auditOf(t, { [HTML]: lines.join('\n') });
-  assert.deepEqual(brief(violations), lines.map((_, i) => `${HTML}:${i + 1} [root-relative-url]`));
+  // (ruling AE 1: the <video>, the <object> and the <use> are not on the allow-list — one more entry each)
+  const unsupported = new Set([5, 6, 14]);
+  assert.deepEqual(brief(violations), lines.flatMap((_, i) => (unsupported.has(i + 1) ? [`${HTML}:${i + 1} [unsupported-tag]`] : []).concat(`${HTML}:${i + 1} [root-relative-url]`)));
 });
 
 test('AA — …and to nothing that is not a URL-bearing attribute: a custom or plain attribute may start with /', async (t) => {
@@ -1055,11 +1096,15 @@ test('ruling AB(b) / A9 — a data: address is refused outside the image slots: 
       '<div style="background:url(data:image/svg+xml;base64,AAAA)">x</div>',
     ),
   });
+  // (ruling AE 1: the <iframe>, the <object>, the <embed> and the <video> are not on the allow-list — one more entry each)
   assert.deepEqual(brief(violations), [
-    ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${HTML}:${n} [data-url]`),
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [data-url]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [data-url]`,
+    `${HTML}:3 [unsupported-tag]`, `${HTML}:3 [data-url]`,
+    ...[4, 5, 6, 7].map((n) => `${HTML}:${n} [data-url]`),
     `${HTML}:8 [data-url]`,
     `${HTML}:9 [data-url]`,
-    `${HTML}:10 [data-url]`,
+    `${HTML}:10 [unsupported-tag]`, `${HTML}:10 [data-url]`,
     `${HTML}:11 [data-url]`,
     `${HTML}:12 [css-data-url]`,
   ]);
@@ -1087,7 +1132,9 @@ test('ruling AB(b) / A9 — …and in a script tag, a stylesheet, a form, a stra
     ...[1, 2, 3, 4, 5].map((n) => `css/theme.css:${n} [css-data-url]`),
     `${HTML}:1 [data-url]`,
     `${HTML}:1 [script-src]`,
-    ...[2, 3, 4, 5, 6].map((n) => `${HTML}:${n} [data-url]`),
+    ...[2, 3, 4].map((n) => `${HTML}:${n} [data-url]`),
+    `${HTML}:5 [unsupported-tag]`, `${HTML}:5 [unsupported-tag]`, `${HTML}:5 [data-url]`, // (ruling AE 1: the <svg> and the <image>)
+    `${HTML}:6 [data-url]`,
   ]);
 });
 
@@ -1104,7 +1151,9 @@ test('ruling AB(b) / A9 — allowed: an image that is not SVG, as the src / srcs
       '<video poster="data:image/jpeg;base64,AAAA" src="v.mp4"></video>',
     ),
   });
-  assert.deepEqual(violations, []);
+  // The data: addresses are allowed in their slots — and the slots are all that is left of it: a <picture>, a
+  // <source> and a <video> are not on the allow-list (ruling AE 1), so the tags are refused.
+  assert.deepEqual(brief(violations), [`${HTML}:7 [unsupported-tag]`, `${HTML}:7 [unsupported-tag]`, `${HTML}:8 [unsupported-tag]`]);
 });
 
 test('ruling AB(b) / A9 — a data: address is read as a browser reads it: character references, a line break, blanks, all folded away first', async (t) => {
@@ -1116,8 +1165,12 @@ test('ruling AB(b) / A9 — a data: address is read as a browser reads it: chara
       '<img src=" DATA:image/png;base64,AAAA " alt="">', // …and so is this one: still an image in an <img>
     ),
   });
-  // (the second tag spans two lines, so the third one is on line 4)
-  assert.deepEqual(brief(violations), [1, 2, 4].map((n) => `${HTML}:${n} [data-url]`));
+  // (the second tag spans two lines, so the third one is on line 4; ruling AE 1: an <iframe> is not on the allow-list)
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [data-url]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [data-url]`,
+    `${HTML}:4 [unsupported-tag]`, `${HTML}:4 [data-url]`,
+  ]);
 });
 
 test('ruling AB(d) — a javascript: address is refused in ANY attribute, on any tag: that is what catches SVG animation', async (t) => {
@@ -1129,7 +1182,13 @@ test('ruling AB(d) — a javascript: address is refused in ANY attribute, on any
       '<form action="vbscript:msgbox(4)"></form>',
     ),
   });
-  assert.deepEqual(brief(violations), [1, 2, 3, 4].map((n) => `${HTML}:${n} [script-url]`));
+  // (ruling AE 1: <animate> and <set> are not on the allow-list — one more entry each)
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [script-url]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [script-url]`,
+    `${HTML}:3 [script-url]`,
+    `${HTML}:4 [script-url]`,
+  ]);
 });
 
 // ===========================================================================
@@ -1169,7 +1228,7 @@ test('review round 2, Critical — a name of 256 characters is one name with the
     `${HTML}:1 [script-inline]`,
     `${HTML}:2 [script-src]`,
     `${HTML}:3 [script-url]`,
-    `${HTML}:4 [external-url]`,
+    `${HTML}:4 [unsupported-tag]`, `${HTML}:4 [external-url]`, // (ruling AE 1: an <iframe> is not on the allow-list)
   ]);
 });
 
@@ -1190,7 +1249,9 @@ test('review round 2, Critical — the controls at 255 and at 257 characters (40
     ),
   }));
   const expected = [
-    `${HTML}:1 [script-inline]`, `${HTML}:2 [script-src]`, `${HTML}:3 [script-url]`, `${HTML}:4 [external-url]`, `${HTML}:5 [script-inline]`,
+    `${HTML}:1 [script-inline]`, `${HTML}:2 [script-src]`, `${HTML}:3 [script-url]`,
+    `${HTML}:4 [unsupported-tag]`, `${HTML}:4 [external-url]`, // (ruling AE 1: an <iframe>)
+    `${HTML}:5 [script-inline]`,
   ];
   assert.deepEqual(await both(X255, 4095), expected, '255 characters, 4095 of a value');
   assert.deepEqual(await both('x'.repeat(257), 4097), expected, '257 characters, 4097 of a value');
@@ -1231,7 +1292,7 @@ test('ruling AC(1) — however long a name or a value, it is read to its end: 10
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [script-inline]`,
     `${HTML}:2 [external-url]`,
-    `${HTML}:3 [external-url]`,
+    `${HTML}:3 [unsupported-tag]`, `${HTML}:3 [external-url]`, // (ruling AE 1: an <iframe>)
   ]);
   // the snippet of a report entry is where a length limit belongs
   assert.ok(violations.every((v) => v.detail.length <= 160), 'no detail longer than 160 characters');
@@ -1254,8 +1315,12 @@ test('ruling AC(1) — the tag name is read to its end too (300 characters): wha
   const violations = await auditOf(t, {
     [HTML]: page(`<${name} onclick="alert(1)">text</${name}>`, `<${name} src="https://evil.example/x.png">text</${name}>`),
   });
-  // the second line: the browser loads nothing from an unknown element; the audit reports the outside address in any attribute (ruling AA) — the safe side, as before
-  assert.deepEqual(brief(violations), [`${HTML}:1 [inline-event-handler]`, `${HTML}:2 [external-url]`]);
+  // the second line: the browser loads nothing from an unknown element; the audit reports the outside address in any attribute (ruling AA) — the safe side, as before.
+  // And (ruling AE 1) an unknown element is not on the allow-list: each line reports the tag first.
+  assert.deepEqual(brief(violations), [
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [inline-event-handler]`,
+    `${HTML}:2 [unsupported-tag]`, `${HTML}:2 [external-url]`,
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -1467,7 +1532,7 @@ test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an 
 
 // ---------------------------------------------------------------------------
 // Review round 2 — found while parsing exactly, after the four fixes above:
-// inside <svg> / <math> a <script/> or <style/> IS self-closing
+// inside <svg> / <math> a <script/> or <style/> IS self-closing — for a browser
 //
 // The audit took every <script> and <style> for an HTML one: an element whose
 // content is text up to the next </script> or </style>. In an HTML document
@@ -1476,62 +1541,55 @@ test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an 
 //   <svg><script/></svg>   <iframe src="javascript:alert(1)"></iframe>
 // the browser ran the iframe's script, and the audit — looking for a
 // </script> that never came — read the rest of the file as the text of that
-// script: nothing in it was checked. An SVG <script>alert(1)</script> that
-// the browser runs was not reported either, when a self-closing one came
-// before it. None of this is new in this round; it was there from the first.
+// script: nothing in it was checked. Every line was tried in Chrome 152
+// (task-6b report, round 2).
 //
-// What the audit did from this round on was meant as the safe side of the
-// browser: it kept count of the <svg> / <math> it had seen opened and not
-// seen closed; while that count was above zero a <script> or <style> was an
-// ordinary element — its start tag checked like any, and what followed read
-// as markup, a <style>'s also as CSS (the browser applies it: an SVG style
-// imports). Where the browser left the foreign content sooner than the audit
-// did — a <p> that breaks out, a <desc>, which is an HTML integration point —
-// the audit read MORE markup than the browser did, and could only
-// over-report. That was true as far as it goes, and wrong where it mattered:
-// a browser also leaves at FEWER places — a </svg> inside a comment is no
-// token — and there the audit read less (review round 3, below: the count is
-// gone). Every line was tried in Chrome 152 (task-6b report).
+// Round 2 answered with a count of the <svg> / <math> seen opened, round 3
+// with never leaving the foreign content at all — a state machine, and every
+// new gap of the rounds came out of it. Round 4 (ruling AE 1 and AE 3) answers
+// with neither: an <svg> or a <math> is not on the allow-list, so a page that
+// holds one is refused for it whatever is written inside — and the audit reads
+// the page by the HTML rules throughout, a <script/> being an HTML script
+// wherever it stands. The strings of this section are kept as they were; what
+// is asserted is what the audit says of them now: the page is refused — for
+// the tags that are not on the allow-list, and for each executable <script> —
+// and what a browser loaded or ran after an HTML <script/> that never closes
+// is the script's text to the audit, and is not read.
 // ---------------------------------------------------------------------------
 
-test('review round 2, found while parsing exactly — inside <svg> / <math> a <script/> or <style/> is self-closing: what follows it is markup, and the audit reads it (it read nothing more in the file)', async (t) => {
+test('review round 2, found while parsing exactly, read by the HTML rules — an <svg> or a <math> is refused, and a <script/> or <style/> inside it is an HTML one: what follows it is its text, to the next </script> or </style>', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<svg><script/></svg>',
-      '<iframe src="https://evil.example/q1.html"></iframe>',
-      '<svg><style/></svg>',
-      '<img src="https://evil.example/q2.png" alt="">',
-      '<svg><script>alert(1)</script></svg>', // an SVG script: it runs
-      '<svg><style>@import "https://evil.example/q4.css";</style></svg>', // an SVG style: its content is CSS
-      '<svg><style><img src="https://evil.example/q5.png"></style></svg>', // …and markup: the browser leaves the SVG and loads the image
-      '<math><style/></math>',
-      '<iframe src="https://evil.example/q6.html"></iframe>',
+      '<svg><script/></svg>', // to a browser an empty SVG script; to the audit an HTML <script/>, open — its text runs to the </script> of line 5
+      '<iframe src="https://evil.example/q1.html"></iframe>', // script text: not read
+      '<svg><style/></svg>', // script text
+      '<img src="https://evil.example/q2.png" alt="">', // script text
+      '<svg><script>alert(1)</script></svg>', // the </script> that ends the script of line 1 — so no tag of this line is read
+      '<svg><style>@import "https://evil.example/q4.css";</style></svg>', // an HTML <style>: its CSS is read, and its address reported
+      '<svg><style><img src="https://evil.example/q5.png"></style></svg>', // …and here the <img> is the <style>'s CSS text: no address, and no tag
+      '<math><style/></math>', // an HTML <style/>, open to the end of the page
+      '<iframe src="https://evil.example/q6.html"></iframe>', // style text: not read
     ),
   });
   assert.deepEqual(brief(violations), [
-    `${HTML}:1 [script-inline]`, // the empty SVG script, reported like any <script>
-    `${HTML}:2 [external-url]`,
-    `${HTML}:3 [unsupported-tag]`, // (ruling AE 2: a <style/>, in the body)
-    `${HTML}:4 [external-url]`,
-    `${HTML}:5 [script-inline]`,
-    `${HTML}:6 [unsupported-tag]`, `${HTML}:6 [css-external-url]`, // (ruling AE 2: the <style> is in the body)
-    `${HTML}:7 [unsupported-tag]`, `${HTML}:7 [external-url]`,
-    `${HTML}:8 [unsupported-tag]`, // (ruling AE 2: a <style/>, in the body)
-    `${HTML}:9 [external-url]`,
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [script-inline]`,
+    `${HTML}:6 [unsupported-tag]`, `${HTML}:6 [unsupported-tag]`, `${HTML}:6 [css-external-url]`,
+    `${HTML}:7 [unsupported-tag]`, `${HTML}:7 [unsupported-tag]`,
+    `${HTML}:8 [unsupported-tag]`, `${HTML}:8 [unsupported-tag]`,
   ]);
 });
 
-test('review round 2, found while parsing exactly — so the line after an SVG script is read: the iframe with a javascript: address, which the browser runs', async (t) => {
+test('review round 2, found while parsing exactly, read by the HTML rules — an SVG <script/> with a data: href: refused for the <svg>, for the address and for the script; the <iframe> after it is the script\'s text', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<svg><script href="data:text/javascript,alert(1)"/></svg>', // runs in the browser; refused twice over
-      '<iframe src="javascript:alert(1)"></iframe>', // the first navigation of the frame: runs
+      '<svg><script href="data:text/javascript,alert(1)"/></svg>', // runs in the browser; to the audit an HTML <script/> that nothing closes
+      '<iframe src="javascript:alert(1)"></iframe>', // runs in the browser: the first navigation of the frame. To the audit the script's text
     ),
   });
-  assert.deepEqual(brief(violations), [`${HTML}:1 [data-url]`, `${HTML}:1 [script-inline]`, `${HTML}:2 [script-url]`]);
+  assert.deepEqual(brief(violations), [`${HTML}:1 [unsupported-tag]`, `${HTML}:1 [data-url]`, `${HTML}:1 [script-inline]`]);
 });
 
-test('review round 2, found while parsing exactly — the controls: in HTML proper the `/` before `>` of a <script/> is nothing, and what follows is the script\'s text', async (t) => {
+test('review round 2, found while parsing exactly, read by the HTML rules — the `/` before `>` of a <script/> is nothing in HTML, and what follows is the script\'s text', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<div><script/></div>',
@@ -1543,7 +1601,7 @@ test('review round 2, found while parsing exactly — the controls: in HTML prop
   assert.deepEqual(brief(violations), [`${HTML}:1 [script-inline]`]); // the first <script/> swallows the rest, the browser as the audit
 });
 
-test('review round 2, found while parsing exactly — where the browser leaves the SVG sooner than the audit, the audit reports more, never less', async (t) => {
+test('review round 2, found while parsing exactly, read by the HTML rules — where a browser leaves the SVG early (<desc> is an HTML integration point, <p> breaks out): the <script/> after it is an HTML script for both — and the image after it is the script\'s text to the audit', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<svg><desc><script/></desc></svg>', // <desc> is an HTML integration point: the browser makes an HTML script of it
@@ -1554,10 +1612,11 @@ test('review round 2, found while parsing exactly — where the browser leaves t
       '<img src="https://evil.example/q11.png" alt="">', // …never loaded
     ),
   });
-  // the audit stays inside the SVG, reads the script as an element and the image as markup: both reported — the safe side
+  // the page is refused for the tags that are not on the allow-list and for the script; the <p> is on the list, and
+  // the images are the text of a script that nothing closes — as they are to the browser
   assert.deepEqual(brief(violations), [
-    `${HTML}:1 [script-inline]`, `${HTML}:2 [external-url]`,
-    'other.html:1 [script-inline]', 'other.html:2 [external-url]',
+    `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [unsupported-tag]`, `${HTML}:1 [script-inline]`, // the <svg>, the <desc>, the <script/>
+    'other.html:1 [unsupported-tag]', 'other.html:1 [script-inline]', // the <svg>, the <script/>
   ]);
 });
 
@@ -1647,6 +1706,18 @@ test('review round 2, found while parsing exactly — image() takes its address 
 //
 // Each attack string is a test of its own, each on a page of its own.
 // Every line was tried in Chrome 152 (task-6b report, round 3).
+//
+// Round 4 (ruling AE) — what the table asserts has changed with the reading.
+// Every string of it holds a tag that is not on the allow-list — an <svg>, a
+// <math>, a <style> in the body, an <iframe> … —, so every one of them still
+// fails the build: for that tag, and for each further one inside it. What a
+// browser executed or loaded INSIDE the <svg> is not named by the audit any
+// more: the page is read by the HTML rules throughout, and nothing inside an
+// <svg> is parsed — an <svg> costs its page the build whatever is written in
+// it, and what a contributor is told to do is delete it with all that is
+// inside it. The entry of round 3 is kept at the end of each line. The seven
+// e-strings, on pages without an <svg>, read exactly as before. The strings
+// themselves are untouched.
 // ---------------------------------------------------------------------------
 
 const R3 = 'r3.html';
@@ -1656,6 +1727,8 @@ const R3_IMG = (id) => `<img src=x onerror="alert('${id}')">`;
 const R3_BLOCK = (id, type = 'application/json') => `<script type="${type}">${R3_IMG(id)}</script>`;
 /** What the audit reports on the one line of a page: the codes in document order. */
 const R3_CODES = (...codes) => codes.map((code) => `${R3}:1 [${code}]`);
+/** What R3_ICON is under the allow-list (ruling AE 1): its eleven tags — the <svg>, every tag inside it, the <style> after it. */
+const R3_TAGS = Array(11).fill('unsupported-tag');
 /** A legitimate inline SVG: a gradient, shapes, a title and a description, a comment. */
 const R3_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><title>Search</title><desc>A magnifying glass</desc>'
   + '<defs><linearGradient id="r3g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ccc"/></linearGradient></defs>'
@@ -1664,32 +1737,35 @@ const R3_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="tr
 
 const ROUND3 = [
   // --- the Critical, in each kind of text a browser does not read as markup
-  ['c01', 'Critical — </svg> inside a comment, then a data block holding <img onerror> (the shortest string of the re-review)', `<svg><!-- </svg> -->${R3_BLOCK('c01')}`, ['inline-event-handler']],
-  ['c02', 'Critical — </svg> inside a comment, then a data block of type text/plain holding <img onerror>', `<svg><!-- </svg> -->${R3_BLOCK('c02', 'text/plain')}`, ['inline-event-handler']],
-  ['c03', 'Critical — </svg> inside a comment, then a data block holding <foreignObject><script>', '<svg><!-- </svg> --><script type="application/json"><foreignObject><script>alert(\'c03\')</script></script>', ['script-inline']],
-  ['c04', 'Critical — </svg> inside a comment, then a data block holding an outside <img src>', '<svg><!-- </svg> --><script type="application/json"><img src="https://evil.example/c04.png"></script>', ['external-url']],
-  ['c05', 'Critical — </svg> inside a comment, then a data block holding <a href="javascript:…">', '<svg><!-- </svg> --><script type="application/json"><a href="javascript:alert(\'c05\')">c05</a></script>', ['script-url']],
-  ['c06', 'Critical — </svg> inside a comment, then a <style> holding <a href="javascript:…">', '<svg><!-- </svg> --><style><a href="javascript:alert(\'c06\')">c06</a></style>', ['unsupported-tag', 'script-url']],
-  ['c07', 'Critical — </svg> inside a CDATA section, then a data block holding <img onerror>', `<svg><g><![CDATA[ </svg> ]]>${R3_BLOCK('c07')}`, ['inline-event-handler']],
-  ['c08', 'Critical — </svg> inside a CDATA section that follows <svg> itself, then a data block holding <img onerror>', `<svg><![CDATA[</svg>]]>${R3_BLOCK('c08')}`, ['inline-event-handler']],
-  ['c09', 'Critical — </math> inside a comment, then a data block holding <img onerror>', `<math><!-- </math> -->${R3_BLOCK('c09')}`, ['inline-event-handler']],
-  ['c10', 'Critical — </svg> inside a CDATA section inside an SVG <style>, then a data block holding an outside <img src>', '<svg><style><![CDATA[ </svg> ]]></style><script type="application/json"><img src="https://evil.example/c10.png"></script>', ['unsupported-tag', 'external-url']],
-  ['c11', 'Critical — </svg> inside a processing instruction, then a data block holding <img onerror>', `<svg><?pi </svg> ?>${R3_BLOCK('c11')}`, ['inline-event-handler']],
-  ['c12', 'Critical — </math> inside a processing instruction, then a data block holding <img onerror>', `<math><?pi </math> ?>${R3_BLOCK('c12')}`, ['inline-event-handler']],
-  ['c13', 'Critical — </math> inside a CDATA section, then a data block holding <img onerror>', `<math><![CDATA[</math>]]>${R3_BLOCK('c13')}`, ['inline-event-handler']],
-  ['c14', 'Critical — </svg> inside a bogus comment (<!…>), then a data block holding <img onerror>', `<svg><!bogus </svg> >${R3_BLOCK('c14')}`, ['inline-event-handler']],
-  ['c15', 'Critical — </svg> inside the quoted system identifier of a DOCTYPE, then a data block holding <img onerror>', `<svg><!DOCTYPE html SYSTEM "</svg>">${R3_BLOCK('c15')}`, ['inline-event-handler']],
-  ['c16', 'Critical — </svg> inside a comment that looks nested (comments do not nest: the first --> ends it), then a data block holding <img onerror>', `<svg><!-- <!-- </svg> --> -->${R3_BLOCK('c16')}`, ['inline-event-handler']],
-  ['c17', 'Critical — </math> inside a CDATA section after <mrow>, then a data block holding <img onerror>', `<math><mrow><![CDATA[</math>]]>${R3_BLOCK('c17')}`, ['inline-event-handler']],
-  ['k01', 'control — </svg> inside a quoted attribute value is no token to the audit either: the data block after it was read before', `<svg><g title="</svg>">${R3_BLOCK('k01')}`, ['inline-event-handler']],
-  // --- what never leaving costs: the safe side. To a browser these ARE
-  // tokens, or not what the audit reads, so it does nothing — and is reported.
-  ['p01', 'the price of never leaving — a comment that closes at once (<!-->), so the </svg> after it is a token: the data block is an HTML one, the <img onerror> in it is text — reported all the same', `<svg><!--></svg>-->${R3_BLOCK('p01')}`, ['inline-event-handler']],
-  ['p02', 'the price of never leaving — a comment that closes at once (<!--->)', `<svg><!---></svg>-->${R3_BLOCK('p02')}`, ['inline-event-handler']],
-  ['p03', 'the price of never leaving — a comment that ends with --!>, so the </svg> after it is a token', `<svg><!-- x --!> </svg> -->${R3_BLOCK('p03')}`, ['inline-event-handler']],
-  ['p04', 'the price of never leaving — a </svg> inside a comment, and then the real one', `<svg><!-- </svg> --></svg>${R3_BLOCK('p04')}`, ['inline-event-handler']],
-  ['p05', 'the price of never leaving — </svg> inside the text of an SVG script: a token there, which closes the SVG', `<svg><script>var s = "</svg>";</script>${R3_BLOCK('p05')}`, ['script-inline', 'inline-event-handler']],
-  ['p06', 'the price of never leaving — a </svg> inside a CDATA section, and then the real one', `<svg><![CDATA[ </svg> ]]> </svg>${R3_BLOCK('p06')}`, ['inline-event-handler']],
+  ['c01', 'Critical — </svg> inside a comment, then a data block holding <img onerror> (the shortest string of the re-review)', `<svg><!-- </svg> -->${R3_BLOCK('c01')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c02', 'Critical — </svg> inside a comment, then a data block of type text/plain holding <img onerror>', `<svg><!-- </svg> -->${R3_BLOCK('c02', 'text/plain')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c03', 'Critical — </svg> inside a comment, then a data block holding <foreignObject><script>', '<svg><!-- </svg> --><script type="application/json"><foreignObject><script>alert(\'c03\')</script></script>', ['unsupported-tag']], // round 3: [script-inline]
+  ['c04', 'Critical — </svg> inside a comment, then a data block holding an outside <img src>', '<svg><!-- </svg> --><script type="application/json"><img src="https://evil.example/c04.png"></script>', ['unsupported-tag']], // round 3: [external-url]
+  ['c05', 'Critical — </svg> inside a comment, then a data block holding <a href="javascript:…">', '<svg><!-- </svg> --><script type="application/json"><a href="javascript:alert(\'c05\')">c05</a></script>', ['unsupported-tag']], // round 3: [script-url]
+  ['c06', 'Critical — </svg> inside a comment, then a <style> holding <a href="javascript:…">', '<svg><!-- </svg> --><style><a href="javascript:alert(\'c06\')">c06</a></style>', ['unsupported-tag', 'unsupported-tag']], // the <svg> and the <style>; round 3: [script-url]
+  ['c07', 'Critical — </svg> inside a CDATA section, then a data block holding <img onerror>', `<svg><g><![CDATA[ </svg> ]]>${R3_BLOCK('c07')}`, ['unsupported-tag', 'unsupported-tag']], // the <svg> and the <g>; round 3: [inline-event-handler]
+  ['c08', 'Critical — </svg> inside a CDATA section that follows <svg> itself, then a data block holding <img onerror>', `<svg><![CDATA[</svg>]]>${R3_BLOCK('c08')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c09', 'Critical — </math> inside a comment, then a data block holding <img onerror>', `<math><!-- </math> -->${R3_BLOCK('c09')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c10', 'Critical — </svg> inside a CDATA section inside an SVG <style>, then a data block holding an outside <img src>', '<svg><style><![CDATA[ </svg> ]]></style><script type="application/json"><img src="https://evil.example/c10.png"></script>', ['unsupported-tag', 'unsupported-tag']], // the <svg> and the <style>; round 3: [external-url]
+  ['c11', 'Critical — </svg> inside a processing instruction, then a data block holding <img onerror>', `<svg><?pi </svg> ?>${R3_BLOCK('c11')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c12', 'Critical — </math> inside a processing instruction, then a data block holding <img onerror>', `<math><?pi </math> ?>${R3_BLOCK('c12')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c13', 'Critical — </math> inside a CDATA section, then a data block holding <img onerror>', `<math><![CDATA[</math>]]>${R3_BLOCK('c13')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c14', 'Critical — </svg> inside a bogus comment (<!…>), then a data block holding <img onerror>', `<svg><!bogus </svg> >${R3_BLOCK('c14')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c15', 'Critical — </svg> inside the quoted system identifier of a DOCTYPE, then a data block holding <img onerror>', `<svg><!DOCTYPE html SYSTEM "</svg>">${R3_BLOCK('c15')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c16', 'Critical — </svg> inside a comment that looks nested (comments do not nest: the first --> ends it), then a data block holding <img onerror>', `<svg><!-- <!-- </svg> --> -->${R3_BLOCK('c16')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['c17', 'Critical — </math> inside a CDATA section after <mrow>, then a data block holding <img onerror>', `<math><mrow><![CDATA[</math>]]>${R3_BLOCK('c17')}`, ['unsupported-tag', 'unsupported-tag']], // the <math> and the <mrow>; round 3: [inline-event-handler]
+  ['k01', 'a </svg> inside a quoted attribute value: the page is refused for the <svg> and the <g>; the data block after it is an HTML one to the audit too — its content is text', `<svg><g title="</svg>">${R3_BLOCK('k01')}`, ['unsupported-tag', 'unsupported-tag']], // round 3: [inline-event-handler]
+  // --- where a browser closes the <svg> early (a comment that closes at once,
+  // a </svg> that is a token): the data block after it is an HTML one there.
+  // It is one to the audit as well — the payload in it is text to both, and
+  // the page is refused for the <svg> alone. (Round 3, never leaving the
+  // foreign content, read it as markup and reported the payload besides.)
+  ['p01', 'a comment that closes at once (<!-->), so the </svg> after it closes the SVG for a browser too', `<svg><!--></svg>-->${R3_BLOCK('p01')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['p02', 'a comment that closes at once (<!--->)', `<svg><!---></svg>-->${R3_BLOCK('p02')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['p03', 'a comment that ends with --!>, so the </svg> after it is a token', `<svg><!-- x --!> </svg> -->${R3_BLOCK('p03')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['p04', 'a </svg> inside a comment, and then the real one', `<svg><!-- </svg> --></svg>${R3_BLOCK('p04')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  ['p05', '</svg> inside the text of an SVG script: a token there, which closes the SVG; the script is an executable one to the audit, the data block after it is not read', `<svg><script>var s = "</svg>";</script>${R3_BLOCK('p05')}`, ['unsupported-tag', 'script-inline']], // round 3: [script-inline, inline-event-handler]
+  ['p06', 'a </svg> inside a CDATA section, and then the real one', `<svg><![CDATA[ </svg> ]]> </svg>${R3_BLOCK('p06')}`, ['unsupported-tag']], // round 3: [inline-event-handler]
   // --- found while reading the code for the Critical: an end tag may carry
   // attributes, and a quoted value may hold a `>`. The audit resumed right
   // after the FIRST `>` — inside that value. A <script src> of the allow-list
@@ -1697,41 +1773,48 @@ const ROUND3 = [
   ['e01', 'found while reading — an end tag carries an attribute whose quoted value holds >: a <script src> of the allow-list written inside that value hid all that followed', `<p></p title="x><script src=assets/js/search.js>y">${R3_IMG('e01')}`, ['inline-event-handler']],
   ['e02', 'found while reading — the same, after a script of the allow-list', `<script src="assets/js/search.js"></script a="x><script src=assets/js/search.js>y">${R3_IMG('e02')}`, ['inline-event-handler']],
   ['e03', 'found while reading — the same, after a data block', `<script type="application/json">{}</script a="x><script type="application/json">y">${R3_IMG('e03')}`, ['inline-event-handler']],
-  ['e04', 'found while reading — the same, after a <style>: the link with a javascript: address that followed was never read', '<style>x</style a="x><style>y"><a href="javascript:alert(\'e04\')">e04</a>', ['unsupported-tag', 'script-url']],
+  ['e04', 'found while reading — the same, after a <style>: the link with a javascript: address that followed was never read', '<style>x</style a="x><style>y"><a href="javascript:alert(\'e04\')">e04</a>', ['unsupported-tag', 'script-url']], // the <style> is in the body (ruling AE 2); round 3: [script-url]
   ['e05', 'found while reading — the same with single quotes', `<p></p title='x><script src=assets/js/search.js>y'>${R3_IMG('e05')}`, ['inline-event-handler']],
   ['e06', 'control — an end tag with an attribute and no > inside its value: read right before', `<script src="assets/js/search.js"></script x="y">${R3_IMG('e06')}`, ['inline-event-handler']],
   ['e07', 'control — a start tag with > inside a quoted value: read right before', `<div title="a>b">${R3_IMG('e07')}`, ['inline-event-handler']],
-  ['e08', 'found while reading — the same before an embedded page from outside', '<p></p title="x><script src=assets/js/search.js>y"><iframe src="https://evil.example/e08.html"></iframe>', ['external-url']],
-  ['k03', 'control — the control of the re-review: a data block inside an <svg> with no comment — read before', `<svg><script type="application/json">${R3_IMG('k03')}</script>`, ['inline-event-handler']],
-  // --- the CSS of a <style> the audit cannot tell from an HTML one is read.
-  // b01 and b10 were read before; b08 is new: in foreign content the tag
-  // closes itself and stays empty, but the browser's preload scanner reads
-  // the text on to </style> and fetches the @import after it all the same.
-  ['b01', 'control — a <style/> after a closed <svg> is an HTML style: its CSS was read before', '<svg></svg><style/>@import url(https://evil.example/b01.css);</style>', ['unsupported-tag', 'css-external-url']],
-  ['b10', 'control — a <style/> after a closed <svg>: a url() in what follows was read before, and must stay read', '<svg></svg><style/>x{background:url(https://evil.example/b10.png)}</style>', ['unsupported-tag', 'css-external-url']],
-  ['b08', 'found while reading — a <style/> inside an <svg> closes itself and stays empty, but the browser fetches an @import after it all the same (its preload scanner reads the text on to </style>): read like an HTML <style/>', '<svg><style/>@import url(https://evil.example/b08.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
-  // --- found while reading: the CSS of a <style> the audit takes for a
-  // foreign element. It was read to the first </style> — wherever that stood.
-  // In foreign content a </style> inside a comment, a CDATA section, a
-  // processing instruction or a tag is not a token, and the first one that IS
-  // a token may close a <style> nested inside. The browser applies the text
-  // nodes that are the style element's own children, up to where the element
-  // really ends — each of these was fetched in Chrome 152 (task-6b report).
-  ['b06', 'control — the CSS of an SVG <style> inside a CDATA section: read before', '<svg><style><![CDATA[ @import url(https://evil.example/b06.css); ]]></style></svg>', ['unsupported-tag', 'css-external-url']],
-  ['b02', 'found while reading — the CSS of an SVG <style> after a nested <style>: the first </style> closes the nested one', '<svg><style><style></style>@import url(https://evil.example/b02.css);</style></svg>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
-  ['b03', 'found while reading — the CSS of an SVG <style> after a comment holding </style>', '<svg><style><!-- </style> -->@import url(https://evil.example/b03.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
-  ['b04', 'found while reading — the CSS of an SVG <style> after a tag whose quoted value holds </style>', '<svg><style><g title="</style>"></g>@import url(https://evil.example/b04.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
-  ['b05', 'found while reading — the CSS of an SVG <style> after a processing instruction holding </style>', '<svg><style><?pi </style> ?>junk{} rect{fill:url(https://evil.example/b05.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'css-external-url']],
-  ['b07', 'found while reading — the CSS of an SVG <style> after a CDATA section holding </style>', '<svg><style><![CDATA[ </style> ]]>junk{} rect{fill:url(https://evil.example/b07.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'css-external-url']],
-  ['b09', 'found while reading — the CSS of an SVG <style> after two nested <style>', '<svg><style><style><style></style></style>@import url(https://evil.example/b09.css);</style></svg>', ['unsupported-tag', 'unsupported-tag', 'unsupported-tag', 'css-external-url']],
-  // --- what reading on costs: where the browser applies none of what the audit reads
-  ['b11', 'the price of reading on — an HTML integration point inside an SVG <style>: the audit gives the element up and reads on to the end of the page; the browser closed the style at the </style> before it', '<svg><style><desc></style>@import url(https://evil.example/b11.css);</style>', ['unsupported-tag', 'css-external-url']],
-  ['b12', 'the price of reading on — </style> inside a tag that stays open: what follows is that element\'s text, which the browser applies nowhere — read all the same', '<svg><style><g title="</style>">@import url(https://evil.example/b12.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
-  // --- a legitimate inline SVG is not reported — and what the page after it
-  // costs an author who writes an inline script (a violation in its own right)
-  ['s01', 'control — a legitimate inline SVG, a <style> after it, a link and a script of the allow-list: nothing to report', `${R3_ICON}<p>Text <a href="https://example.com/">a link</a>.</p><script src="assets/js/search.js"></script>`, ['unsupported-tag', 'unsupported-tag']],
-  ['s02', 'the price of never leaving — the body of an HTML <script> after an <svg> is read as markup: a tag-looking string in it is reported too', `<svg><circle r="1"/></svg><script>var s = "${R3_IMG('s02')}";</script>`, ['script-inline', 'inline-event-handler']],
-  ['s03', 'the price of never leaving — an HTML <script/> after a closed <svg>: what follows is read as markup', '<svg></svg><script/><iframe src="https://evil.example/s03.html"></iframe>', ['script-inline', 'external-url']],
+  ['e08', 'found while reading — the same before an embedded page from outside', '<p></p title="x><script src=assets/js/search.js>y"><iframe src="https://evil.example/e08.html"></iframe>', ['unsupported-tag', 'external-url']], // round 3: [external-url]
+  ['k03', 'the control of the re-review: a data block inside an <svg> with no comment — a data block to the audit, whatever is in it; refused for the <svg> alone', `<svg><script type="application/json">${R3_IMG('k03')}</script>`, ['unsupported-tag']], // round 3: [inline-event-handler]
+  // --- the CSS of a <style> after an <svg>: read like that of any <style>,
+  // from where its start tag ends to the first </style> — a <style/> does not
+  // close itself in HTML, so what follows it is its text (round 2: a browser
+  // closes it there and fetches the @import after it all the same, with its
+  // preload scanner). The address is named beside the two tags.
+  ['b01', 'a <style/> after a closed <svg>: an HTML style to the audit — its CSS is read', '<svg></svg><style/>@import url(https://evil.example/b01.css);</style>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
+  ['b10', 'a <style/> after a closed <svg>: a url() in what follows is read', '<svg></svg><style/>x{background:url(https://evil.example/b10.png)}</style>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
+  ['b08', 'a <style/> inside an <svg> closes itself and stays empty for a browser, which fetches an @import after it all the same (its preload scanner reads the text on to </style>): read like an HTML <style/>', '<svg><style/>@import url(https://evil.example/b08.css);</style></svg>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
+  // --- the address sits after the first </style> of the page. INSIDE the
+  // SVG <style> for a browser — a nested <style>, a comment, a tag, a
+  // processing instruction or a CDATA section holds the </style> that ends
+  // the range for the audit —, and each of these was fetched in Chrome 152
+  // (task-6b report, round 3). The audit does not parse what is inside an
+  // <svg> (ruling AE 3): it reads the <style> by the HTML rules, to the first
+  // </style>, and does not name the address. The page is refused all the
+  // same — for the <svg> and the <style> themselves —, and what a contributor
+  // is told to do is delete the <svg> with all that is inside it. (Round 3,
+  // with the state machine, named it: css-external-url.)
+  // b11 and b12: the browser fetched nothing there — and the audit names
+  // nothing there now (round 3 read more than the browser applied).
+  ['b06', 'the CSS of an SVG <style> inside a CDATA section: before the first </style> — read', '<svg><style><![CDATA[ @import url(https://evil.example/b06.css); ]]></style></svg>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
+  ['b02', 'the CSS of an SVG <style> after a nested <style>: after the first </style>', '<svg><style><style></style>@import url(https://evil.example/b02.css);</style></svg>', ['unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  ['b03', 'the CSS of an SVG <style> after a comment holding </style>', '<svg><style><!-- </style> -->@import url(https://evil.example/b03.css);</style></svg>', ['unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  ['b04', 'the CSS of an SVG <style> after a tag whose quoted value holds </style>', '<svg><style><g title="</style>"></g>@import url(https://evil.example/b04.css);</style></svg>', ['unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  ['b05', 'the CSS of an SVG <style> after a processing instruction holding </style>', '<svg><style><?pi </style> ?>junk{} rect{fill:url(https://evil.example/b05.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'unsupported-tag', 'unsupported-tag']], // the <svg>, the <style>, the <rect>; round 3: [css-external-url]
+  ['b07', 'the CSS of an SVG <style> after a CDATA section holding </style>', '<svg><style><![CDATA[ </style> ]]>junk{} rect{fill:url(https://evil.example/b07.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  ['b09', 'the CSS of an SVG <style> after two nested <style>', '<svg><style><style><style></style></style>@import url(https://evil.example/b09.css);</style></svg>', ['unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  ['b11', 'an HTML integration point (<desc>) inside an SVG <style>: the browser closed the style at the </style> before it and fetched nothing', '<svg><style><desc></style>@import url(https://evil.example/b11.css);</style>', ['unsupported-tag', 'unsupported-tag']], // the <svg> and the <style>; round 3: [css-external-url]
+  ['b12', '</style> inside a tag that stays open: what follows is that element\'s text, which the browser applies nowhere', '<svg><style><g title="</style>">@import url(https://evil.example/b12.css);</style></svg>', ['unsupported-tag', 'unsupported-tag']], // round 3: [css-external-url]
+  // --- a legitimate inline SVG is refused too: an <svg> is not on the
+  // allow-list (ruling AE 1), one entry per tag inside it — and nothing for
+  // the link and the script of the allow-list after it. An inline <script>
+  // after an <svg> is an executable one as any other, and its body is its text.
+  ['s01', 'a legitimate inline SVG, a <style> after it, a link and a script of the allow-list: the link and the script are not reported — the SVG and the <style> are, each tag inside them once', `${R3_ICON}<p>Text <a href="https://example.com/">a link</a>.</p><script src="assets/js/search.js"></script>`, R3_TAGS], // round 3: []
+  ['s02', 'an inline <script> after an <svg>: executable, reported for itself; a tag-looking string in its body is the script\'s text — not read', `<svg><circle r="1"/></svg><script>var s = "${R3_IMG('s02')}";</script>`, ['unsupported-tag', 'unsupported-tag', 'script-inline']], // the <svg>, the <circle>; round 3: [script-inline, inline-event-handler]
+  ['s03', 'an HTML <script/> after a closed <svg>: it opens a script that nothing closes, so the <iframe> after it is that script\'s text and is not read; the page is refused for the <svg> and the <script>', '<svg></svg><script/><iframe src="https://evil.example/s03.html"></iframe>', ['unsupported-tag', 'script-inline']], // round 3: [script-inline, external-url]
 ];
 
 for (const [id, what, html, codes] of ROUND3) {
@@ -1741,45 +1824,48 @@ for (const [id, what, html, codes] of ROUND3) {
   });
 }
 
-// Guards for the time the audit takes, in the reading above (ruling AC 3 of round 2 is the
-// rule: linear reading takes milliseconds on these files; the square took seconds, or the
-// memory of the process). What is asserted is an upper bound with room.
-test('review round 3 — the CSS of <style>s inside one another is read once: 200 <style>, each inside the one before, then 500 rules with an outside address — 500 reports, in a few milliseconds', async (t) => {
-  // With the CSS of a <style> read to where the element ends, a <style> that stands inside
-  // another reads the same text again — once per <style>: the reports and the time grew
-  // with their number. What was read once is not read twice (cssReadTo in scanHtml).
+// Guards for the time the audit takes (ruling AC 3 of round 2 is the rule: linear reading takes milliseconds on
+// these files; the square took seconds, or the memory of the process). What is asserted is an upper bound with room.
+test('review round 3, read by the HTML rules — 200 <style> in a row, none ever closed, then 500 rules with an outside address: one element, 500 reports — each address once — in a few milliseconds', async (t) => {
+  // To a browser the first <style> takes all the text: the 199 inside it are no elements, and its CSS is all of it.
+  // (Round 3, reading foreign content, saw 200 elements inside one another and had to keep their CSS from being read
+  // 200 times over; the guard it needed — what was read once was not read twice — is what let a first <style>
+  // swallow the ones after it, ruling AE 4.)
   const html = `<svg>${'<style>'.repeat(200)}${Array.from({ length: 500 }, (_, i) => `c${i}{background:url("https://evil.example/${i}.png")}`).join('')}`;
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  assert.equal(violations.length, 700, 'each address once — not once per <style> it is inside; and (ruling AE 2) each of the 200 <style>s, in the body, once');
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — without the guard each <style> read the whole of the text again`);
+  assert.deepEqual(brief(violations).slice(0, 2), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`], 'the <svg>, and the one <style>');
+  assert.equal(violations.filter((v) => v.code === 'css-external-url').length, 500, 'each address once');
+  assert.equal(violations.length, 502);
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
 });
 
-test('review round 3 — time grows with the size, not with its square: 30 000 <style>, none ever closed, after an <svg>', async (t) => {
-  // For each of them the audit used to look for a </style> that never came — to the end of
-  // the text, once per element. 10 000 took 12 seconds before this round; in foreign reading
-  // no end tag is looked for at all.
+test('review round 3, read by the HTML rules — time grows with the size, not with its square: 30 000 <style>, none ever closed, after an <svg>', async (t) => {
+  // The first <style> takes the rest of the text: ONE look for a </style>, to the end of it — where the audit of
+  // round 2 looked once per element (10 000 took 12 seconds), and the state machine of round 3 had to read on
+  // with nothing left to look for. Two tags are reported: the <svg>, and the one <style>.
   const html = `<svg>${'<style>'.repeat(30000)}`;
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  // (ruling AE 2: each <style> is in the body, and each is an unsupported tag — compared by number and kind first:
-  // a deepEqual of 30 000 entries against [] spent two minutes building its diff)
-  assert.equal(violations.length, 30000, 'one unsupported tag per <style>');
-  assert.ok(violations.every((v) => v.code === 'unsupported-tag'));
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to look to the end of the text once per <style>`);
+  assert.deepEqual(brief(violations), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`]);
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
 });
 
-test('review round 3 — and not with the number of comments either: one <style>, 10 000 comments each holding a rule, then one rule — 10 001 reports', async (t) => {
-  // Where the element ends is found past what is no token: each comment is skipped to its end.
+test('review round 3, read by the HTML rules — and not with the number of comments either: one <style> never closed, 10 000 comments each holding a rule, then one rule — 10 001 addresses', async (t) => {
+  // To the CSS scanner a `<!--` and a `-->` are nothing (CDO and CDC tokens), so the rule in each comment is CSS
+  // that it reads: more than the browser applies — in an SVG <style> the comments are no text of the style —,
+  // never less. The addresses are read once each, and the time does not grow with their number.
   const rule = 'x{background:url("https://evil.example/a.png")}';
   const html = `<svg><style>${`<!-- ${rule} -->`.repeat(10000)}${rule}`;
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  assert.equal(violations.length, 10002, 'what a comment holds is read as CSS too — more than the browser applies, never less; and (ruling AE 2) the <style> itself, in the body');
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — a search for the end of each comment used to run on to the end of the text`);
+  assert.deepEqual(brief(violations).slice(0, 2), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`], 'the <svg>, and the one <style>');
+  assert.equal(violations.filter((v) => v.code === 'css-external-url').length, 10001, 'what a comment holds is read as CSS too');
+  assert.equal(violations.length, 10003);
+  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
 });
 
 // ===========================================================================
@@ -1907,4 +1993,287 @@ test('ruling AE 2 — in the <head> the other rules apply as anywhere else: <met
 
 test('ruling AE 2 — the head-only tags are exactly title, meta, link and style, exported in order: the report reads the list to say where such a tag belongs', () => {
   assert.deepEqual([...auditModule.HEAD_ONLY_TAGS], ['link', 'meta', 'style', 'title']);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AE 1: a tag allow-list
+//
+// The audit no longer keeps a list of what is dangerous — every round found
+// one more thing to put on it. It keeps a list of what a ```html block may
+// hold and refuses everything else: what a mature sanitizer does (MediaWiki
+// included), and a far smaller surface to verify — the tags have to be cut
+// out right and their names looked up, nothing more. SVG, MathML, <iframe>
+// … are not allowed in contributor content at all, so nothing of what is
+// inside them has to be parsed (AE 3).
+//
+// The allow-list is the typographic tags of the ruling plus the structural
+// tags the first-party build emits. The latter were counted on the built
+// site with the audit's own tokenizer — every tag name of the 21 pages, and
+// whether it stands in the head or in the body (task-6b round-4 report):
+//   templates.js layout    html head body div small span br a img form
+//                          input button
+//   templates.js infobox   table caption tr td th
+//   render.js items.html   section
+//   markdown.js            h1–h6 p ul ol li table thead tbody tr th td code
+//                          strong em a img span
+// (a, b, i, br, caption, code, h1–h4, li, ol, p, small, span, table, tbody,
+// td, th, thead, tr, ul are on the typographic list already.)
+// title, meta and link belong in the <head> (ruling AE 2); script and base
+// are refused by their own rules wherever they stand (A4).
+// ---------------------------------------------------------------------------
+
+/** The common typographic tags of the ruling, as it lists them. */
+const TYPOGRAPHIC_TAGS = 'a abbr b bdi bdo blockquote br caption code dd del details dfn dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q rp rt ruby s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var wbr'.split(' ');
+/** What the first-party build emits beyond that list (counted on the built site). */
+const STRUCTURAL_TAGS = ['body', 'button', 'div', 'form', 'head', 'html', 'input', 'section'];
+
+test('ruling AE 1 — the allow-list is exactly the typographic tags of the ruling plus the structural tags the first-party build emits; the head-only tags and the two of their own rules are not on it', () => {
+  assert.deepEqual([...auditModule.ALLOWED_TAGS].sort(), [...TYPOGRAPHIC_TAGS, ...STRUCTURAL_TAGS].sort(), 'as a set: the order is the source\'s own');
+  assert.equal(auditModule.ALLOWED_TAGS.size, TYPOGRAPHIC_TAGS.length + STRUCTURAL_TAGS.length, 'no name twice');
+  for (const name of [...auditModule.HEAD_ONLY_TAGS, 'script', 'base']) {
+    assert.ok(!auditModule.ALLOWED_TAGS.has(name), `${name} is not on the allow-list`);
+  }
+});
+
+test('ruling AE 1 — a tag that is not on the allow-list is refused wherever it stands: once, where the tag starts, with the tag as its snippet', async (t) => {
+  const names = [
+    // foreign roots, embedded content
+    'svg', 'math', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'portal',
+    // media, and what belongs to it
+    'video', 'audio', 'source', 'picture', 'track', 'canvas', 'map', 'area',
+    // form controls and structural elements that are not on the list
+    'select', 'option', 'optgroup', 'textarea', 'label', 'fieldset', 'legend', 'datalist', 'output', 'progress', 'meter', 'dialog',
+    'main', 'nav', 'header', 'footer', 'article', 'aside', 'address', 'hgroup', 'col', 'colgroup',
+    // content that is not markup to a browser; obsolete elements
+    'template', 'noscript', 'noembed', 'noframes', 'slot', 'marquee', 'center', 'font', 'big', 'strike', 'tt', 'acronym',
+    // a custom element, an unknown one, names of other shapes. (A name that does not begin with an ASCII letter —
+    // `<标签>` — is no tag to a browser either: its `<` is text.)
+    'my-widget', 'x-foo', 'foo', 'x1', 'a_b', 'a.b', 'x-标签',
+  ];
+  const violations = await auditOf(t, { [HTML]: names.map((name) => `<${name}></${name}>`).join('\n') });
+  assert.deepEqual(brief(violations), names.map((_, n) => `${HTML}:${n + 1} [unsupported-tag]`));
+  assert.deepEqual(violations.map((v) => v.detail), names.map((name) => `<${name}>`), 'the tag as its snippet; the end tags are not reported');
+});
+
+test('ruling AE 1 — everything inside an unsupported tag is refused too, and what comes after it is read on', async (t) => {
+  const icon = '<svg viewBox="0 0 24 24" aria-hidden="true"><title>Search</title><desc>A magnifying glass</desc>'
+    + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/></linearGradient></defs>'
+    + '<g fill="none"><circle cx="10" cy="10" r="7"/><path d="M15 15l6 6"/></g></svg>';
+  const violations = await auditOf(t, { [HTML]: page(icon, '<p>after it</p><img src="https://evil.example/a.png" alt="">') });
+  const inside = ['svg', 'title', 'desc', 'defs', 'linearGradient', 'stop', 'g', 'circle', 'path'];
+  assert.deepEqual(brief(violations), [...inside.map(() => `${HTML}:1 [unsupported-tag]`), `${HTML}:2 [external-url]`]);
+  inside.forEach((name, n) => assert.ok(violations[n].detail.startsWith(`<${name}`), `${name}: ${violations[n].detail}`));
+});
+
+test('ruling AE 1 — everything on the allow-list passes, written in the body as a contributor writes it: lower-case or capitals, self-closing where it may be', async (t) => {
+  const VOID = new Set(['br', 'hr', 'img', 'input', 'wbr']);
+  const names = [...auditModule.ALLOWED_TAGS];
+  const element = (name) => (VOID.has(name) ? `<${name}/>` : `<${name}></${name}>`);
+  assert.deepEqual(await auditOf(t, { 'lower.html': names.map(element).join('\n') }), []);
+  assert.deepEqual(await auditOf(t, { 'capitals.html': names.map((name) => element(name.toUpperCase())).join('\n') }), []);
+});
+
+test('ruling AE 1 — what a contributor writes in markdown passes: every construct of the renderer, in the page layout', async (t) => {
+  const { mdToHtml } = require('../tools/build/markdown.js');
+  const { itemInline } = require('../tools/build/templates.js');
+  const { html } = mdToHtml([
+    '## 标题', '',
+    '一段正文,含 [[milk_barrel]]、**粗体**、*斜体*、`代码` 和 [链接](https://example.com/)。', '',
+    '![图](assets/a.png)', '',
+    '| 列 | 右对齐 |', '| --- | ---: |', '| a | b |', '',
+    '- 一项', '- 另一项', '  1. 子项', '', '```html', '<div class="flow">直通块 <span>OK</span></div>', '```',
+  ].join('\n'), (id) => ({ id, name: `物品 ${id}`, icon: null }), (item) => itemInline(item, '../'));
+  // every tag the renderer made is on the allow-list…
+  const made = [...new Set([...html.matchAll(/<\/?([a-z][a-z0-9-]*)/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(made, ['a', 'code', 'div', 'em', 'h2', 'img', 'li', 'ol', 'p', 'span', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul'], 'what the renderer emits for every construct');
+  for (const name of made) assert.ok(auditModule.ALLOWED_TAGS.has(name), `the renderer's <${name}> is on the allow-list`);
+  // …and so is the page it is in
+  assert.deepEqual(await auditOf(t, { 'mechanics/x.html': HEAD_LAYOUT.replace('<p>正文</p>', () => html) }), []);
+});
+
+test('ruling AE 1 — <script> and <base> are not "unsupported tags": each is refused by its own rule wherever it stands, and gets no second entry', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script>alert(1)</script>',
+      '<script src="evil.js"></script>',
+      '<script type="application/json">{}</script>', // a data block: allowed
+      '<script src="data.js"></script>', // a source on the allow-list: allowed
+      '<base href="x/">',
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [script-inline]`, `${HTML}:2 [script-src]`, `${HTML}:5 [base-tag]`]);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AE 3: there is no foreign content
+//
+// The audit used to keep track of <svg> / <math> and of where a browser
+// leaves them — a state machine, and every new gap of three rounds came out
+// of it. It is gone. A tag that is not on the allow-list is refused, so an
+// <svg> or a <math> costs its page the build whatever is written inside it:
+// nothing inside has to be parsed right. From there on the page is read by
+// the HTML rules, as it is without one: the content of a <script> or a
+// <style> is text to the first matching end tag, wherever the element
+// stands.
+//
+// What that costs is on one side only, and that side is safe: inside an
+// <svg> a browser reads a <script/> as self-closing and the content of a
+// <style> as markup — so the audit may read LESS than the browser does after
+// an <svg> (the text of an HTML <script/> that never closes). The page is
+// refused for the <svg> itself, and for the <script>; and what a contributor
+// is told to do is delete the <svg> — after which the rest of the page is
+// read in full. Pinned below as what it is.
+// ---------------------------------------------------------------------------
+
+test('ruling AE 3 — there is no foreign content: an <svg> or a <math> adds its own entry and changes nothing else — what follows is read by the HTML rules, as it is without one', async (t) => {
+  const fragments = [
+    '<script>alert(1)</script>',
+    '<script/>',
+    '<script type="application/json">{"a": "<img src=x onerror=alert(1)>"}</script>',
+    '<style>@import "https://evil.example/a.css";</style>',
+    '<style/>@import url(https://evil.example/b.css);</style>',
+    '<script/> <iframe src="https://evil.example/c.html"></iframe>',
+    '<style><img src="https://evil.example/d.png"></style>',
+    '</svg><script src="https://evil.example/e.js"></script>',
+    '<circle r="1"/><a href="javascript:alert(1)">x</a>',
+    '<desc><script/></desc><img src="https://evil.example/f.png">',
+    '<head><link rel="stylesheet" href="https://evil.example/g.css"></head>',
+  ];
+  for (const fragment of fragments) {
+    const plain = brief(await auditOf(t, { [HTML]: fragment }));
+    for (const root of ['svg', 'math']) {
+      assert.deepEqual(brief(await auditOf(t, { [HTML]: `<${root}>${fragment}` })), [`${HTML}:1 [unsupported-tag]`, ...plain], `<${root}>${fragment}`);
+    }
+    // …and its end tag, where it is a token, changes nothing either
+    assert.deepEqual(brief(await auditOf(t, { [HTML]: `<svg>${fragment}</svg>` })), [`${HTML}:1 [unsupported-tag]`, ...plain], `<svg>${fragment}</svg>`);
+  }
+});
+
+test('ruling AE 3 — a <script> is an HTML script element wherever it stands: its text runs to the first </script, and a <script/> does not close itself', async (t) => {
+  // Inside an <svg> a browser closes a <script/> at once and loads what follows; the audit reads the page
+  // by the HTML rules, where `<script/>` opens a script that nothing closes. The page is refused all the
+  // same — for the <svg> and for the <script> — and read in full once the <svg> is gone.
+  const violations = await auditOf(t, {
+    [HTML]: page('<svg><script/></svg>', '<iframe src="https://evil.example/a.html"></iframe>'),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [unsupported-tag]`, `${HTML}:1 [script-inline]`]);
+});
+
+test('ruling AE 3 — a data block is not markup, wherever it stands: what is inside it is not reported, before or after an <svg>; what follows its </script> is read again', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<script type="application/json">{"html": "<img src=x onerror=alert(1)><style>@import url(https://evil.example/a.css);</style>"}</script>',
+      '<svg><script type="text/plain"><iframe src="https://evil.example/b.html"></iframe><style>@import url(https://evil.example/c.css);</style></script>',
+      '<img src=x onerror=alert(1)>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [`${HTML}:2 [unsupported-tag]`, `${HTML}:3 [inline-event-handler]`]);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling AE 4: the CSS of every <style> is read on its own
+//
+// Each <style> takes its own range, by the rules HTML has for the text of
+// an element: from where its start tag ends to the first `</style` (followed
+// by what may follow a tag name, or by the end of the text) — and to the end
+// of the text when there is none, as a browser reads it. No element knows of
+// another. What is reported twice is decided where the entries are made, not
+// by skipping what was "read already".
+//
+// The regression this guards: after the fix of round 3 the first <style> of
+// a page could take a range to the end of the page (a `</style` the audit
+// skipped, a comment with no end), and every <style> inside that range was
+// skipped as "read already" — the browser requested their addresses and the
+// audit said nothing. n01–n03 are the strings the re-review named; each page
+// was requested from in a browser. A <style> in the body is an unsupported
+// tag (AE 2) and its CSS is read all the same: a browser applies it there.
+// ---------------------------------------------------------------------------
+
+const R4 = 'r4.html';
+/**
+ * What a page reports for the CSS of its <style>s, against `{ css, unsupported }`: the entries of the CSS
+ * rules in full, and how many unsupported tags there are — and nothing else.
+ */
+function assertCssBrief(violations, expected, what) {
+  const entries = brief(violations);
+  assert.deepEqual(entries.filter((entry) => /\[css-/.test(entry)), expected.css, `${what}: the CSS entries`);
+  assert.equal(entries.filter((entry) => /\[unsupported-tag\]/.test(entry)).length, expected.unsupported, `${what}: unsupported tags`);
+  assert.deepEqual(entries.filter((entry) => !/\[(?:css-|unsupported-tag)/.test(entry)), [], `${what}: nothing else`);
+}
+/** The tags an inline SVG of R3_ICON holds, the <style> after it included. */
+const R4_ICON_TAGS = 11;
+
+const ROUND4 = [
+  // --- the strings the re-review of round 3 named: the browser requested each address, the audit reported none
+  ['n01', '<svg><style>/*</style></svg>, then on the next line <style>@import url(https://…)',
+    '<svg><style>/*</style></svg>\n<style>@import url(https://evil.example/n01.css);</style>',
+    { css: [`${R4}:2 [css-external-url]`], unsupported: 3 }],
+  ['n02', 'a legitimate inline SVG with a <style>, then on the same line don\'t and <style>@import "https://…"',
+    `${R3_ICON}don't<style>@import "https://evil.example/n02.css";</style>`,
+    { css: [`${R4}:1 [css-external-url]`], unsupported: R4_ICON_TAGS + 1 }],
+  ['n03', '<svg><style>.a{content:"</style><style>@import "https://…"</style> — an unpaired quote on the line',
+    '<svg><style>.a{content:"</style><style>@import "https://evil.example/n03.css";</style>',
+    { css: [`${R4}:1 [css-external-url]`], unsupported: 3 }],
+  // --- the same two causes, in other writings
+  ['n04', 'a data: address and a root-relative one in the <style>s that follow',
+    '<svg><style>/*</style></svg>\n<style>@import "data:text/css,body{color:red}";</style>\n<style>@import "/root.css";</style>',
+    { css: [`${R4}:2 [css-data-url]`, `${R4}:3 [css-root-relative]`], unsupported: 4 }],
+  ['n05', 'a CSS comment that never closes, in the <head>; two <style>s follow it',
+    '<head><style>/*</style>\n<style>@import "https://evil.example/n05a.css";</style>\n<style>b{background:url(https://evil.example/n05b.png)}</style></head>',
+    { css: [`${R4}:2 [css-external-url]`, `${R4}:3 [css-external-url]`], unsupported: 0 }],
+  ['n06', 'an unpaired quote on the line, in the <head>',
+    '<head><style>.a{content:"</style><style>@import "https://evil.example/n06.css";</style></head>',
+    { css: [`${R4}:1 [css-external-url]`], unsupported: 0 }],
+  ['n12', 'an HTML comment with no end inside the first <style>',
+    '<svg><style><!-- </style></svg>\n<style>@import url(https://evil.example/n12.css);</style>',
+    { css: [`${R4}:2 [css-external-url]`], unsupported: 3 }],
+  ['n13', 'an HTML comment with no end and no </style> for the first <style>: a <style> inside its text is no element, and its address is the first one\'s CSS',
+    '<svg><style><!-- <style>@import url(https://evil.example/n13.css);</style>',
+    { css: [`${R4}:1 [css-external-url]`], unsupported: 2 }],
+  // --- each <style> on its own
+  ['n07', 'three <style> in a row: each is reported once',
+    '<head>\n<style>@import "https://evil.example/n07a.css";</style>\n<style>@import "https://evil.example/n07b.css";</style>\n<style>@import "https://evil.example/n07c.css";</style>\n</head>',
+    { css: [`${R4}:2 [css-external-url]`, `${R4}:3 [css-external-url]`, `${R4}:4 [css-external-url]`], unsupported: 0 }],
+  ['n08', 'four kinds of address, each in its own <style>, a comment that never closes among them',
+    '<head><style>@import "https://evil.example/n08a.css";</style>\n<style>/*</style>\n<style>b{background:url(//evil.example/n08b.png)}</style>\n<style>c{background:image-set("https://evil.example/n08c.png" 1x)}</style>\n<style>@font-face{font-family:d;src:"/n08d.woff2"}</style></head>',
+    { css: [`${R4}:1 [css-external-url]`, `${R4}:3 [css-external-url]`, `${R4}:4 [css-external-url]`, `${R4}:5 [css-root-relative]`], unsupported: 0 }],
+  ['n09', 'the order is nothing: an address in the first and in the last of four, none in the two between',
+    '<head><style>a{background:url(https://evil.example/n09a.png)}</style>\n<style>.b{color:red}</style>\n<style>/* x */</style>\n<style>@import "https://evil.example/n09b.css";</style></head>',
+    { css: [`${R4}:1 [css-external-url]`, `${R4}:4 [css-external-url]`], unsupported: 0 }],
+  ['n10', 'one address read by two rules (image-set(url("…"))): one entry',
+    '<head><style>x{background:image-set(url("https://evil.example/n10.png") 1x)}</style></head>',
+    { css: [`${R4}:1 [css-external-url]`], unsupported: 0 }],
+  ['n11', 'one in the <head> and two in the body: they do not know of one another; the ones in the body are unsupported tags as well',
+    '<head><style>/*</style></head>\n<style>@import "https://evil.example/n11a.css";</style>\n<style>@import "https://evil.example/n11b.css";</style>',
+    { css: [`${R4}:2 [css-external-url]`, `${R4}:3 [css-external-url]`], unsupported: 2 }],
+];
+
+for (const [id, what, html, expected] of ROUND4) {
+  test(`ruling AE 4 — ${what} [${id}]`, async (t) => {
+    assertCssBrief(await auditOf(t, { [R4]: html }), expected, what);
+  });
+}
+
+test('ruling AE 4 — a <style> that is never closed runs to the end of the text, as in a browser: its CSS is read there, and a <style> inside that text is no element', async (t) => {
+  const violations = await auditOf(t, { [R4]: '<head><style>@import "https://evil.example/a.css";\n<style>@import "https://evil.example/b.css";' });
+  // (the <head> never closes — a </head> there would be the style's text — so nothing is head, and the <style> is
+  // an unsupported tag in the body: the stricter reading of ruling AE 2)
+  assert.deepEqual(brief(violations), [`${R4}:1 [unsupported-tag]`, `${R4}:1 [css-external-url]`, `${R4}:2 [css-external-url]`],
+    'both addresses are the one element\'s CSS, each read once');
+});
+
+test('ruling AE 4 — what ends a <style> is `</style` followed by a blank, a `/`, a `>` or the end of the text: anything else is part of its CSS', async (t) => {
+  const cases = [
+    // [file, page, what is reported]
+    ['not-an-end-tag.html', '<head><style>.a{content:"</styleX>"} b{background:url(https://evil.example/a.png)}</style></head>',
+      ['not-an-end-tag.html:1 [css-external-url]']], // </styleX> closes nothing: b's address is still the element's CSS
+    // `</style` at the very end of the text closes the element. The <head> has no </head> after it — there is no text after —: nothing is head
+    ['cut-by-the-end.html', '<head><style>@import "https://evil.example/b.css";</style',
+      ['cut-by-the-end.html:1 [unsupported-tag]', 'cut-by-the-end.html:1 [css-external-url]']],
+    ['end-tag-with-attribute.html', '<head><style>x</style foo="x><style>@import url(https://evil.example/c.css);</style>"></head>',
+      []], // an end tag may carry attributes, and a quoted value may hold a `>`: it is read to where IT ends
+  ];
+  for (const [file, pageText, expected] of cases) {
+    assert.deepEqual(brief(await auditOf(t, { [file]: pageText })), expected, pageText);
+  }
 });

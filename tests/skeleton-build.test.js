@@ -1537,9 +1537,10 @@ test('ruling AB(d) — a javascript: address: the fix says that an attribute val
 
 test('修复轮 3·文案 — what to do about a <script> is true whether or not the tag closes itself, and is not read off the tail of the snippet', () => {
   // A <script/> closes itself only inside an <svg> or <math>. In HTML it does not: the `/` before `>` is nothing
-  // there, and what follows is the script's text up to </script>. After an <svg> the audit reads the two alike — it
-  // cannot tell them apart (audit.js, scanHtml; review-fix round 3) — so one wording says both. It is the same for a
-  // tag longer than the 160 characters of a snippet: a `/>` at its end is cut away, so nothing is read off that tail.
+  // there, and what follows is the script's text up to </script>. The audit reads a <script> by the HTML rules
+  // wherever it stands (audit.js, scanHtml; ruling AE 3) — it cannot tell them apart — so one wording says both.
+  // It is the same for a tag longer than the 160 characters of a snippet: a `/>` at its end is cut away, so
+  // nothing is read off that tail.
   // (Round 2 said of a <script/> that it closes itself and there is no </script>: untrue in HTML, and read off a tail
   // that a long tag loses.)
   const long = `<script type="application/json" data-x="${'a'.repeat(200)}"/>`.slice(0, 160); // as the audit shows it: a snippet is at most 160 characters, and the `/>` at the end of this tag is cut away
@@ -1604,28 +1605,43 @@ test('修复轮 4·文案 — an unsupported tag: the problem names the tag and 
   assert.match(none[3], /^     怎么改:.+[\u4e00-\u9fff]。$/);
 });
 
-test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了只能放在页面头部的标签(<meta>):构建失败(exitCode 1),BuildError 的中文报告点名内容文件、页面上的位置和这个标签', async (t) => {
-  const tag = '<meta name="author" content="someone">';
-  const distDir = await tmpDir(t, 'audit-unsupported-tag');
-  const contentDir = await contentWithAppend(t, 'audit-unsupported-tag', 'install-compat', `\n\`\`\`html\n${tag}\n\`\`\`\n`);
+test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了不允许的标签(<meta> 只能放在页面头部;<svg>、<iframe> 根本不允许):构建失败(exitCode 1),BuildError 的中文报告点名内容文件、页面上的位置和这个标签', async (t) => {
+  const cases = [
+    // [the tag as written in the ```html block, the 问题 line, the 怎么改 line]
+    ['<meta name="author" content="someone">',
+      /^     问题:页面正文里出现了不允许的标签 <meta>。直通 HTML 块里只能使用一组常见标签/,
+      /^     怎么改:删掉正文里的这个 <meta> 标签.*只能由页面模板放在页面头部.+$/],
+    ['<svg width="16" height="16">icon</svg>',
+      /^     问题:页面正文里出现了不允许的标签 <svg>。直通 HTML 块里只能使用一组常见标签/,
+      /^     怎么改:删掉这个 <svg> 标签和它里面的全部内容\(从 <svg> 到 <\/svg>\)。.+$/],
+    ['<iframe src="https://example.com/embed"></iframe>', // two violations of one tag: the tag, and its outside address
+      /^     问题:页面正文里出现了不允许的标签 <iframe>。直通 HTML 块里只能使用一组常见标签/,
+      /^     怎么改:删掉这个 <iframe> 标签和它里面的全部内容\(从 <iframe> 到 <\/iframe>\)。.+$/],
+  ];
+  for (const [tag, problem, fix] of cases) {
+    const distDir = await tmpDir(t, 'audit-unsupported-tag');
+    const contentDir = await contentWithAppend(t, 'audit-unsupported-tag', 'install-compat', `\n\`\`\`html\n${tag}\n\`\`\`\n`);
 
-  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+    const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
-  assert.ok(err instanceof Error, `expected the audit violation to fail the build, got ${err}`);
-  assert.equal(err.name, 'BuildError', 'contributor-facing: the CLI prints the message without a stack trace');
-  assert.equal(exitCode, 1);
-  const source = toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'));
-  const lines = err.message.split('\n');
-  assert.equal(lines.length, 5, err.message);
-  assert.match(lines[0], /^\[audit\] FAIL — 发现 1 处不允许的写法:$/);
-  assert.match(lines[1], new RegExp(`^  1\\. 文件:${source}\\(生成页面 mechanics/install-compat\\.html 第 (\\d+) 行附近\\)$`));
-  assert.match(lines[2], /^     问题:页面正文里出现了不允许的标签 <meta>。直通 HTML 块里只能使用一组常见标签/);
-  assert.ok(lines[2].endsWith(`页面里是这段:${tag}`), lines[2]);
-  assert.match(lines[3], /^     怎么改:删掉正文里的这个 <meta> 标签.*只能由页面模板放在页面头部.+$/);
-  assert.match(lines[4], /^提示:.*[\u4e00-\u9fff]。$/);
-  for (const line of lines.slice(1)) assert.ok(hasChinese(line), `in Chinese: ${line}`);
-  // "第 N 行附近" is the line of the page the tag is on
-  const at = Number(/第 (\d+) 行附近/.exec(lines[1])[1]);
-  const page = (await fs.readFile(path.join(distDir, 'mechanics', 'install-compat.html'), 'utf8')).split('\n');
-  assert.ok(page[at - 1].includes(tag), `line ${at}: ${page[at - 1]}`);
+    assert.ok(err instanceof Error, `expected the audit violation to fail the build, got ${err}`);
+    assert.equal(err.name, 'BuildError', 'contributor-facing: the CLI prints the message without a stack trace');
+    assert.equal(exitCode, 1);
+    const source = toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'));
+    const lines = err.message.split('\n');
+    const entries = tag.startsWith('<iframe') ? 2 : 1;
+    assert.equal(lines.length, 3 * entries + 2, `${tag}\n${err.message}`); // a heading, three lines per entry, the hint
+    assert.match(lines[0], new RegExp(`^\\[audit\\] FAIL — 发现 ${entries} 处不允许的写法:$`));
+    assert.match(lines[1], new RegExp(`^  1\\. 文件:${source}\\(生成页面 mechanics/install-compat\\.html 第 (\\d+) 行附近\\)$`));
+    assert.match(lines[2], problem);
+    // the snippet is the tag as far as its start tag ends
+    assert.ok(lines[2].endsWith(`页面里是这段:${/^<[^>]*>/.exec(tag)[0]}`), lines[2]);
+    assert.match(lines[3], fix);
+    assert.match(lines.at(-1), /^提示:.*[\u4e00-\u9fff]。$/);
+    for (const line of lines.slice(1)) assert.ok(hasChinese(line), `in Chinese: ${line}`);
+    // "第 N 行附近" is the line of the page the tag is on
+    const at = Number(/第 (\d+) 行附近/.exec(lines[1])[1]);
+    const page = (await fs.readFile(path.join(distDir, 'mechanics', 'install-compat.html'), 'utf8')).split('\n');
+    assert.ok(page[at - 1].includes(tag), `line ${at}: ${page[at - 1]}`);
+  }
 });

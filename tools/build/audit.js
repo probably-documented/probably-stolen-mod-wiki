@@ -52,6 +52,12 @@
 //       the <head> they stand; in the body each is an unsupported tag — the
 //       first-party templates write them in the head and nowhere else, and
 //       what a contributor writes lands in the body (headOf, HEAD_ONLY_TAGS).
+//   AE1 A ```html block may hold common tags only (ALLOWED_TAGS). A tag that
+//       is not on the allow-list — <svg>, <math>, <iframe>, <style> in the
+//       body, a custom element, an unknown one — is refused wherever it
+//       stands, and so is every tag inside it: unsupported-tag. <script> and
+//       <base> are not "unsupported tags": the rules above refuse them
+//       wherever they stand already.
 //   A5  .js and .css are build output, not contributor content: A4 does not
 //       apply to them. A2 and A3 do, read as literal text there (a script can
 //       assemble markup at run time).
@@ -72,19 +78,21 @@
 //     could be talked out of seeing a script. Reporting a commented-out tag
 //     costs its author a deletion; missing one costs every reader.
 //   • The content of <script> and <style> is not read as tags (it is not
-//     markup to a browser either) and ends at the first matching end tag. A
-//     <style>'s content is read as CSS. A browser keeps a script element open
+//     markup to a browser either) and ends at the first matching end tag —
+//     wherever the element stands. A <style>'s content is read as CSS, each
+//     <style> on its own (ruling AE 4). A browser keeps a script element open
 //     past a nested <script> that follows <!--; the audit stops at the first
 //     </script> — so that one case is over-reported, never under-reported.
-//   • That holds until the first <svg> or <math> that does not close itself.
-//     Inside foreign content the content of a <script> or <style> IS markup,
-//     and <script/> and <style/> are self-closing. A browser leaves foreign
-//     content at more places than a count can tell — an element that breaks
-//     out, an HTML integration point — and at fewer: a </svg> inside a
-//     comment, a CDATA section or a processing instruction is no token and
-//     leaves nowhere (review round 3). So from that <svg> on the audit reads
-//     the rest of the page as markup, skipping nothing, and reads the CSS of
-//     every <style> it meets: it can only over-report (see scanHtml).
+//   • A page is read by these rules throughout, with no eye to <svg> or
+//     <math> (ruling AE 3). The audit used to keep track of foreign content
+//     and of where a browser leaves it — a state machine, and every new gap
+//     of three review rounds came out of it. It is gone: a tag that is not
+//     on the allow-list costs its page the build whatever is written inside
+//     it, so nothing inside an <svg> has to be parsed right. What that costs
+//     is on one side only: inside an <svg> a browser closes a <script/> at
+//     once and reads the content of a <style> as markup, so after an <svg>
+//     the audit may read LESS than a browser does — on a page it refuses
+//     all the same, for the <svg> itself (see scanHtml).
 //   • CSS is read in one pass: a string with its escaped quotes and
 //     continued lines, a comment and an escape (\68 ttps:// is https://) are
 //     told apart where each of them is, and the addresses are looked for on
@@ -191,12 +199,6 @@ const RAW_TEXT_END = Object.freeze({
   script: new RegExp(`</script(?=${AFTER_END_TAG_NAME}|$)`, 'gi'),
   style: new RegExp(`</style(?=${AFTER_END_TAG_NAME}|$)`, 'gi'),
 });
-/**
- * The elements that open foreign content (SVG, MathML). From the first one
- * that does not close itself on, the audit reads a page as markup throughout
- * (see scanHtml).
- */
-const FOREIGN_ROOTS = new Set(['svg', 'math']);
 const EVENT_ATTRIBUTE = /^on[a-z]+$/;
 
 /**
@@ -213,6 +215,52 @@ const EVENT_ATTRIBUTE = /^on[a-z]+$/;
  */
 const HEAD_ONLY_TAGS = Object.freeze(['link', 'meta', 'style', 'title']);
 const HEAD_ONLY = new Set(HEAD_ONLY_TAGS);
+
+/**
+ * The tags a ```html block may hold (ruling AE 1) — and so may the body of
+ * any page the audit lets pass. The audit no longer keeps a list of what is
+ * dangerous: every review round found one more thing to put on it. It keeps
+ * this one, and refuses everything else — what a mature sanitizer does
+ * (MediaWiki included), and a far smaller surface to verify: the tags have
+ * to be cut out right and their names looked up, nothing more. SVG, MathML,
+ * <iframe> … are not allowed in contributor content at all, so nothing of
+ * what is inside them has to be parsed (ruling AE 3).
+ *
+ * The list is in two parts. The first is the common typographic tags of the
+ * ruling, in its order. The second is what the first-party build emits
+ * beyond that — every tag name of the built site, counted with this
+ * tokenizer, 21 pages (task-6b round-4 report) — with where each comes from.
+ * The templates cannot be told from contributor content in a finished page,
+ * so what a template emits, a contributor may write too; the three search
+ * tags are on that account: a <form> cannot load from outside or run script
+ * under the rules above (action and formaction are attributes like any).
+ *
+ * Not on it: title, meta and link — the head's own (HEAD_ONLY_TAGS); script
+ * and base — refused by their own rules wherever they stand.
+ */
+const ALLOWED_TAGS = Object.freeze(new Set([
+  // the common typographic tags of the ruling
+  'a abbr b bdi bdo blockquote br caption code dd del details dfn dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q rp rt ruby s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var wbr'.split(' '),
+  // what the first-party build emits beyond that list
+  'html', 'head', 'body', // templates.js layout
+  'div', // templates.js layout, infobox, itemCard; render.js
+  'section', // render.js renderItems
+  'form', 'input', 'button', // templates.js searchForm: the two search forms of every page
+].flat()));
+
+/**
+ * Refused by their own rule wherever they stand — <script> by the script
+ * rules of checkTag, <base> by `base-tag` — and so not "unsupported tags" on
+ * top of that: one entry is enough to say what to delete.
+ */
+const TAGS_OF_THEIR_OWN_RULES = new Set(['script', 'base']);
+
+/**
+ * May a start tag of this name stand where it stands — in the <head> of the
+ * page (`inHead`, headOf) or in its body? (ruling AE 1 and AE 2)
+ */
+const tagAllowed = (name, inHead) => TAGS_OF_THEIR_OWN_RULES.has(name)
+  || (HEAD_ONLY.has(name) ? inHead : ALLOWED_TAGS.has(name));
 
 /**
  * The attributes whose value is a URL — or a list of URLs — that the browser
@@ -802,9 +850,10 @@ function parseStartTag(text, start) {
  * Everything a start tag may do wrong. Every violation of one tag is anchored
  * at the tag's own start — the line a contributor finds it on, even when the
  * tag spans lines — and reported in document order.
- * `inHead`: the tag stands in the <head> of the page (headOf). The four
- * head-only elements are allowed there and nowhere else (ruling AE 2); the
- * tag is reported for where it stands first, then for what it carries.
+ * `inHead`: the tag stands in the <head> of the page (headOf). The tag itself
+ * is judged first — may it stand where it stands (tagAllowed: the allow-list
+ * of ruling AE 1, and for the head's own elements ruling AE 2) —, then what
+ * it carries. The entries of one tag are in that order.
  */
 function checkTag(text, start, tag, report, inHead) {
   // The snippet is made once per tag, and only when the tag has something to
@@ -812,7 +861,7 @@ function checkTag(text, start, tag, report, inHead) {
   // argument: a tag of 32 000 attributes took 46 seconds.
   let shown = null;
   const snippet = () => shown ??= text.slice(start, tag.end).replace(/\s+/g, ' ').trim().slice(0, 160);
-  if (HEAD_ONLY.has(tag.name) && !inHead) report(start, 'unsupported-tag', snippet());
+  if (!tagAllowed(tag.name, inHead)) report(start, 'unsupported-tag', snippet());
   const isBase = tag.name === 'base';
   if (isBase) report(start, 'base-tag', snippet());
   if (tag.name === 'meta' && tag.attributes.some((a) => a.name === 'http-equiv')) report(start, 'meta-http-equiv', snippet());
@@ -853,6 +902,57 @@ function checkTag(text, start, tag, report, inHead) {
 }
 
 /**
+ * Every tag of an HTML text, one after the other, as the audit reads it —
+ * the one reading both the head of a page (headOf) and the rules (scanHtml)
+ * stand on. For each tag `visit(tag)` is given:
+ *   at          where the tag starts — its `<`
+ *   end         where it ends: after its `>`, also when a quoted value holds
+ *               one; the end of the text when no `>` comes
+ *   name        lower-cased ("" for `</>`)
+ *   attributes  [{ name, value }] of a start tag — the FIRST of a repeated
+ *               name, as a browser keeps them; [] for an end tag
+ *   selfClosing a start tag whose `>` a `/` precedes at once
+ *   isEnd       an end tag. It is read to where IT ends: it may carry
+ *               attributes, and a quoted value may hold a `>`
+ *   content     the text of a <script> or a <style> start tag — { from, to }:
+ *               from where the start tag ends to the first `</script` /
+ *               `</style` after it that is an end tag (followed by what may
+ *               follow a tag name, or by the end of the text). `to` is the
+ *               end of the text when there is none — a browser reads it so.
+ *               The walk goes on after that end tag. null for any other tag.
+ * Not a tag, and stepped over: `<!…`, `<?…`, a bare `<`. HTML comments are
+ * not recognised (see the head of this file).
+ * The walk ends when `visit` returns false.
+ */
+function walkTags(text, visit) {
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt < 0) return;
+    const next = text[lt + 1];
+    if (next === '/') {
+      const tag = parseStartTag(text, lt + 1);
+      const goOn = visit({ at: lt, end: tag.end, name: tag.name, attributes: [], selfClosing: false, isEnd: true, content: null });
+      i = tag.end;
+      if (!goOn) return;
+      continue;
+    }
+    if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; }
+    const tag = parseStartTag(text, lt);
+    i = tag.end;
+    let content = null;
+    if (RAW_TEXT.has(tag.name)) {
+      const close = RAW_TEXT_END[tag.name];
+      close.lastIndex = tag.end;
+      const found = close.exec(text);
+      content = { from: tag.end, to: found === null ? text.length : found.index };
+      if (found !== null) i = parseStartTag(text, found.index + 1).end; // past the whole of the end tag
+    }
+    if (!visit({ at: lt, end: tag.end, name: tag.name, attributes: tag.attributes, selfClosing: tag.selfClosing, isEnd: false, content })) return;
+  }
+}
+
+/**
  * Where the <head> of a page is: { from, to } — from the `<` of the first
  * <head> that does not close itself to the `<` of the first </head> after
  * it — or null when that cannot be told: no <head> at all, or one that is
@@ -865,257 +965,77 @@ function checkTag(text, start, tag, report, inHead) {
  * them are the head's. The audit cannot tell the template's head from one
  * written into a page: it reads tags.
  *
- * The page is read as everywhere else (scanHtml): the content of an HTML
+ * The page is read as everywhere else (walkTags): the content of an HTML
  * <script> or <style> is text, so a </head> inside one is no token and closes
  * nothing — a browser keeps the head open past it, and so does this.
  */
 function headOf(text) {
   let from = -1;
-  let i = 0;
-  while (i < text.length) {
-    const lt = text.indexOf('<', i);
-    if (lt < 0) return null;
-    const next = text[lt + 1];
-    if (next === '/') {
-      const tag = parseStartTag(text, lt + 1);
-      if (from >= 0 && tag.name === 'head') return { from, to: lt };
-      i = tag.end;
-      continue;
+  let head = null;
+  walkTags(text, (tag) => {
+    if (tag.isEnd) {
+      if (from >= 0 && tag.name === 'head') head = { from, to: tag.at };
+      return head === null;
     }
-    if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; } // `<!`, `<?`, or a bare `<`: not a tag
-    const tag = parseStartTag(text, lt);
-    i = tag.end;
-    if (RAW_TEXT.has(tag.name)) {
-      const close = RAW_TEXT_END[tag.name];
-      close.lastIndex = tag.end;
-      const found = close.exec(text);
-      if (found === null) return null;
-      i = parseStartTag(text, found.index + 1).end; // past the whole of the end tag
-    } else if (from < 0 && tag.name === 'head' && !tag.selfClosing) {
-      from = lt;
-    }
-  }
-  return null;
+    if (from < 0 && tag.name === 'head' && !tag.selfClosing) from = tag.at;
+    return true;
+  });
+  return head;
 }
 
 /** Does the tag that starts at `at` stand in the head `head` (headOf)? */
 const inTheHead = (head, at) => head !== null && at >= head.from && at < head.to;
 
 /**
- * The elements under which a browser reads what follows with the HTML rules:
- * SVG foreignObject, desc and title; MathML annotation-xml, and its text
- * integration points mi, mo, mn, ms, mtext. Inside one of them an HTML
- * element can be open when a </style> comes — and then the browser does not
- * pop the style (see foreignStyleEnd).
- */
-const HTML_INTEGRATION_POINTS = new Set(['foreignobject', 'desc', 'title', 'annotation-xml', 'mi', 'mo', 'mn', 'ms', 'mtext']);
-
-/**
- * Where the comment that begins with the `<!--` at `lt` ends — the position
- * after it. `<!-->` and `<!--->` close at once; any other at the first `-->`
- * or `--!>`; or at the end of the text. Comments do not nest. One search for
- * both ends: a search for each of them ran on to the end of the text
- * whenever the other did not come — once per comment.
- */
-const COMMENT_END_RE = /--!?>/y;
-function commentEnd(text, lt) {
-  if (text[lt + 4] === '>') return lt + 5;
-  if (text[lt + 4] === '-' && text[lt + 5] === '>') return lt + 6;
-  const end = matchAt(COMMENT_END_RE, text, lt + 4);
-  return end === null ? text.length : lt + 4 + end[0].length;
-}
-
-/**
- * Where the DOCTYPE that begins with `<!DOCTYPE`, whose name starts at
- * `from`, ends — the position after the `>` that closes it, also when a
- * quoted identifier holds one. Only PUBLIC and SYSTEM are followed by a
- * quoted identifier (PUBLIC by up to two); anything else ends the DOCTYPE
- * at its first `>`, as a browser's tokenizer does.
- */
-function doctypeEnd(text, from) {
-  let i = from;
-  const blanks = () => { while (i < text.length && HTML_SPACE_RE.test(text[i])) i += 1; };
-  blanks();
-  while (i < text.length && !HTML_SPACE_RE.test(text[i]) && text[i] !== '>') i += 1; // the name
-  blanks();
-  const keyword = text.slice(i, i + 6).toLowerCase();
-  let identifiers = keyword === 'public' ? 2 : keyword === 'system' ? 1 : 0;
-  i += 6;
-  while (identifiers > 0) {
-    identifiers -= 1;
-    blanks();
-    const quote = text[i];
-    if (quote !== '"' && quote !== "'") break;
-    const close = text.indexOf(quote, i + 1);
-    if (close < 0) return text.length;
-    i = close + 1;
-  }
-  const gt = text.indexOf('>', i);
-  return gt < 0 ? text.length : gt + 1;
-}
-
-/**
- * Where a construct that begins with `<!` at `lt` ends — the position after
- * a comment, a CDATA section (`]]>`), a DOCTYPE, or any other `<!…`, which a
- * browser ends at its first `>`, as it does a processing instruction. Used
- * only where the audit must not mistake what is INSIDE one of them for a tag
- * (foreignStyleEnd); a page itself is read straight through them — see the
- * head of this file: where a comment ends has enough edges that an audit
- * which trusted them could be talked out of seeing a script.
- */
-function declarationEnd(text, lt) {
-  if (text.startsWith('<!--', lt)) return commentEnd(text, lt);
-  const head = text.slice(lt, lt + 9).toUpperCase();
-  if (head === '<![CDATA[') { const end = text.indexOf(']]>', lt + 9); return end < 0 ? text.length : end + 3; }
-  if (head === '<!DOCTYPE') return doctypeEnd(text, lt + 9);
-  const gt = text.indexOf('>', lt + 2);
-  return gt < 0 ? text.length : gt + 1;
-}
-
-/**
- * Where the <style> whose start tag ends at `from` ends in the reading that
- * makes it an SVG or MathML style element: the position after the </style>
- * that closes it, or the end of the text.
+ * A page. `detailOf(index)` gives the line of the text that holds `index`
+ * (for what a <style> reports).
  *
- * The audit cannot tell that reading from the one in which the browser left
- * the foreign content before the <style> and reads it as an HTML <style>,
- * whose content runs to the first `</style` wherever that stands. So the CSS
- * is read to where the element ends in EITHER reading, whichever is later.
- * In foreign content a `</style` inside a comment, a CDATA section, a
- * processing instruction or a tag is no token; the first `</style>` that is
- * a token closes a <style> nested inside; and the element may never be
- * closed. Everything up to there is read as CSS — more than the browser
- * applies, the text nodes that are the element's own children; never less.
- * The audit used to stop at the first `</style`, and an @import after a
- * comment inside an SVG <style> was fetched unreported (review round 3).
+ * The tags are read by walkTags — by the HTML rules, from the first to the
+ * last, with no eye to <svg> or <math> (ruling AE 3). The content of an HTML
+ * <script> or <style> is text: the scanner skips it to the matching end tag
+ * — the first `</script` / `</style` that is an end tag, or the end of the
+ * text. An <svg> that does not close itself changes nothing: it is an
+ * unsupported tag, and costs its page the build whatever is written inside
+ * it. So nothing inside it has to be parsed right. What that costs is on one
+ * side only: inside an <svg> a browser closes a <script/> at once and reads
+ * the content of a <style> as markup, so after an <svg> the audit may read
+ * LESS than a browser does — on a page it refuses all the same, for the
+ * <svg> itself.
  *
- * Two things it does not follow, and gives the element up on instead — its
- * CSS is read to the end of the text: an HTML integration point inside the
- * <style> (an HTML element can be open above it when the </style> comes, and
- * the browser does not pop the style then), and a `</html>` (a browser opens
- * new html and body elements above whatever was open). Both read MORE.
- */
-function foreignStyleEnd(text, from) {
-  let depth = 1;
-  let i = from;
-  while (i < text.length) {
-    const lt = text.indexOf('<', i);
-    if (lt < 0) break;
-    const next = text[lt + 1];
-    if (next === '!') { i = declarationEnd(text, lt); continue; }
-    if (next === '?') { const gt = text.indexOf('>', lt + 2); i = gt < 0 ? text.length : gt + 1; continue; }
-    if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; }
-    const endTag = next === '/';
-    const tag = parseStartTag(text, endTag ? lt + 1 : lt);
-    i = tag.end;
-    if (tag.name === 'style') {
-      if (endTag) {
-        depth -= 1;
-        if (depth === 0) return i;
-      } else if (!tag.selfClosing) {
-        depth += 1;
-      }
-    } else if (endTag ? tag.name === 'html' : HTML_INTEGRATION_POINTS.has(tag.name) && !tag.selfClosing) {
-      return text.length;
-    }
-  }
-  return text.length;
-}
-
-/**
- * A page. `detailOf(index)` gives the line of the text that holds `index` (for what a <style> reports).
+ * The audit used to keep track of foreign content here: a count of the
+ * <svg> / <math> opened and not closed, then — after the count was shown to
+ * leave too early — never leaving at all. Every new gap of three review
+ * rounds came out of that (review rounds 2 and 3: the Critical, and the CSS
+ * of the <style>s a first one swallowed). A state machine that imitates a
+ * browser is checked against a browser; a list of allowed names is checked
+ * against itself.
  *
- * The content of an HTML <script> or <style> is text: the scanner skips it to
- * the matching end tag. That is so until the first <svg> or <math> that does
- * not close itself. From there on the page is read as markup throughout:
- * inside foreign content the content of a <script> or <style> is markup, and
- * `<script/>` and `<style/>` are self-closing. A browser leaves foreign
- * content at more places than a count can tell — an HTML element that breaks
- * out, a <desc> or <foreignObject>, which are HTML integration points — and
- * at fewer: a </svg> or </math> that is not a token leaves nowhere, and one
- * inside a comment, a CDATA section or a processing instruction is none. The
- * audit used to keep a count and leave at every </svg>. A count that is
- * wrong in that direction reads LESS than the browser does: the data block
- * after such a comment was skipped as the text of an HTML <script>, and the
- * <img onerror> in it ran unreported (review round 3, the Critical). No
- * count reads more. What that costs is on the safe side: the body of an
- * HTML <script> that follows an <svg> is read as markup too, so a
- * tag-looking string in it is reported beside the script itself — which is
- * a violation in its own right.
+ * A <style>'s content is read as CSS wherever the <style> stands — a browser
+ * applies it in the body too —, each <style> on its own (ruling AE 4): its
+ * range is its own, from where its start tag ends to its own end tag, and no
+ * element knows of another. The content is read as written: the CSS scanner
+ * keeps a map back to it, so the line number is the line a contributor finds
+ * it on. What is reported twice is decided where the entries are made
+ * (scanTokens), not by skipping what was "read already".
  *
- * A <style>'s content is read as CSS wherever the <style> stands — in
- * foreign content the browser applies it too. Before the first <svg> that
- * is to the first `</style`, as for an HTML <style>. After it the audit
- * cannot tell an HTML <style> (or <style/>, whose `/` is nothing in HTML)
- * from an SVG one, and reads to where the element ends in either reading
- * (foreignStyleEnd): the first `</style` that is a token may close a
- * <style> nested inside, and one inside a comment, a CDATA section, a
- * processing instruction or a tag is none.
- *
- * An end tag is read to where it ends. It may carry attributes, and a
- * quoted value may hold a `>`: the audit used to resume right after the
- * FIRST `>` — inside that value. A <script src> of the allow-list written
- * there made it skip the rest of the page as the text of that script, and
- * nothing was reported while the browser ran an <img onerror> after it.
- * No <svg> is needed for that; it was there from the first (review round 3).
+ * An end tag is read to where it ends. It may carry attributes, and a quoted
+ * value may hold a `>`: the audit used to resume right after the FIRST `>` —
+ * inside that value. A <script src> of the allow-list written there made it
+ * skip the rest of the page as the text of that script, and nothing was
+ * reported while the browser ran an <img onerror> after it (review round 3).
  *
  * Where the <head> is, is settled before the first tag is judged (headOf):
- * the four head-only elements are allowed in it and nowhere else (ruling
- * AE 2).
+ * the head's own elements are allowed in it and nowhere else (ruling AE 2).
  */
 function scanHtml(text, report, detailOf) {
   const head = headOf(text);
-  let i = 0;
-  let foreign = false;
-  let cssReadTo = 0; // in foreign reading: where the CSS of the <style>s read so far ends
-  while (i < text.length) {
-    const lt = text.indexOf('<', i);
-    if (lt < 0) return;
-    const next = text[lt + 1];
-    if (next === '/') { // an end tag has nothing to check — but it is read to where IT ends: it may carry attributes, and a quoted value may hold a `>`
-      i = parseStartTag(text, lt + 1).end;
-      continue;
-    }
-    if (next === undefined || !/[A-Za-z]/.test(next)) { // `<!`, `<?`, or a bare `<`: not a tag
-      i = lt + 1;
-      continue;
-    }
-    const tag = parseStartTag(text, lt);
-    checkTag(text, lt, tag, report, inTheHead(head, lt));
-    i = tag.end;
-    if (FOREIGN_ROOTS.has(tag.name)) {
-      if (!tag.selfClosing) foreign = true;
-      continue;
-    }
-    if (!RAW_TEXT.has(tag.name)) continue;
-    let found = null;
-    if (!foreign) {
-      // In foreign reading the content is markup, and no end tag is looked
-      // for: the search would run on to the end of the text for every
-      // <script> or <style> that is never closed — once per element, over
-      // the same text (10 000 of them took 12 seconds).
-      const close = RAW_TEXT_END[tag.name];
-      close.lastIndex = tag.end;
-      found = close.exec(text);
-    }
-    if (tag.name === 'style') {
-      // The content is read as written: the CSS scanner keeps a map back to
-      // it, so the line number is the line a contributor finds it on. In
-      // foreign reading a <style> may stand inside one whose CSS was read
-      // already — a `<style/>` there is read like an HTML one, a <style>
-      // nested in another to where the outer one ends —: what was read
-      // once is not read twice.
-      const from = tag.end;
-      if (!foreign || from >= cssReadTo) {
-        const to = foreign ? foreignStyleEnd(text, from) : found === null ? text.length : found.index;
-        scanCss(text.slice(from, to), report, (offset) => from + offset, detailOf);
-        if (foreign) cssReadTo = to;
-      }
-    }
-    if (foreign) continue; // its content is markup too, read on below
-    if (found === null) return;
-    i = parseStartTag(text, found.index + 1).end; // past the whole of the end tag
-  }
+  walkTags(text, (tag) => {
+    if (tag.isEnd) return true; // an end tag has nothing to check
+    checkTag(text, tag.at, tag, report, inTheHead(head, tag.at));
+    if (tag.name === 'style') scanCss(text.slice(tag.content.from, tag.content.to), report, (offset) => tag.content.from + offset, detailOf);
+    // A <script> or a <style> that nothing closes takes the rest of the text: there is no tag left.
+    return tag.content === null || tag.content.to < text.length;
+  });
 }
 
 /** A .js file, as literal text: the markup a script may assemble at run time. No tag to read, so no <a href> exemption — and no slot for a data: image either, so A9 is not applied here. `detailOf(index)`: the line that holds `index`. */
@@ -1180,4 +1100,4 @@ async function auditExternalLinks(dir) {
   return violations;
 }
 
-module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC, CODES, HEAD_ONLY_TAGS };
+module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC, CODES, HEAD_ONLY_TAGS, ALLOWED_TAGS };
