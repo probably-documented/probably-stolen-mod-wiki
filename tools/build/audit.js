@@ -77,6 +77,12 @@
 //     special cases (`<!-->` closes at once) that an audit which trusted them
 //     could be talked out of seeing a script. Reporting a commented-out tag
 //     costs its author a deletion; missing one costs every reader.
+//   • A bogus comment is another thing: it has no special case to its end. A
+//     `</` followed by what is neither a letter nor `>`, a `<!` followed by
+//     neither `--` nor `doctype`, a `<?` — it ends at the first `>`, always,
+//     as in a browser, and nothing in it is read (ruling AG 1; round 5, the
+//     Critical: the audit read `</ x="y><img onerror>` on as an end tag, with
+//     its quoted values, and never saw the <img>).
 //   • The content of <script> and <style> is not read as tags (it is not
 //     markup to a browser either) and ends at the first matching end tag —
 //     wherever the element stands. A <style>'s content is read as CSS, each
@@ -902,26 +908,49 @@ function checkTag(text, start, tag, report, inHead) {
 }
 
 /**
+ * Where a bogus comment that starts at the `<` at `lt` ends — a `</` followed
+ * by what is neither an ASCII letter nor `>`, a `<!` followed by neither `--`
+ * nor `doctype`, a `<?` —: the position after the first `>` (HTML, 13.2.5.42
+ * "Bogus comment state"), or the end of the text when there is none.
+ *
+ * A bogus comment is no tag: nothing in it is parsed by a browser, and the
+ * page goes on after its `>`. The audit used to read the first writing as an
+ * end tag — by the tag rules since round 3 ("an end tag is read to where it
+ * ends"), quoted values included — so `</ x="y><img src=x onerror=alert(1)>`
+ * took the rest of the page for the value of an attribute, and nothing in it
+ * was checked while the browser ran the onerror (review round 5, the
+ * Critical; ruling AG 1). Unlike a real comment, a bogus one has no special
+ * case to its end: the first `>` closes it, always.
+ */
+function bogusCommentEnd(text, lt) {
+  const gt = text.indexOf('>', lt + 2);
+  return gt < 0 ? text.length : gt + 1;
+}
+
+/**
  * Every tag of an HTML text, one after the other, as the audit reads it —
  * the one reading both the head of a page (headOf) and the rules (scanHtml)
  * stand on. For each tag `visit(tag)` is given:
  *   at          where the tag starts — its `<`
  *   end         where it ends: after its `>`, also when a quoted value holds
  *               one; the end of the text when no `>` comes
- *   name        lower-cased ("" for `</>`)
+ *   name        lower-cased
  *   attributes  [{ name, value }] of a start tag — the FIRST of a repeated
  *               name, as a browser keeps them; [] for an end tag
  *   selfClosing a start tag whose `>` a `/` precedes at once
- *   isEnd       an end tag. It is read to where IT ends: it may carry
- *               attributes, and a quoted value may hold a `>`
+ *   isEnd       an end tag — a `</` followed by an ASCII letter. It is read
+ *               to where IT ends: it may carry attributes, and a quoted
+ *               value may hold a `>`
  *   content     the text of a <script> or a <style> start tag — { from, to }:
  *               from where the start tag ends to the first `</script` /
  *               `</style` after it that is an end tag (followed by what may
  *               follow a tag name, or by the end of the text). `to` is the
  *               end of the text when there is none — a browser reads it so.
  *               The walk goes on after that end tag. null for any other tag.
- * Not a tag, and stepped over: `<!…`, `<?…`, a bare `<`. HTML comments are
- * not recognised (see the head of this file).
+ * Not a tag: a bogus comment (bogusCommentEnd) is read to its `>` and
+ * nothing in it is seen; `</>` is nothing; a real comment (`<!--…`) is not
+ * recognised, so a tag inside one is seen like any other (see the head of
+ * this file); a DOCTYPE is stepped over; a bare `<` too.
  * The walk ends when `visit` returns false.
  */
 function walkTags(text, visit) {
@@ -931,12 +960,22 @@ function walkTags(text, visit) {
     if (lt < 0) return;
     const next = text[lt + 1];
     if (next === '/') {
-      const tag = parseStartTag(text, lt + 1);
-      const goOn = visit({ at: lt, end: tag.end, name: tag.name, attributes: [], selfClosing: false, isEnd: true, content: null });
-      i = tag.end;
-      if (!goOn) return;
-      continue;
+      const after = text[lt + 2];
+      if (after !== undefined && /[A-Za-z]/.test(after)) {
+        // an end tag — `</` and an ASCII letter. It is read to where IT ends: it may carry attributes, and a quoted value may hold a `>`
+        const tag = parseStartTag(text, lt + 1);
+        const goOn = visit({ at: lt, end: tag.end, name: tag.name, attributes: [], selfClosing: false, isEnd: true, content: null });
+        i = tag.end;
+        if (!goOn) return;
+        continue;
+      }
+      if (after === '>') { i = lt + 3; continue; } // `</>`: there is no end tag at all
+      i = bogusCommentEnd(text, lt); continue; // `</` and anything else, the end of the text included: a bogus comment
     }
+    // `<!` and neither `--` nor `doctype` (in any case), and `<?`: a bogus comment, to the first `>`.
+    // A real comment (`<!--`) is still not recognised (see the head of this file); a DOCTYPE is stepped over as ever.
+    if (next === '!' && !text.startsWith('<!--', lt) && text.slice(lt + 2, lt + 9).toLowerCase() !== 'doctype') { i = bogusCommentEnd(text, lt); continue; }
+    if (next === '?') { i = bogusCommentEnd(text, lt); continue; }
     if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; }
     const tag = parseStartTag(text, lt);
     i = tag.end;

@@ -2277,3 +2277,127 @@ test('ruling AE 4 — what ends a <style> is `</style` followed by a blank, a `/
     assert.deepEqual(brief(await auditOf(t, { [file]: pageText })), expected, pageText);
   }
 });
+
+// ===========================================================================
+// Review round 5 — ruling AG 1: a bogus comment is read to the first `>`
+//
+// Four writings are no tag at all to a browser, but a comment — a "bogus
+// comment" — whose text runs to the first `>` (HTML, 13.2.5.42 "Bogus
+// comment state"):
+//   </ x     `</` followed by what is neither an ASCII letter nor `>`
+//   <!x, <![ `<!` followed by neither `--` nor `doctype`, in any case (a CDATA
+//            section outside foreign content is one of them)
+//   <?x      a `<?`
+// and `</>` is nothing at all: ignored.
+//
+// The audit read the first of them as an end tag — by the tag rules, since
+// round 3 ("an end tag is read to where it ends"), quoted values included:
+// `</ x="y><img src=x onerror=alert(1)>` took the rest of the page for the
+// value of an attribute and nothing in it was checked, while the browser was
+// back in the page at the first `>` and ran the onerror (review round 5, the
+// Critical: a regression of that fix of round 3). A `</` that is followed by
+// a letter is an end tag as before (the e-strings of round 3: it may carry
+// attributes, and a quoted value may hold a `>`).
+//
+// What is inside a bogus comment is parsed by no browser and read by no audit;
+// after the `>` the page is read on. A real comment (`<!--…`) is still not
+// recognised (see the head of this file), and a DOCTYPE is read as ever.
+// ===========================================================================
+
+/** A bogus comment in each of the four writings: `comment(inside)` is the comment up to (not including) its `>`. */
+const BOGUS_COMMENT = [
+  ['</ and neither a letter nor >', (inside) => `</ ${inside}`],
+  ['<! and neither -- nor doctype', (inside) => `<!bogus ${inside}`],
+  ['<![CDATA[, a bogus comment outside foreign content', (inside) => `<![CDATA[ ${inside}`],
+  ['<?', (inside) => `<?pi ${inside}`],
+];
+/** What stands after it on the page — what a browser acts on. [what, the tag, what the audit reports] */
+const AFTER_THE_COMMENT = [
+  ['an <img onerror>', '<img src=x onerror="alert(1)">', ['inline-event-handler']],
+  ['an inline <script>', '<script>alert(1)</script>', ['script-inline']],
+  ['an image from outside', '<img src="https://evil.example/x.png">', ['external-url']],
+  ['a javascript: link', '<a href="javascript:alert(1)">x</a>', ['script-url']],
+  ['a <style> in the body with an outside @import', '<style>@import "https://evil.example/x.css";</style>', ['unsupported-tag', 'css-external-url']],
+];
+
+test('ruling AG 1 — the shortest string of the re-review, as it was written: the browser ran the onerror, and the audit said nothing', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [HTML]: '</ x="y><img src=x onerror=alert(1)>' })), [`${HTML}:1 [inline-event-handler]`]);
+});
+
+for (const [writing, comment] of BOGUS_COMMENT) {
+  for (const [what, tag, codes] of AFTER_THE_COMMENT) {
+    test(`ruling AG 1 — a bogus comment (${writing}) does not swallow ${what}: it ends at the first >, and the page is read on`, async (t) => {
+      // the quoted `x="y` is what the audit used to read on, as the value of an attribute of an end tag
+      assert.deepEqual(brief(await auditOf(t, { [HTML]: `${comment('x="y')}>\n${tag}\n<p>after</p>` })), codes.map((code) => `${HTML}:2 [${code}]`));
+    });
+  }
+}
+
+test('ruling AG 1 — what is inside a bogus comment is not read — a browser parses none of it —, and the comment ends at the FIRST >', async (t) => {
+  const cases = [
+    // [page, what is reported]
+    ['</ <img src=x onerror="alert(1)">><p>after</p>', []], // the comment is `</ <img src=x onerror="alert(1)">`: the <img> is its text
+    ['<!bogus <script>alert(1)</script>><p>after</p>', []],
+    ['<![CDATA[ <img src="https://evil.example/x.png"> ]]><p>after</p>', []],
+    ['<?pi <a href="javascript:alert(1)">x</a>><p>after</p>', []],
+    ['</ <script>alert(1)</script>', []], // never closed: to the end of the text
+    ['<!bogus <img src=x onerror="alert(1)">', []],
+    ['<?pi <img src=x onerror="alert(1)">', []],
+    ['</ <img src=x onerror="alert(1)"></p><p>after</p>', []], // the first `>` is the one of the <img> tag: `</p>` and the <p> are what follows the comment
+  ];
+  for (const [pageText, expected] of cases) {
+    assert.deepEqual(brief(await auditOf(t, { [HTML]: pageText })), expected, pageText);
+  }
+});
+
+test('ruling AG 1 — </> is no end tag at all: ignored, and the page is read on', async (t) => {
+  const violations = await auditOf(t, { [HTML]: page('</><img src=x onerror="alert(1)">', '</>', '</></>', '</> <p>ok</p>') });
+  assert.deepEqual(brief(violations), [`${HTML}:1 [inline-event-handler]`]);
+});
+
+test('ruling AG 1 — a `</`, a `<!` or a `<?` with nothing after it is a comment that nothing closes: nothing is reported', async (t) => {
+  for (const pageText of ['<p>ok</p></', '<p>ok</p></ ', '<p>ok</p><!', '<p>ok</p><!-', '<p>ok</p><?', '<p>ok</p><?pi']) {
+    assert.deepEqual(await auditOf(t, { [HTML]: pageText }), [], pageText);
+  }
+});
+
+test('ruling AG 1 — an end tag is read as before: `</` followed by a letter, with attributes, and a quoted value that holds a `>` (round 3, the e-strings)', async (t) => {
+  const violations = await auditOf(t, { [HTML]: page(
+    '<p></p title="x><script src=assets/js/search.js>y"><img src=x onerror="alert(1)">', // the end tag runs to ITS `>`: the <img> is read (round 3, e01)
+    '</p x="y"><script>alert(2)</script>', // an end tag with an attribute, its value closed: nothing hidden after it
+    '</P ><img src=x onerror="alert(3)">', // a blank before the `>`: still an end tag
+    '</ p><img src=x onerror="alert(4)">', // and a blank right after `</`: a bogus comment, ending at the `>` of `</ p>`
+    '</p\t><img src=x onerror="alert(5)">', // a tab before the `>`: still an end tag
+  ) });
+  const line = (n, code) => `${HTML}:${n} [${code}]`;
+  assert.deepEqual(brief(violations), [line(1, 'inline-event-handler'), line(2, 'script-inline'), line(3, 'inline-event-handler'), line(4, 'inline-event-handler'), line(5, 'inline-event-handler')]);
+});
+
+test('ruling AG 1 — what is not a bogus comment changes nothing: a real comment is still not recognised, and a DOCTYPE, in any case, is read as ever', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<!-- <script>alert(1)</script> -->', // a real comment: a tag inside one is checked like any other (the head of this file)
+      '<!---><script>alert(2)</script>-->',
+      '<!-- x><script>alert(3)</script>', // `<!--`, a `>` right after: a real comment, read on as before
+      '<!- x><script>alert(4)</script>', // `<!- `: neither `--` nor doctype — a bogus comment to its `>`, then the script
+      '<!DoCtYpE html><script>alert(5)</script>', // a DOCTYPE, in any case: no comment
+      '<!doctypehtml><script>alert(6)</script>', // the seven characters are what count
+      '<!doctyp><script>alert(7)</script>', // cut short: not the seven characters — a bogus comment
+      '<!DOCTYPE><script>alert(8)</script>',
+    ),
+  });
+  const line = (n) => `${HTML}:${n} [script-inline]`;
+  assert.deepEqual(brief(violations), [line(1), line(2), line(3), line(4), line(5), line(6), line(7), line(8)]);
+});
+
+test('ruling AG 1 — where the <head> is, is read by the same rule: a bogus comment in the head does not close it, and one before a tag does not hide it', async (t) => {
+  const cases = [
+    // [file, page, what is reported]
+    ['in-the-head.html', '<head></ x="y><meta charset="UTF-8"></head><p>ok</p>', []], // the <meta> is in the head
+    ['after-the-comment.html', '</ x="y>\n<head><link rel="stylesheet" href="https://evil.example/x.css"></head>', ['after-the-comment.html:2 [external-url]']],
+    ['then-the-body.html', '<head></head></ x="y>\n<meta charset="UTF-8">', ['then-the-body.html:2 [unsupported-tag]']], // the head was closed first: the <meta> is in the body
+  ];
+  for (const [file, pageText, expected] of cases) {
+    assert.deepEqual(brief(await auditOf(t, { [file]: pageText })), expected, pageText);
+  }
+});
