@@ -1556,3 +1556,76 @@ test('修复轮 3·文案 — what to do about a <script> is true whether or not
     assert.ok(!fixLine(code, '<script src="https://evil.example/x.js"></script>').includes('<svg>'), `${code}: that is another matter`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 修复轮 4(ruling AE)— a tag that is not on the allow-list: `unsupported-tag`
+//
+// 直通 HTML 块里只能使用一组常见标签。What a contributor is told names the
+// tag — it is read off the snippet the audit shows — and says what may be
+// written instead; for the four elements that belong in the <head> it says
+// where they belong. The rules themselves: tests/audit.test.js (ruling AE).
+// ---------------------------------------------------------------------------
+
+test('修复轮 4·文案 — an unsupported tag: the problem names the tag and says what a ```html block may hold; the fix depends on the tag', () => {
+  const one = (detail) => formatAuditViolations([{ file: 'mechanics/a.html', line: 7, code: 'unsupported-tag', detail }], {
+    sourceOf: () => 'content/mechanics/a.md',
+  }).split('\n');
+  const WHAT = '直通 HTML 块里只能使用一组常见标签(段落、标题、列表、表格、链接、图片、div/span 等);其它标签请改用图片,或联系维护者。';
+
+  const svg = one('<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">');
+  // (the problem and the snippet are one line: 问题:…页面里是这段:<the tag>)
+  assert.ok(svg[2].startsWith(`     问题:页面正文里出现了不允许的标签 <svg>。${WHAT}页面里是这段:<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">`), svg[2]);
+  assert.match(svg[3], /^     怎么改:删掉这个 <svg> 标签和它里面的全部内容\(从 <svg> 到 <\/svg>\)。.*图片写法 !\[替代文字\]\(地址\);.*做成图片,或联系维护者。$/);
+  assert.ok(!svg[3].includes('页面头部'), 'an <svg> is not told to be moved into the head');
+
+  // written in capitals: named as the page shows it
+  const upper = one('<IFRAME src="https://example.com/">');
+  assert.ok(upper[2].startsWith(`     问题:页面正文里出现了不允许的标签 <IFRAME>。${WHAT}`), upper[2]);
+  assert.match(upper[3], /^     怎么改:删掉这个 <IFRAME> 标签和它里面的全部内容\(从 <IFRAME> 到 <\/IFRAME>\)。/);
+  // the fix says where the tag begins and ends: written as the page shows it
+  assert.ok(upper[3].includes('<IFRAME>') && upper[3].includes('</IFRAME>'), upper[3]);
+
+  // the four that belong in the <head>: said so
+  for (const name of ['title', 'meta', 'link', 'style']) {
+    const lines = one(`<${name} charset="UTF-8">`);
+    assert.ok(lines[2].startsWith(`     问题:页面正文里出现了不允许的标签 <${name}>。${WHAT}页面里是这段:<${name} charset="UTF-8">`), `${name}: ${lines[2]}`);
+    assert.match(lines[3], new RegExp(`^     怎么改:删掉正文里的这个 <${name}> 标签.*只能由页面模板放在页面头部.*直通 HTML 块里不能写。$`), name);
+    assert.ok(!lines[3].includes('图片'), `${name}: not told to make it an image`);
+  }
+
+  // a name longer than the 160 characters of a snippet is named as the snippet shows it
+  const long = one(`<${'x'.repeat(300)} onclick="alert(1)">`);
+  assert.match(long[2], /^     问题:页面正文里出现了不允许的标签 <x+>。/);
+  assert.ok(!/onclick/.test(long[2].split('页面里是这段:')[0]), 'the attribute after the cut-off name is not read');
+
+  // no tag to read off the snippet (the entry the C1 test makes for every code): still Chinese, still both sentences
+  const none = one('');
+  assert.match(none[2], /^     问题:.+[\u4e00-\u9fff]。页面里是这段:$/);
+  assert.match(none[3], /^     怎么改:.+[\u4e00-\u9fff]。$/);
+});
+
+test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了只能放在页面头部的标签(<meta>):构建失败(exitCode 1),BuildError 的中文报告点名内容文件、页面上的位置和这个标签', async (t) => {
+  const tag = '<meta name="author" content="someone">';
+  const distDir = await tmpDir(t, 'audit-unsupported-tag');
+  const contentDir = await contentWithAppend(t, 'audit-unsupported-tag', 'install-compat', `\n\`\`\`html\n${tag}\n\`\`\`\n`);
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the audit violation to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError', 'contributor-facing: the CLI prints the message without a stack trace');
+  assert.equal(exitCode, 1);
+  const source = toPosix(path.join(contentDir, 'mechanics', 'install-compat.md'));
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 5, err.message);
+  assert.match(lines[0], /^\[audit\] FAIL — 发现 1 处不允许的写法:$/);
+  assert.match(lines[1], new RegExp(`^  1\\. 文件:${source}\\(生成页面 mechanics/install-compat\\.html 第 (\\d+) 行附近\\)$`));
+  assert.match(lines[2], /^     问题:页面正文里出现了不允许的标签 <meta>。直通 HTML 块里只能使用一组常见标签/);
+  assert.ok(lines[2].endsWith(`页面里是这段:${tag}`), lines[2]);
+  assert.match(lines[3], /^     怎么改:删掉正文里的这个 <meta> 标签.*只能由页面模板放在页面头部.+$/);
+  assert.match(lines[4], /^提示:.*[\u4e00-\u9fff]。$/);
+  for (const line of lines.slice(1)) assert.ok(hasChinese(line), `in Chinese: ${line}`);
+  // "第 N 行附近" is the line of the page the tag is on
+  const at = Number(/第 (\d+) 行附近/.exec(lines[1])[1]);
+  const page = (await fs.readFile(path.join(distDir, 'mechanics', 'install-compat.html'), 'utf8')).split('\n');
+  assert.ok(page[at - 1].includes(tag), `line ${at}: ${page[at - 1]}`);
+});

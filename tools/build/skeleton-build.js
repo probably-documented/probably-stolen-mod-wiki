@@ -44,7 +44,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { renderSite } = require('./render.js');
-const { auditExternalLinks } = require('./audit.js');
+const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
@@ -326,12 +326,42 @@ function fixOutsideUrl(detail) {
 }
 
 /**
+ * The tag a snippet shows, as the page writes it (`<IFRAME …` → `IFRAME`), or
+ * '' when the snippet does not start with a tag. A name is read only from
+ * where a snippet always shows it — its first characters: a snippet is at
+ * most 160 characters, so a longer name is named as the snippet shows it,
+ * and nothing is read off a tail the snippet may have lost.
+ */
+const tagOfSnippet = (detail) => /^<([a-zA-Z][^\t\n\f\r />]*)/.exec(detail ?? '')?.[1] ?? '';
+
+/** What a ```html block may hold (ruling AE 1) — said to a contributor for every tag that is not on the allow-list. */
+const WHAT_A_HTML_BLOCK_MAY_HOLD = '直通 HTML 块里只能使用一组常见标签(段落、标题、列表、表格、链接、图片、div/span 等);其它标签请改用图片,或联系维护者。';
+
+/** An unsupported tag: the problem names the tag — what to search for in the file is the snippet right after. */
+function unsupportedTagProblem(detail) {
+  const tag = tagOfSnippet(detail);
+  return (tag === '' ? '页面正文里出现了一个不允许的标签(见下面这一段)。' : `页面正文里出现了不允许的标签 <${tag}>。`) + WHAT_A_HTML_BLOCK_MAY_HOLD;
+}
+
+/** …and what to do depends on the tag: the four that belong in the <head> are told where, any other what to use instead. */
+function fixUnsupportedTag(detail) {
+  const tag = tagOfSnippet(detail);
+  if (tag === '') return '删掉这个标签。需要插入图片,请用图片写法 ![替代文字](地址);其它内容请联系维护者。';
+  if (HEAD_ONLY_TAGS.includes(tag.toLowerCase())) {
+    return `删掉正文里的这个 <${tag}> 标签(从 <${tag}> 到 </${tag}>,如果后面有结束标签)。`
+      + '这种标签只能由页面模板放在页面头部(<head>)里,直通 HTML 块里不能写。';
+  }
+  return `删掉这个 <${tag}> 标签和它里面的全部内容(从 <${tag}> 到 </${tag}>)。`
+    + '需要插入图片,请用图片写法 ![替代文字](地址);矢量图、公式、嵌入的网页或音视频等,请先做成图片,或联系维护者。';
+}
+
+/**
  * What each audit code means and what to do, for a contributor who does not
  * program (task 6b C1). Keyed by the `code` of an audit.js violation, one
  * entry per code of the audit's CODES — tests/skeleton-build.test.js checks
- * that every code of that list has an entry here. `fix` is a string, or a
- * function of the violation's `detail` when the right advice depends on the
- * tag.
+ * that every code of that list has an entry here. `problem` and `fix` are
+ * strings, or functions of the violation's `detail` when the right words
+ * depend on the tag the snippet shows.
  */
 const AUDIT_ADVICE = Object.freeze({
   'external-url': {
@@ -406,6 +436,10 @@ const AUDIT_ADVICE = Object.freeze({
     problem: '有一个 srcdoc 属性,它嵌入的页面里可以执行脚本。',
     fix: '删掉这个属性。',
   },
+  'unsupported-tag': {
+    problem: unsupportedTagProblem,
+    fix: fixUnsupportedTag,
+  },
   unreadable: {
     problem: '构建读不了这个文件。',
     fix: '',
@@ -434,8 +468,10 @@ function formatAuditViolations(violations, { sourceOf = () => null } = {}) {
     const source = sourceOfEntry(v);
     const advice = AUDIT_ADVICE[v.code]
       ?? { problem: '构建发现了一处不允许的写法,但没有对应的说明。', fix: '' };
-    const { problem } = advice;
-    const fix = typeof advice.fix === 'function' ? advice.fix(v.detail) : advice.fix;
+    // Either may be a function of the snippet: the words depend on the tag it shows.
+    const said = (words) => (typeof words === 'function' ? words(v.detail) : words);
+    const problem = said(advice.problem);
+    const fix = said(advice.fix);
     const place = v.line > 0 ? ` 第 ${v.line} 行附近` : '';
     const where = source === null
       ? `文件:(构建生成的)${v.file}${place}`

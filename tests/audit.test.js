@@ -188,8 +188,9 @@ test('A2 — a <script src> to an outside URL is reported once, as the external 
 test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) href on any other element that is not <a> (external-url)', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<link rel="stylesheet" href="https://evil.example/x.css"/>',
-      '<link rel="icon" href="https://evil.example/favicon.ico">',
+      // (ruling AE 2: the two <link>s stand in the <head>, where a <link> belongs)
+      '<head><link rel="stylesheet" href="https://evil.example/x.css"/>',
+      '<link rel="icon" href="https://evil.example/favicon.ico"></head>',
       '<area href="https://evil.example/map"/>',
       '<use href="https://evil.example/s.svg#a"/>',
       '<image href="https://evil.example/i.png"/>',
@@ -202,10 +203,10 @@ test('A2 — <link href="http(s)://…"> is a violation, and so is an http(s) hr
 test('A2 — CSS url(http…) is a violation (css-external-url): in a <style> block, in a style attribute, in a .css file', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>',
+      '<head><style>', // (ruling AE 2: in the <head>, where a <style> belongs)
       'a{background:url(https://evil.example/a.png)}',
       'b{background:url( "https://evil.example/b.png" )}',
-      '</style>',
+      '</style></head>',
       '<div style="background:url(\'https://evil.example/c.png\')"></div>',
       '<div style="color:red">no url here</div>',
     ),
@@ -224,8 +225,8 @@ test('A2 — protocol-relative references (src="//…", href="//…", url(//…)
     [HTML]: page(
       '<img src="//cdn.example.com/x.png"/>',
       '<a href="//example.com/x">a link does not get a pass either</a>',
-      '<link rel="stylesheet" href="//cdn.example.com/x.css"/>',
-      '<style>a{background:url(//cdn.example.com/x.png)}</style>',
+      '<head><link rel="stylesheet" href="//cdn.example.com/x.css"/>', // (ruling AE 2: in the <head>, where a <link> belongs)
+      '<style>a{background:url(//cdn.example.com/x.png)}</style></head>',
     ),
   });
   assert.deepEqual(brief(violations), [
@@ -266,9 +267,9 @@ test('A3 — root-relative href="/…", src="/…" and CSS url(/…) are violati
     [HTML]: page(
       '<a href="/index.html">首页</a>',
       '<img src="/assets/x.png"/>',
-      '<link rel="stylesheet" href="/css/theme.css"/>',
+      '<head><link rel="stylesheet" href="/css/theme.css"/>', // (ruling AE 2: in the <head>, where a <link> and a <style> belong)
       '<script src="/assets/js/x.js"></script>',
-      '<style>a{background:url(/assets/x.png)}</style>',
+      '<style>a{background:url(/assets/x.png)}</style></head>',
       '<div style="background:url( /assets/y.png )"></div>',
       "<a href=' /single-quoted '>quotes do not help</a>",
     ),
@@ -291,7 +292,7 @@ test('A3 — site-relative paths, fragments, query strings are not root-relative
     [HTML]: page(
       '<a href="items.html">a</a> <a href="../items.html">b</a> <a href="#x">c</a> <a href="?q=1">d</a> <a href="">e</a>',
       '<img src="assets/a.png"/> <img src="../assets/b.png"/> <img src="./c.png"/>',
-      '<style>b{fill:url(#grad)} c{background:url()}</style>',
+      '<head><style>b{fill:url(#grad)} c{background:url()}</style></head>', // (ruling AE 2: in the <head>, where a <style> belongs)
       '<a href="https://example.com/a/b">an external link is not root-relative either</a>',
     ),
   });
@@ -469,13 +470,14 @@ test('A4 — a <base> tag is a violation (base-tag): it changes what every relat
 
 test('A4 — a <meta> with http-equiv is a violation (meta-http-equiv); the ordinary <meta> tags of a page are not', async (t) => {
   const violations = await auditOf(t, {
+    // (ruling AE 2: in the <head>, where a <meta> belongs — in the body each of the six would be an unsupported tag too)
     [HTML]: page(
-      '<meta http-equiv="refresh" content="0; url=https://evil.example/">',
+      '<head><meta http-equiv="refresh" content="0; url=https://evil.example/">',
       '<meta content="5" http-equiv=refresh>',
       '<META HTTP-EQUIV="X-UA-Compatible" CONTENT="IE=edge">',
       '<meta charset="UTF-8"/>',
       '<meta name="viewport" content="width=device-width, initial-scale=1"/>',
-      '<meta name="robots" content="noindex">',
+      '<meta name="robots" content="noindex"></head>',
     ),
   });
   // (ruling AA) the first one also carries an outside address in its content
@@ -542,9 +544,10 @@ test('A4 — the audit does not recognise HTML comments: a tag inside one is che
 
 test('A4 — the content of <script> and <style> is not read as tags', async (t) => {
   const violations = await auditOf(t, {
+    // (ruling AE 2: in the <head>, where a <style> belongs)
     [HTML]: page(
-      '<script type="application/json">{"html": "<img src=x onerror=alert(1)><script>alert(2)</script>"}</script>',
-      '<style>.a::before{content:"<script onclick=x>"}</style>',
+      '<head><script type="application/json">{"html": "<img src=x onerror=alert(1)><script>alert(2)</script>"}</script>',
+      '<style>.a::before{content:"<script onclick=x>"}</style></head>',
     ),
   });
   assert.deepEqual(violations, []);
@@ -651,7 +654,7 @@ test('AA — a plain-text address outside every tag is not a violation; neither 
 test('AA — by class: any attribute of any tag but <a href>, wherever in the value the address sits', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<meta name="anything" content="0; url=https://evil.example/">', // content
+      '<head><meta name="anything" content="0; url=https://evil.example/"></head>', // content — (ruling AE 2: in the <head>, where a <meta> belongs)
       '<div data-x="https://evil.example/d">any attribute at all</div>',
       '<img srcset="a.png 1x, https://evil.example/b.png 2x" alt=""/>', // not at the start of the value
       '<img src="HTTPS://EVIL.EXAMPLE/upper.png" alt=""/>', // case does not matter
@@ -769,7 +772,7 @@ test('AA — the two CSS gaps are closed: @import "https://…" and image-set("h
       'e{background:url( "https://evil.example/quoted.png" )}', // blanks and quotes around the address
     ),
     [HTML]: page(
-      '<style>@import "https://fonts.example.com/x.css";</style>',
+      '<head><style>@import "https://fonts.example.com/x.css";</style></head>', // (ruling AE 2: in the <head>, where a <style> belongs)
       "<div style=\"background:image-set('https://evil.example/a.png' 1x)\">x</div>",
     ),
   });
@@ -949,7 +952,7 @@ test('review Important 1 — cause 1: a /* inside a string is text, not a commen
       'c{background:url(https://evil.example/c.png)}',
       '',
     ].join('\n'),
-    [HTML]: ['<style>', 'a{content:"/*"}', 'b{background:url(https://evil.example/d.png)}', '/* real */', '</style>'].join('\n'),
+    [HTML]: ['<head><style>', 'a{content:"/*"}', 'b{background:url(https://evil.example/d.png)}', '/* real */', '</style></head>'].join('\n'), // (ruling AE 2: in the <head>)
   });
   assert.deepEqual(brief(violations), [
     'css/theme.css:2 [css-external-url]',
@@ -1066,7 +1069,7 @@ test('ruling AB(b) / A9 — …and in a script tag, a stylesheet, a form, a stra
   const violations = await auditOf(t, {
     [HTML]: page(
       '<script src="data:text/javascript,alert(1)"></script>', // a data: address, and a script source off the list
-      '<link rel="stylesheet" href="data:text/css,body{color:red}">',
+      '<head><link rel="stylesheet" href="data:text/css,body{color:red}"></head>', // (ruling AE 2: in the <head>, where a <link> belongs)
       '<form action="data:text/html,<script>alert(1)</script>"></form>',
       '<div data-x="data:text/html,x">a custom attribute</div>',
       '<svg><image href="data:image/svg+xml,<svg></svg>"/></svg>',
@@ -1271,12 +1274,13 @@ test('ruling AC(1) — the tag name is read to its end too (300 characters): wha
 
 test('review round 2, Important — a string that the end of the text closes still holds its address: @import in a <style>, left open four ways', async (t) => {
   const violations = await auditOf(t, {
+    // (ruling AE 2: in the <head>, where a <style> belongs)
     [HTML]: page(
-      '<style>@import "https://evil.example/a.css</style>',
+      '<head><style>@import "https://evil.example/a.css</style>',
       "<style>@import 'https://evil.example/b.css</style>",
       '<style>@import "https://evil.example/c.css\\</style>', // ending in a backslash
       '<style>@import "https://evil.example/d.css\\\r\n</style>', // a backslash, then CRLF — one line to HTML, one to CSS
-      '<style>@import "https://evil.example/e.css\\\n</style>', // a backslash, then LF
+      '<style>@import "https://evil.example/e.css\\\n</style></head>', // a backslash, then LF
     ),
   });
   // (the fourth line holds a line break of its own, so the fifth is on line 6)
@@ -1286,8 +1290,8 @@ test('review round 2, Important — a string that the end of the text closes sti
 test('review round 2, Important — …and url(, image-set( in a <style>, a url( in a style="" attribute', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>f3{background:url("https://evil.example/f3.png</style>',
-      '<style>f5{background:image-set("https://evil.example/f5.png 1x)}</style>', // the open string swallows ` 1x)}` into the address — the browser asks for exactly that
+      '<head><style>f3{background:url("https://evil.example/f3.png</style>', // (ruling AE 2: in the <head>, where a <style> belongs)
+      '<style>f5{background:image-set("https://evil.example/f5.png 1x)}</style></head>', // the open string swallows ` 1x)}` into the address — the browser asks for exactly that
       '<div style="background:url(\'https://evil.example/f7.png">x</div>', // open to the end of the attribute value
     ),
   });
@@ -1311,12 +1315,13 @@ test('review round 2, Important — the same at the end of a stylesheet file: @i
 test('review round 2, Important — the controls: a string that a LINE BREAK ends is a bad string, dropped as a browser drops it; an open string with no outside address reports nothing', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>@import "https://evil.example/b1.css\nbody{color:red}</style>',
+      // (ruling AE 2: in the <head>, where a <style> belongs)
+      '<head><style>@import "https://evil.example/b1.css\nbody{color:red}</style>',
       '<style>@import "https://evil.example/b2.css\n</style>',
       '<style>@import "https://evil.example/b3.css\n";</style>',
       '<style>b4{background:url("https://evil.example/b4.png\n)}</style>',
       '<style>@import "theme-more.css</style>', // open, and a site file: asked for, allowed
-      '<style>e11{content:"just text, never closed}</style>',
+      '<style>e11{content:"just text, never closed}</style></head>',
     ),
     'css/theme.css': '@import "https://evil.example/u12.css\n', // open, then the line ends the file
     'css/other.css': '@import "https://evil.example/b8.css\nbody{color:red}\n',
@@ -1383,8 +1388,8 @@ test('ruling AC(2) — decoded ONCE, as a browser does: &#38;quot; is `&quot;` w
 test('ruling AC(2) — where the browser decodes nothing, the audit decodes nothing: inside a <style> element and in a stylesheet file', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>e10{background:url(&quot;https://evil.example/e10.png&quot;)}</style>',
-      '<style>e11{background:url("&#104;ttps://evil.example/e11.png")}</style>',
+      '<head><style>e10{background:url(&quot;https://evil.example/e10.png&quot;)}</style>', // (ruling AE 2: in the <head>, where a <style> belongs)
+      '<style>e11{background:url("&#104;ttps://evil.example/e11.png")}</style></head>',
     ),
     'css/theme.css': 'a{background:url("&#104;ttps://evil.example/x.png")}',
   });
@@ -1506,10 +1511,12 @@ test('review round 2, found while parsing exactly — inside <svg> / <math> a <s
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [script-inline]`, // the empty SVG script, reported like any <script>
     `${HTML}:2 [external-url]`,
+    `${HTML}:3 [unsupported-tag]`, // (ruling AE 2: a <style/>, in the body)
     `${HTML}:4 [external-url]`,
     `${HTML}:5 [script-inline]`,
-    `${HTML}:6 [css-external-url]`,
-    `${HTML}:7 [external-url]`,
+    `${HTML}:6 [unsupported-tag]`, `${HTML}:6 [css-external-url]`, // (ruling AE 2: the <style> is in the body)
+    `${HTML}:7 [unsupported-tag]`, `${HTML}:7 [external-url]`,
+    `${HTML}:8 [unsupported-tag]`, // (ruling AE 2: a <style/>, in the body)
     `${HTML}:9 [external-url]`,
   ]);
 });
@@ -1572,10 +1579,10 @@ test('review round 2, found while parsing exactly — where the browser leaves t
 test('review round 2, found while parsing exactly — the src of @font-face may hold its address as a bare string: reported like url()', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>@font-face{font-family:f1;src:"https://evil.example/f1.woff2"}</style>',
+      '<head><style>@font-face{font-family:f1;src:"https://evil.example/f1.woff2"}</style>', // (ruling AE 2: in the <head>, where a <style> belongs)
       '<style>@font-face{font-family:f2;src:local("No Such Font"), "https://evil.example/f2.woff2" format("woff2")}</style>',
       '<style>@font-face{font-family:f3;src:"https://evil.example/f3.woff2" format("woff2") tech(variations)}</style>',
-      '<style>@font-face{font-family:f4;src:"/f4.woff2"}</style>', // root-relative, as ever
+      '<style>@font-face{font-family:f4;src:"/f4.woff2"}</style></head>', // root-relative, as ever
     ),
   });
   assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`).concat(`${HTML}:4 [css-root-relative]`));
@@ -1584,9 +1591,9 @@ test('review round 2, found while parsing exactly — the src of @font-face may 
 test('review round 2, found while parsing exactly — and only there: a font-family written as a string, a name in local(), a format() or tech() — none is an address', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>@font-face{font-family:"https://evil.example/not-an-address";src:local("https://evil.example/not-an-address")}</style>',
+      '<head><style>@font-face{font-family:"https://evil.example/not-an-address";src:local("https://evil.example/not-an-address")}</style>', // (ruling AE 2: in the <head>, where a <style> belongs)
       '<style>@font-face{font-family:"https://evil.example/a";src:url("theme.woff2") format("https://evil.example/not-an-address")}</style>',
-      '<style>x{content:"https://evil.example/not-an-address"}</style>', // a string in any other declaration
+      '<style>x{content:"https://evil.example/not-an-address"}</style></head>', // a string in any other declaration
     ),
   });
   assert.deepEqual(violations, []);
@@ -1595,9 +1602,9 @@ test('review round 2, found while parsing exactly — and only there: a font-fam
 test('review round 2, found while parsing exactly — image() takes its address as a bare string too, like image-set()', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
-      '<style>x{background-image:image("https://evil.example/i.png")}</style>',
+      '<head><style>x{background-image:image("https://evil.example/i.png")}</style>', // (ruling AE 2: in the <head>, where a <style> belongs)
       '<style>x{background-image:image("https://evil.example/j.png" type("image/png"))}</style>',
-      '<style>x{background-image:image(url("https://evil.example/k.png"))}</style>', // url() inside: read by the url() rule, once
+      '<style>x{background-image:image(url("https://evil.example/k.png"))}</style></head>', // url() inside: read by the url() rule, once
     ),
   });
   assert.deepEqual(brief(violations), [1, 2, 3].map((n) => `${HTML}:${n} [css-external-url]`));
@@ -1662,11 +1669,11 @@ const ROUND3 = [
   ['c03', 'Critical — </svg> inside a comment, then a data block holding <foreignObject><script>', '<svg><!-- </svg> --><script type="application/json"><foreignObject><script>alert(\'c03\')</script></script>', ['script-inline']],
   ['c04', 'Critical — </svg> inside a comment, then a data block holding an outside <img src>', '<svg><!-- </svg> --><script type="application/json"><img src="https://evil.example/c04.png"></script>', ['external-url']],
   ['c05', 'Critical — </svg> inside a comment, then a data block holding <a href="javascript:…">', '<svg><!-- </svg> --><script type="application/json"><a href="javascript:alert(\'c05\')">c05</a></script>', ['script-url']],
-  ['c06', 'Critical — </svg> inside a comment, then a <style> holding <a href="javascript:…">', '<svg><!-- </svg> --><style><a href="javascript:alert(\'c06\')">c06</a></style>', ['script-url']],
+  ['c06', 'Critical — </svg> inside a comment, then a <style> holding <a href="javascript:…">', '<svg><!-- </svg> --><style><a href="javascript:alert(\'c06\')">c06</a></style>', ['unsupported-tag', 'script-url']],
   ['c07', 'Critical — </svg> inside a CDATA section, then a data block holding <img onerror>', `<svg><g><![CDATA[ </svg> ]]>${R3_BLOCK('c07')}`, ['inline-event-handler']],
   ['c08', 'Critical — </svg> inside a CDATA section that follows <svg> itself, then a data block holding <img onerror>', `<svg><![CDATA[</svg>]]>${R3_BLOCK('c08')}`, ['inline-event-handler']],
   ['c09', 'Critical — </math> inside a comment, then a data block holding <img onerror>', `<math><!-- </math> -->${R3_BLOCK('c09')}`, ['inline-event-handler']],
-  ['c10', 'Critical — </svg> inside a CDATA section inside an SVG <style>, then a data block holding an outside <img src>', '<svg><style><![CDATA[ </svg> ]]></style><script type="application/json"><img src="https://evil.example/c10.png"></script>', ['external-url']],
+  ['c10', 'Critical — </svg> inside a CDATA section inside an SVG <style>, then a data block holding an outside <img src>', '<svg><style><![CDATA[ </svg> ]]></style><script type="application/json"><img src="https://evil.example/c10.png"></script>', ['unsupported-tag', 'external-url']],
   ['c11', 'Critical — </svg> inside a processing instruction, then a data block holding <img onerror>', `<svg><?pi </svg> ?>${R3_BLOCK('c11')}`, ['inline-event-handler']],
   ['c12', 'Critical — </math> inside a processing instruction, then a data block holding <img onerror>', `<math><?pi </math> ?>${R3_BLOCK('c12')}`, ['inline-event-handler']],
   ['c13', 'Critical — </math> inside a CDATA section, then a data block holding <img onerror>', `<math><![CDATA[</math>]]>${R3_BLOCK('c13')}`, ['inline-event-handler']],
@@ -1690,7 +1697,7 @@ const ROUND3 = [
   ['e01', 'found while reading — an end tag carries an attribute whose quoted value holds >: a <script src> of the allow-list written inside that value hid all that followed', `<p></p title="x><script src=assets/js/search.js>y">${R3_IMG('e01')}`, ['inline-event-handler']],
   ['e02', 'found while reading — the same, after a script of the allow-list', `<script src="assets/js/search.js"></script a="x><script src=assets/js/search.js>y">${R3_IMG('e02')}`, ['inline-event-handler']],
   ['e03', 'found while reading — the same, after a data block', `<script type="application/json">{}</script a="x><script type="application/json">y">${R3_IMG('e03')}`, ['inline-event-handler']],
-  ['e04', 'found while reading — the same, after a <style>: the link with a javascript: address that followed was never read', '<style>x</style a="x><style>y"><a href="javascript:alert(\'e04\')">e04</a>', ['script-url']],
+  ['e04', 'found while reading — the same, after a <style>: the link with a javascript: address that followed was never read', '<style>x</style a="x><style>y"><a href="javascript:alert(\'e04\')">e04</a>', ['unsupported-tag', 'script-url']],
   ['e05', 'found while reading — the same with single quotes', `<p></p title='x><script src=assets/js/search.js>y'>${R3_IMG('e05')}`, ['inline-event-handler']],
   ['e06', 'control — an end tag with an attribute and no > inside its value: read right before', `<script src="assets/js/search.js"></script x="y">${R3_IMG('e06')}`, ['inline-event-handler']],
   ['e07', 'control — a start tag with > inside a quoted value: read right before', `<div title="a>b">${R3_IMG('e07')}`, ['inline-event-handler']],
@@ -1700,9 +1707,9 @@ const ROUND3 = [
   // b01 and b10 were read before; b08 is new: in foreign content the tag
   // closes itself and stays empty, but the browser's preload scanner reads
   // the text on to </style> and fetches the @import after it all the same.
-  ['b01', 'control — a <style/> after a closed <svg> is an HTML style: its CSS was read before', '<svg></svg><style/>@import url(https://evil.example/b01.css);</style>', ['css-external-url']],
-  ['b10', 'control — a <style/> after a closed <svg>: a url() in what follows was read before, and must stay read', '<svg></svg><style/>x{background:url(https://evil.example/b10.png)}</style>', ['css-external-url']],
-  ['b08', 'found while reading — a <style/> inside an <svg> closes itself and stays empty, but the browser fetches an @import after it all the same (its preload scanner reads the text on to </style>): read like an HTML <style/>', '<svg><style/>@import url(https://evil.example/b08.css);</style></svg>', ['css-external-url']],
+  ['b01', 'control — a <style/> after a closed <svg> is an HTML style: its CSS was read before', '<svg></svg><style/>@import url(https://evil.example/b01.css);</style>', ['unsupported-tag', 'css-external-url']],
+  ['b10', 'control — a <style/> after a closed <svg>: a url() in what follows was read before, and must stay read', '<svg></svg><style/>x{background:url(https://evil.example/b10.png)}</style>', ['unsupported-tag', 'css-external-url']],
+  ['b08', 'found while reading — a <style/> inside an <svg> closes itself and stays empty, but the browser fetches an @import after it all the same (its preload scanner reads the text on to </style>): read like an HTML <style/>', '<svg><style/>@import url(https://evil.example/b08.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
   // --- found while reading: the CSS of a <style> the audit takes for a
   // foreign element. It was read to the first </style> — wherever that stood.
   // In foreign content a </style> inside a comment, a CDATA section, a
@@ -1710,19 +1717,19 @@ const ROUND3 = [
   // a token may close a <style> nested inside. The browser applies the text
   // nodes that are the style element's own children, up to where the element
   // really ends — each of these was fetched in Chrome 152 (task-6b report).
-  ['b06', 'control — the CSS of an SVG <style> inside a CDATA section: read before', '<svg><style><![CDATA[ @import url(https://evil.example/b06.css); ]]></style></svg>', ['css-external-url']],
-  ['b02', 'found while reading — the CSS of an SVG <style> after a nested <style>: the first </style> closes the nested one', '<svg><style><style></style>@import url(https://evil.example/b02.css);</style></svg>', ['css-external-url']],
-  ['b03', 'found while reading — the CSS of an SVG <style> after a comment holding </style>', '<svg><style><!-- </style> -->@import url(https://evil.example/b03.css);</style></svg>', ['css-external-url']],
-  ['b04', 'found while reading — the CSS of an SVG <style> after a tag whose quoted value holds </style>', '<svg><style><g title="</style>"></g>@import url(https://evil.example/b04.css);</style></svg>', ['css-external-url']],
-  ['b05', 'found while reading — the CSS of an SVG <style> after a processing instruction holding </style>', '<svg><style><?pi </style> ?>junk{} rect{fill:url(https://evil.example/b05.png)}</style><rect width="8" height="8"/></svg>', ['css-external-url']],
-  ['b07', 'found while reading — the CSS of an SVG <style> after a CDATA section holding </style>', '<svg><style><![CDATA[ </style> ]]>junk{} rect{fill:url(https://evil.example/b07.png)}</style><rect width="8" height="8"/></svg>', ['css-external-url']],
-  ['b09', 'found while reading — the CSS of an SVG <style> after two nested <style>', '<svg><style><style><style></style></style>@import url(https://evil.example/b09.css);</style></svg>', ['css-external-url']],
+  ['b06', 'control — the CSS of an SVG <style> inside a CDATA section: read before', '<svg><style><![CDATA[ @import url(https://evil.example/b06.css); ]]></style></svg>', ['unsupported-tag', 'css-external-url']],
+  ['b02', 'found while reading — the CSS of an SVG <style> after a nested <style>: the first </style> closes the nested one', '<svg><style><style></style>@import url(https://evil.example/b02.css);</style></svg>', ['unsupported-tag', 'unsupported-tag', 'css-external-url']],
+  ['b03', 'found while reading — the CSS of an SVG <style> after a comment holding </style>', '<svg><style><!-- </style> -->@import url(https://evil.example/b03.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
+  ['b04', 'found while reading — the CSS of an SVG <style> after a tag whose quoted value holds </style>', '<svg><style><g title="</style>"></g>@import url(https://evil.example/b04.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
+  ['b05', 'found while reading — the CSS of an SVG <style> after a processing instruction holding </style>', '<svg><style><?pi </style> ?>junk{} rect{fill:url(https://evil.example/b05.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'css-external-url']],
+  ['b07', 'found while reading — the CSS of an SVG <style> after a CDATA section holding </style>', '<svg><style><![CDATA[ </style> ]]>junk{} rect{fill:url(https://evil.example/b07.png)}</style><rect width="8" height="8"/></svg>', ['unsupported-tag', 'css-external-url']],
+  ['b09', 'found while reading — the CSS of an SVG <style> after two nested <style>', '<svg><style><style><style></style></style>@import url(https://evil.example/b09.css);</style></svg>', ['unsupported-tag', 'unsupported-tag', 'unsupported-tag', 'css-external-url']],
   // --- what reading on costs: where the browser applies none of what the audit reads
-  ['b11', 'the price of reading on — an HTML integration point inside an SVG <style>: the audit gives the element up and reads on to the end of the page; the browser closed the style at the </style> before it', '<svg><style><desc></style>@import url(https://evil.example/b11.css);</style>', ['css-external-url']],
-  ['b12', 'the price of reading on — </style> inside a tag that stays open: what follows is that element\'s text, which the browser applies nowhere — read all the same', '<svg><style><g title="</style>">@import url(https://evil.example/b12.css);</style></svg>', ['css-external-url']],
+  ['b11', 'the price of reading on — an HTML integration point inside an SVG <style>: the audit gives the element up and reads on to the end of the page; the browser closed the style at the </style> before it', '<svg><style><desc></style>@import url(https://evil.example/b11.css);</style>', ['unsupported-tag', 'css-external-url']],
+  ['b12', 'the price of reading on — </style> inside a tag that stays open: what follows is that element\'s text, which the browser applies nowhere — read all the same', '<svg><style><g title="</style>">@import url(https://evil.example/b12.css);</style></svg>', ['unsupported-tag', 'css-external-url']],
   // --- a legitimate inline SVG is not reported — and what the page after it
   // costs an author who writes an inline script (a violation in its own right)
-  ['s01', 'control — a legitimate inline SVG, a <style> after it, a link and a script of the allow-list: nothing to report', `${R3_ICON}<p>Text <a href="https://example.com/">a link</a>.</p><script src="assets/js/search.js"></script>`, []],
+  ['s01', 'control — a legitimate inline SVG, a <style> after it, a link and a script of the allow-list: nothing to report', `${R3_ICON}<p>Text <a href="https://example.com/">a link</a>.</p><script src="assets/js/search.js"></script>`, ['unsupported-tag', 'unsupported-tag']],
   ['s02', 'the price of never leaving — the body of an HTML <script> after an <svg> is read as markup: a tag-looking string in it is reported too', `<svg><circle r="1"/></svg><script>var s = "${R3_IMG('s02')}";</script>`, ['script-inline', 'inline-event-handler']],
   ['s03', 'the price of never leaving — an HTML <script/> after a closed <svg>: what follows is read as markup', '<svg></svg><script/><iframe src="https://evil.example/s03.html"></iframe>', ['script-inline', 'external-url']],
 ];
@@ -1745,7 +1752,7 @@ test('review round 3 — the CSS of <style>s inside one another is read once: 20
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  assert.equal(violations.length, 500, 'each address once — not once per <style> it is inside');
+  assert.equal(violations.length, 700, 'each address once — not once per <style> it is inside; and (ruling AE 2) each of the 200 <style>s, in the body, once');
   assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — without the guard each <style> read the whole of the text again`);
 });
 
@@ -1757,7 +1764,10 @@ test('review round 3 — time grows with the size, not with its square: 30 000 <
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  assert.deepEqual(violations, []);
+  // (ruling AE 2: each <style> is in the body, and each is an unsupported tag — compared by number and kind first:
+  // a deepEqual of 30 000 entries against [] spent two minutes building its diff)
+  assert.equal(violations.length, 30000, 'one unsupported tag per <style>');
+  assert.ok(violations.every((v) => v.code === 'unsupported-tag'));
   assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to look to the end of the text once per <style>`);
 });
 
@@ -1768,6 +1778,133 @@ test('review round 3 — and not with the number of comments either: one <style>
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
-  assert.equal(violations.length, 10001, 'what a comment holds is read as CSS too — more than the browser applies, never less');
+  assert.equal(violations.length, 10002, 'what a comment holds is read as CSS too — more than the browser applies, never less; and (ruling AE 2) the <style> itself, in the body');
   assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — a search for the end of each comment used to run on to the end of the text`);
+});
+
+// ===========================================================================
+// Review round 4 — ruling AE: a tag allow-list, and no foreign content
+//
+// Every new gap of the three rounds before came out of the state machine
+// that imitated how a browser parses SVG / MathML "foreign content" and
+// where a <style> element ends. Ruling AE: imitate nothing. A ```html block
+// may hold common tags only — a tag that is not on the allow-list is refused,
+// whatever is inside it — so there is no foreign content left to parse, and
+// the state machine is gone (AE 1, AE 3). The four elements that belong in
+// the <head> are allowed there and nowhere else (AE 2). The CSS of every
+// <style> is read on its own, to the first </style or the end of the text
+// (AE 4). The allow-list is the common typographic tags of the ruling plus
+// the structural tags the first-party templates emit — counted on the built
+// site, with the audit's own tokenizer (task-6b round-4 report).
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Ruling AE 2: <title>, <meta>, <link> and <style> belong in the <head>
+//
+// They are the head's own elements: a <link rel="stylesheet"> loads a file, a
+// <style> is applied, a <meta http-equiv> can redirect — and a browser acts
+// on them in the body just the same. The first-party templates write them in
+// the <head> and nowhere else; what a contributor writes lands in the body.
+// So in the body each is an unsupported tag.
+//
+// The audit cannot tell the template's head from one written into a page: it
+// reads tags. The head is the first <head> … to the first </head> after it —
+// the one a browser has too, for a <head> written in the body opens nothing
+// there. Where the head cannot be told — no <head> at all, a <head> that is
+// never closed, a <head/> — nothing is head and everything is body: the
+// stricter reading.
+// ---------------------------------------------------------------------------
+
+/** The layout templates.js writes on every page, as far as its tags go (counted on the built site). */
+const HEAD_LAYOUT = [
+  '<!DOCTYPE html>',
+  '<html lang="zh-Hans-CN">',
+  '<head>',
+  '<meta charset="UTF-8"/>',
+  '<meta name="viewport" content="width=device-width, initial-scale=1"/>',
+  '<title>首页 · 淫色深空 Wiki</title>',
+  '<link rel="stylesheet" href="css/theme.css"/>',
+  '</head>',
+  '<body><div class="page-wrap"><p>正文</p></div></body>',
+  '</html>',
+].join('\n');
+
+test('ruling AE 2 — in the <head> the four are not reported for where they stand: the layout of every first-party page, with a <style> and a second <link> as a template may write them', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: HEAD_LAYOUT.replace('</head>',
+      '<link rel="icon" href="assets/favicon.png"/>\n<style>.a{fill:url(#grad)} b{background:url(assets/b.png)}</style>\n</head>'),
+    'deep/page.html': HEAD_LAYOUT.replace('href="css/theme.css"', 'href="../css/theme.css"'),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('ruling AE 2 — in the body each of the four is an unsupported tag: once, where the tag starts, with the tag as its snippet — any case, self-closing or not', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<title>写在正文里的标题</title>',
+      '<meta charset="UTF-8">',
+      '<LINK rel="stylesheet" href="css/theme.css">',
+      '<Style>.a{color:red}</style>',
+      '<style/>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [1, 2, 3, 4, 5].map((n) => `${HTML}:${n} [unsupported-tag]`));
+  assert.deepEqual(violations.map((v) => v.detail), [
+    '<title>', '<meta charset="UTF-8">', '<LINK rel="stylesheet" href="css/theme.css">', '<Style>', '<style/>',
+  ]);
+});
+
+test('ruling AE 2 — only the first <head>…</head> is the head. A <head> written in the body opens nothing; and where the head cannot be told — none, one never closed, a <head/>, one that opens later — everything before or outside it is body: the stricter reading', async (t) => {
+  // [file, page, the lines that hold one of the four outside the head]
+  const cases = [
+    ['second.html', HEAD_LAYOUT.replace('</body>', '<head><meta charset="UTF-8"></head></body>'), [9]],
+    ['none.html', '<meta charset="UTF-8">\n<p>no head at all</p>', [1]],
+    ['never-closed.html', '<head>\n<meta charset="UTF-8">\n<link rel="stylesheet" href="css/theme.css">', [2, 3]],
+    ['self-closing.html', '<head/>\n<meta charset="UTF-8">', [2]],
+    ['opens-later.html', '<html>\n<meta charset="UTF-8">\n<head>\n<meta name="viewport" content="width=device-width">\n</head>', [2]],
+  ];
+  for (const [file, html, lines] of cases) {
+    const violations = await auditOf(t, { [file]: html });
+    assert.deepEqual(brief(violations), lines.map((n) => `${file}:${n} [unsupported-tag]`), html);
+  }
+});
+
+test('ruling AE 2 — where the head ends is read by the rules of the rest of the audit: a </head> inside the text of a <script> or a <style> is no token and closes nothing', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<head>',
+      '<script type="application/json">{"a": "</head><meta charset=\\"UTF-8\\">"}</script>',
+      '<style>.a::before{content:"</head>"}</style>',
+      '<meta charset="UTF-8">',
+      '<link rel="stylesheet" href="css/theme.css">',
+      '</head>',
+    ),
+  });
+  assert.deepEqual(violations, []);
+});
+
+test('ruling AE 2 — in the <head> the other rules apply as anywhere else: <meta http-equiv>, an outside or root-relative href of a <link>, the CSS of a <style>', async (t) => {
+  const violations = await auditOf(t, {
+    [HTML]: page(
+      '<head>',
+      '<meta http-equiv="refresh" content="1">',
+      '<link rel="stylesheet" href="https://evil.example/x.css">',
+      '<link rel="stylesheet" href="/css/theme.css">',
+      '<style>@import url(https://evil.example/y.css);</style>',
+      '<style>a{background:url(/a.png)}</style>',
+      '<title>ok</title>',
+      '</head>',
+    ),
+  });
+  assert.deepEqual(brief(violations), [
+    `${HTML}:2 [meta-http-equiv]`,
+    `${HTML}:3 [external-url]`,
+    `${HTML}:4 [root-relative-url]`,
+    `${HTML}:5 [css-external-url]`,
+    `${HTML}:6 [css-root-relative]`,
+  ]);
+});
+
+test('ruling AE 2 — the head-only tags are exactly title, meta, link and style, exported in order: the report reads the list to say where such a tag belongs', () => {
+  assert.deepEqual([...auditModule.HEAD_ONLY_TAGS], ['link', 'meta', 'style', 'title']);
 });

@@ -48,6 +48,10 @@
 //         an on<name>= event attribute
 //         a javascript: or vbscript: URL
 //         a <base> tag, a <meta http-equiv>, a srcdoc attribute
+//   AE2 <title>, <meta>, <link> and <style> are the head's own elements. In
+//       the <head> they stand; in the body each is an unsupported tag — the
+//       first-party templates write them in the head and nowhere else, and
+//       what a contributor writes lands in the body (headOf, HEAD_ONLY_TAGS).
 //   A5  .js and .css are build output, not contributor content: A4 does not
 //       apply to them. A2 and A3 do, read as literal text there (a script can
 //       assemble markup at run time).
@@ -121,6 +125,7 @@ const CODES = Object.freeze([
   'data-url', 'css-data-url',
   'fetch', 'xhr',
   'script-inline', 'script-src', 'inline-event-handler', 'script-url', 'base-tag', 'meta-http-equiv', 'srcdoc',
+  'unsupported-tag',
   'unreadable',
 ]);
 
@@ -193,6 +198,21 @@ const RAW_TEXT_END = Object.freeze({
  */
 const FOREIGN_ROOTS = new Set(['svg', 'math']);
 const EVENT_ATTRIBUTE = /^on[a-z]+$/;
+
+/**
+ * The elements that belong in the <head> of a page — <title>, <meta>, <link>
+ * and <style> — in order (ruling AE 2). A browser acts on them in the body
+ * just the same: a <link rel="stylesheet"> loads its file, a <style> is
+ * applied, a <meta http-equiv> can redirect. The first-party templates write
+ * them in the <head> and nowhere else (counted on the built site), and what a
+ * contributor writes lands in the body. So in the head they stand, and in the
+ * body each is an unsupported tag (headOf tells the two apart).
+ *
+ * Exported for the order of the names, so that the report says where such a
+ * tag belongs (skeleton-build.js) from this one list.
+ */
+const HEAD_ONLY_TAGS = Object.freeze(['link', 'meta', 'style', 'title']);
+const HEAD_ONLY = new Set(HEAD_ONLY_TAGS);
 
 /**
  * The attributes whose value is a URL — or a list of URLs — that the browser
@@ -782,13 +802,17 @@ function parseStartTag(text, start) {
  * Everything a start tag may do wrong. Every violation of one tag is anchored
  * at the tag's own start — the line a contributor finds it on, even when the
  * tag spans lines — and reported in document order.
+ * `inHead`: the tag stands in the <head> of the page (headOf). The four
+ * head-only elements are allowed there and nowhere else (ruling AE 2); the
+ * tag is reported for where it stands first, then for what it carries.
  */
-function checkTag(text, start, tag, report) {
+function checkTag(text, start, tag, report, inHead) {
   // The snippet is made once per tag, and only when the tag has something to
   // report (ruling AC 3). It used to be built for every attribute, as an
   // argument: a tag of 32 000 attributes took 46 seconds.
   let shown = null;
   const snippet = () => shown ??= text.slice(start, tag.end).replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (HEAD_ONLY.has(tag.name) && !inHead) report(start, 'unsupported-tag', snippet());
   const isBase = tag.name === 'base';
   if (isBase) report(start, 'base-tag', snippet());
   if (tag.name === 'meta' && tag.attributes.some((a) => a.name === 'http-equiv')) report(start, 'meta-http-equiv', snippet());
@@ -827,6 +851,55 @@ function checkTag(text, start, tag, report) {
     }
   }
 }
+
+/**
+ * Where the <head> of a page is: { from, to } — from the `<` of the first
+ * <head> that does not close itself to the `<` of the first </head> after
+ * it — or null when that cannot be told: no <head> at all, or one that is
+ * never closed. Then nothing is head and everything is body: the stricter
+ * reading (ruling AE 2).
+ *
+ * That is the head a browser has too. A <head> written in the body opens
+ * nothing there — the parser is past the head — and neither does one that
+ * comes before the first; so only the first pair counts, and the tags between
+ * them are the head's. The audit cannot tell the template's head from one
+ * written into a page: it reads tags.
+ *
+ * The page is read as everywhere else (scanHtml): the content of an HTML
+ * <script> or <style> is text, so a </head> inside one is no token and closes
+ * nothing — a browser keeps the head open past it, and so does this.
+ */
+function headOf(text) {
+  let from = -1;
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt < 0) return null;
+    const next = text[lt + 1];
+    if (next === '/') {
+      const tag = parseStartTag(text, lt + 1);
+      if (from >= 0 && tag.name === 'head') return { from, to: lt };
+      i = tag.end;
+      continue;
+    }
+    if (next === undefined || !/[A-Za-z]/.test(next)) { i = lt + 1; continue; } // `<!`, `<?`, or a bare `<`: not a tag
+    const tag = parseStartTag(text, lt);
+    i = tag.end;
+    if (RAW_TEXT.has(tag.name)) {
+      const close = RAW_TEXT_END[tag.name];
+      close.lastIndex = tag.end;
+      const found = close.exec(text);
+      if (found === null) return null;
+      i = parseStartTag(text, found.index + 1).end; // past the whole of the end tag
+    } else if (from < 0 && tag.name === 'head' && !tag.selfClosing) {
+      from = lt;
+    }
+  }
+  return null;
+}
+
+/** Does the tag that starts at `at` stand in the head `head` (headOf)? */
+const inTheHead = (head, at) => head !== null && at >= head.from && at < head.to;
 
 /**
  * The elements under which a browser reads what follows with the HTML rules:
@@ -985,8 +1058,13 @@ function foreignStyleEnd(text, from) {
  * there made it skip the rest of the page as the text of that script, and
  * nothing was reported while the browser ran an <img onerror> after it.
  * No <svg> is needed for that; it was there from the first (review round 3).
+ *
+ * Where the <head> is, is settled before the first tag is judged (headOf):
+ * the four head-only elements are allowed in it and nowhere else (ruling
+ * AE 2).
  */
 function scanHtml(text, report, detailOf) {
+  const head = headOf(text);
   let i = 0;
   let foreign = false;
   let cssReadTo = 0; // in foreign reading: where the CSS of the <style>s read so far ends
@@ -1003,7 +1081,7 @@ function scanHtml(text, report, detailOf) {
       continue;
     }
     const tag = parseStartTag(text, lt);
-    checkTag(text, lt, tag, report);
+    checkTag(text, lt, tag, report, inTheHead(head, lt));
     i = tag.end;
     if (FOREIGN_ROOTS.has(tag.name)) {
       if (!tag.selfClosing) foreign = true;
@@ -1102,4 +1180,4 @@ async function auditExternalLinks(dir) {
   return violations;
 }
 
-module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC, CODES };
+module.exports = { auditExternalLinks, ALLOWED_SCRIPT_SRC, CODES, HEAD_ONLY_TAGS };
