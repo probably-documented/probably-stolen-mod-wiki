@@ -167,6 +167,7 @@ test('A2 — src="http(s)://…" on any element is a violation (external-url)', 
       '<audio src="https://evil.example.com/a.mp3"></audio>',
     ),
   });
+  // Line 6 holds a tag that spans lines 6–7, so the next tags sit on 8 and 9.
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [external-url]`,
     `${HTML}:2 [external-url]`,
@@ -236,6 +237,9 @@ test('A2 — protocol-relative references (src="//…", href="//…", url(//…)
 });
 
 test('ruling AB(c) — a page is not scanned for the words fetch( and XMLHttpRequest: in a page they can only be text; a .js file and a stylesheet still are', async (t) => {
+  // The reviewer's sentence: with A4 closing every way to run a script, this
+  // is a sentence — and the report used to fail the build on it, telling the
+  // contributor to "delete this code".
   const violations = await auditOf(t, {
     [HTML]: page(
       '<p>本站页面不使用 fetch( 请求网络。</p>',
@@ -312,6 +316,7 @@ test('A4 — an executable inline <script> is always a violation (script-inline)
       '<script',
     ),
   });
+  // The tag written on line 7 spans lines 7–8, so the last two sit on 9 and 10.
   assert.deepEqual(brief(violations), [1, 2, 3, 4, 5, 6, 7, 9, 10].map((n) => `${HTML}:${n} [script-inline]`));
 });
 
@@ -345,6 +350,10 @@ test('ruling AB(a) — every other type is a script the audit refuses: the revie
 });
 
 test('A4 — a script block ends at its first </script> for the audit — a browser keeps going past a nested <script> after <!--, so this one case is over-reported, on the safe side', async (t) => {
+  // To a browser the whole element below is one (non-executable) data block:
+  // after `<!--` a nested `<script>` puts it in the double-escaped state,
+  // where the first </script> does not close it. The audit stops there and
+  // reads on as markup, so the <img onerror> it then sees is reported.
   const violations = await auditOf(t, {
     [HTML]: '<script type="application/json"><!-- <script></script><img src=x onerror=alert(1)> --></script>',
   });
@@ -452,6 +461,7 @@ test('A4 — a <base> tag is a violation (base-tag): it changes what every relat
   const violations = await auditOf(t, {
     [HTML]: '<base href="https://evil.example/">\n<BASE target="_blank">\n<base/>\n<p>no base here</p>',
   });
+  // (ruling AA) the first one is outside-addressed too: a <base> is no longer a special case
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [base-tag]`, `${HTML}:1 [external-url]`, `${HTML}:2 [base-tag]`, `${HTML}:3 [base-tag]`,
   ]);
@@ -468,6 +478,8 @@ test('A4 — a <meta> with http-equiv is a violation (meta-http-equiv); the ordi
       '<meta name="robots" content="noindex">',
     ),
   });
+  // (ruling AA) the first one also carries an outside address in its content
+  // attribute: two entries, the tag first
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [meta-http-equiv]`, `${HTML}:1 [external-url]`,
     `${HTML}:2 [meta-http-equiv]`, `${HTML}:3 [meta-http-equiv]`,
@@ -500,6 +512,11 @@ test('A4 — several violations in one tag are reported one each, in document or
 });
 
 test('A4 — the audit does not recognise HTML comments: a tag inside one is checked like any other', async (t) => {
+  // A browser does not run what is inside a complete comment — but where a
+  // comment ends has special cases (`<!-->` closes at once), and an audit
+  // that trusted them could be talked out of seeing a script. Reporting a
+  // commented-out tag costs its author a deletion; missing one costs every
+  // reader. Plain comments (no tag inside) are not affected.
   const violations = await auditOf(t, {
     [HTML]: page(
       '<!DOCTYPE html>',
@@ -918,6 +935,12 @@ test('review Critical 1 — every rule reads the first of a repeated attribute, 
 // ---------------------------------------------------------------------------
 
 test('review Important 1 — cause 1: a /* inside a string is text, not a comment; the rule after it is still CSS — with a real comment further down, as in the reviewer\'s case', async (t) => {
+  // The /* inside the string opened a "comment" for the audit before the fix,
+  // and only the */ of a REAL comment further down closed it: everything in
+  // between went unreported — b's address. (As first written this case had no
+  // real comment, and the old reading reported b's address too: it was green
+  // before the fix and proved nothing. The comment is the case.)
+  // A real comment is still a comment: nothing in it is reported.
   const violations = await auditOf(t, {
     'css/theme.css': [
       'a{content:"/*"}',
@@ -1090,6 +1113,7 @@ test('ruling AB(b) / A9 — a data: address is read as a browser reads it: chara
       '<img src=" DATA:image/png;base64,AAAA " alt="">', // …and so is this one: still an image in an <img>
     ),
   });
+  // (the second tag spans two lines, so the third one is on line 4)
   assert.deepEqual(brief(violations), [1, 2, 4].map((n) => `${HTML}:${n} [data-url]`));
 });
 
@@ -1147,6 +1171,12 @@ test('review round 2, Critical — a name of 256 characters is one name with the
 });
 
 test('review round 2, Critical — the controls at 255 and at 257 characters (4095 and 4097 of a value): the cut could be used only at exactly 256 (4096)', async (t) => {
+  // At exactly 256 the name ends where the old scan stopped reading, so
+  // `type` began a new "attribute" for it. One character more and the name
+  // runs past the cut: what is left of it is glued to `type`, which then is
+  // no `type` for the audit either; one less, and the name is read whole.
+  // Both were reported before this round, and must be still. The same for an
+  // unquoted value at exactly 4096.
   const both = async (x, valueLength) => brief(await auditOf(t, {
     [HTML]: page(
       `<script ${x}type="application/json" type="text/javascript">alert(1)</script>`,
@@ -1200,6 +1230,7 @@ test('ruling AC(1) — however long a name or a value, it is read to its end: 10
     `${HTML}:2 [external-url]`,
     `${HTML}:3 [external-url]`,
   ]);
+  // the snippet of a report entry is where a length limit belongs
   assert.ok(violations.every((v) => v.detail.length <= 160), 'no detail longer than 160 characters');
 });
 
@@ -1220,6 +1251,7 @@ test('ruling AC(1) — the tag name is read to its end too (300 characters): wha
   const violations = await auditOf(t, {
     [HTML]: page(`<${name} onclick="alert(1)">text</${name}>`, `<${name} src="https://evil.example/x.png">text</${name}>`),
   });
+  // the second line: the browser loads nothing from an unknown element; the audit reports the outside address in any attribute (ruling AA) — the safe side, as before
   assert.deepEqual(brief(violations), [`${HTML}:1 [inline-event-handler]`, `${HTML}:2 [external-url]`]);
 });
 
@@ -1247,6 +1279,7 @@ test('review round 2, Important — a string that the end of the text closes sti
       '<style>@import "https://evil.example/e.css\\\n</style>', // a backslash, then LF
     ),
   });
+  // (the fourth line holds a line break of its own, so the fifth is on line 6)
   assert.deepEqual(brief(violations), [1, 2, 3, 4, 6].map((n) => `${HTML}:${n} [css-external-url]`));
 });
 
@@ -1514,6 +1547,7 @@ test('review round 2, found while parsing exactly — where the browser leaves t
       '<img src="https://evil.example/q11.png" alt="">', // …never loaded
     ),
   });
+  // the audit stays inside the SVG, reads the script as an element and the image as markup: both reported — the safe side
   assert.deepEqual(brief(violations), [
     `${HTML}:1 [script-inline]`, `${HTML}:2 [external-url]`,
     'other.html:1 [script-inline]', 'other.html:2 [external-url]',
@@ -1704,6 +1738,9 @@ for (const [id, what, html, codes] of ROUND3) {
 // rule: linear reading takes milliseconds on these files; the square took seconds, or the
 // memory of the process). What is asserted is an upper bound with room.
 test('review round 3 — the CSS of <style>s inside one another is read once: 200 <style>, each inside the one before, then 500 rules with an outside address — 500 reports, in a few milliseconds', async (t) => {
+  // With the CSS of a <style> read to where the element ends, a <style> that stands inside
+  // another reads the same text again — once per <style>: the reports and the time grew
+  // with their number. What was read once is not read twice (cssReadTo in scanHtml).
   const html = `<svg>${'<style>'.repeat(200)}${Array.from({ length: 500 }, (_, i) => `c${i}{background:url("https://evil.example/${i}.png")}`).join('')}`;
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
@@ -1713,6 +1750,9 @@ test('review round 3 — the CSS of <style>s inside one another is read once: 20
 });
 
 test('review round 3 — time grows with the size, not with its square: 30 000 <style>, none ever closed, after an <svg>', async (t) => {
+  // For each of them the audit used to look for a </style> that never came — to the end of
+  // the text, once per element. 10 000 took 12 seconds before this round; in foreign reading
+  // no end tag is looked for at all.
   const html = `<svg>${'<style>'.repeat(30000)}`;
   const started = performance.now();
   const violations = await auditOf(t, { [R3]: html });
@@ -1722,6 +1762,7 @@ test('review round 3 — time grows with the size, not with its square: 30 000 <
 });
 
 test('review round 3 — and not with the number of comments either: one <style>, 10 000 comments each holding a rule, then one rule — 10 001 reports', async (t) => {
+  // Where the element ends is found past what is no token: each comment is skipped to its end.
   const rule = 'x{background:url("https://evil.example/a.png")}';
   const html = `<svg><style>${`<!-- ${rule} -->`.repeat(10000)}${rule}`;
   const started = performance.now();
