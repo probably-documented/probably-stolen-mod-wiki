@@ -1074,9 +1074,12 @@ test('review Important 1 — …and read right the other way round too: an escap
 // an object or an embed, data:text/html runs its script; data:image/svg+xml
 // runs the script of the drawing wherever a browser treats it as a document.
 // So: a data: address is allowed only as an image that is not SVG (image/*,
-// but not image/svg+xml), and only in the src / srcset of <img> or <source>
-// or the poster of <video>. Anywhere else — any other tag or attribute, any
-// other type — and in CSS, it is a violation: `data-url`, `css-data-url`.
+// but not image/svg+xml), and only in the src / srcset of <img>. (Ruling
+// AB(b) had three slots — the src / srcset of an <img> or a <source>, and
+// the poster of a <video>; round 4 put no <source> and no <video> on the
+// allow-list, so those two were reached by nothing, and ruling AG 4 of round
+// 5 took them out.) Anywhere else — any other tag or attribute, any other
+// type — and in CSS, it is a violation: `data-url`, `css-data-url`.
 // ---------------------------------------------------------------------------
 
 test('ruling AB(b) / A9 — a data: address is refused outside the image slots: the iframe / object / embed that can run a document, an SVG image, a link, a script, a non-image', async (t) => {
@@ -1138,7 +1141,7 @@ test('ruling AB(b) / A9 — …and in a script tag, a stylesheet, a form, a stra
   ]);
 });
 
-test('ruling AB(b) / A9 — allowed: an image that is not SVG, as the src / srcset of an <img> or a <source>, or the poster of a <video>', async (t) => {
+test('ruling AB(b) / A9 — allowed: an image that is not SVG, as the src / srcset of an <img> — the one slot left (ruling AG 4: <source> and <video> are not on the allow-list, so their slots are gone)', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<img src="data:image/png;base64,AAAA" alt="">',
@@ -1151,9 +1154,13 @@ test('ruling AB(b) / A9 — allowed: an image that is not SVG, as the src / srcs
       '<video poster="data:image/jpeg;base64,AAAA" src="v.mp4"></video>',
     ),
   });
-  // The data: addresses are allowed in their slots — and the slots are all that is left of it: a <picture>, a
-  // <source> and a <video> are not on the allow-list (ruling AE 1), so the tags are refused.
-  assert.deepEqual(brief(violations), [`${HTML}:7 [unsupported-tag]`, `${HTML}:7 [unsupported-tag]`, `${HTML}:8 [unsupported-tag]`]);
+  // The data: address of an <img> is allowed. A <picture>, a <source> and a <video> are not on the allow-list
+  // (ruling AE 1), so the tags are refused — and a data: address on a <source> or a <video> is refused too: their
+  // slots are gone (ruling AG 4), the rule says what the audit does, and no slot is left that nothing can reach.
+  assert.deepEqual(brief(violations), [
+    `${HTML}:7 [unsupported-tag]`, `${HTML}:7 [unsupported-tag]`, `${HTML}:7 [data-url]`,
+    `${HTML}:8 [unsupported-tag]`, `${HTML}:8 [data-url]`,
+  ]);
 });
 
 test('ruling AB(b) / A9 — a data: address is read as a browser reads it: character references, a line break, blanks, all folded away first', async (t) => {

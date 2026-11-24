@@ -39,8 +39,9 @@
 //         pointing past the site on a GitHub Pages project site.
 //   A9  data-url / css-data-url (ruling AB b): a data: address is allowed
 //         only as an image that is not SVG (image/*, but not
-//         image/svg+xml), in the src / srcset of an <img> or a <source>, or
-//         the poster of a <video>. Anywhere else — any other tag or
+//         image/svg+xml), in the src / srcset of an <img> (ruling AG 4: the
+//         slots of a <source> and a <video> are gone — those tags are not on
+//         the allow-list). Anywhere else — any other tag or
 //         attribute, any other type — and anywhere in CSS, it is a
 //         violation: in an iframe, an object or an embed, data:text/html runs
 //         its script, and so does data:image/svg+xml wherever a browser
@@ -848,8 +849,8 @@ function urlCandidates(attribute, url) {
  * embed, data:text/html runs its script, and so does data:image/svg+xml
  * wherever a browser treats the drawing as a document. So it is allowed
  * only as an image that is not SVG — image/*, but not image/svg+xml — and
- * only in the src / srcset of an <img> or a <source>, or the poster of a
- * <video>. Anywhere else it is a violation, whatever its type.
+ * only in the src / srcset of an <img>. Anywhere else it is a violation,
+ * whatever its type.
  * `url` is the address as a browser reads it (readUrl). Its type is what
  * precedes the first ; or , (RFC 2397); a data: address without one is
  * text/plain.
@@ -857,9 +858,10 @@ function urlCandidates(attribute, url) {
 function dataUrlAllowed(url, attribute, tagName) {
   const type = (url.slice('data:'.length).split(/[;,]/)[0].trim().toLowerCase()) || 'text/plain';
   if (!type.startsWith('image/') || type === 'image/svg+xml') return false;
-  const imageSlot = (tagName === 'img' || tagName === 'source') && (attribute === 'src' || attribute === 'srcset');
-  const posterSlot = tagName === 'video' && attribute === 'poster';
-  return imageSlot || posterSlot;
+  // The src / srcset of an <img> — the one slot there is. A <source> and a <video> had one too; they are not on
+  // the allow-list (ruling AE 1), so the tags are refused before any address on them is looked at, and their
+  // slots are gone (ruling AG 4): the rule says what the audit does.
+  return tagName === 'img' && (attribute === 'src' || attribute === 'srcset');
 }
 
 /**
