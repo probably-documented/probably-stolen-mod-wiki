@@ -2401,3 +2401,178 @@ test('ruling AG 1 — where the <head> is, is read by the same rule: a bogus com
     assert.deepEqual(brief(await auditOf(t, { [file]: pageText })), expected, pageText);
   }
 });
+
+// ===========================================================================
+// Review round 5 — ruling AG 2: an address is judged by the URL parser, not by how it begins
+//
+// The rules looked for how a value began: `https://`, `//`, `/`. A browser
+// reads an address with its URL parser, and that reads more than beginnings:
+// `https:host/path` is another host (from a page on file://; no `//` after
+// the scheme), so is `http:host/path`; anything that begins with a backslash
+// is read like one that begins with a slash — `\path` is the site root,
+// `\/host/path` another host —; and `file:` is a file of the reader's own
+// machine. Chrome 157 loaded every line of the reviewer's table, and the
+// audit said nothing. On the allow-list of round 4 img, input, form and a
+// stay on a page, and these rules are the only thing that holds them.
+//
+// So an address is read by the URL parser now — the one Node has built in,
+// the algorithm browsers have too (WHATWG URL) — twice: from a page served
+// over https, and from a page opened as a file:// (this site is opened so).
+// It is outside when it is so from either. What is written in an attribute
+// is made what the parser is given first: the character references decoded,
+// the leading and trailing C0 controls and blanks dropped, every tab, line
+// feed and carriage return deleted. The javascript: and the data: rules read
+// that too.
+//
+// The parser has one quirk that matters here, and the cases pin it: a value
+// whose scheme is the scheme of the page is read as a RELATIVE address —
+// `https:host/path` from a page on https is `…/a/b/host/path`. The https
+// page alone would let it through; what catches it is the file:// page,
+// where it is the other host. (A page on http reads `http:host/path` the
+// same relative way — and that one the https page catches.)
+//
+// The root-relative rule stays a judgment on the writing itself, by ruling:
+// a value that begins with `/` or with a backslash is the site root — dead
+// under file:// — whatever the parser would make of it. It holds for the
+// URL-bearing attributes only (URL_ATTRIBUTES), as ever; and `<a href>` keeps
+// its exemption for outside links, on the href alone.
+// ===========================================================================
+
+const R5 = 'r5.html';
+/** The page each reading starts from: one served over https, one opened as a file://. */
+const R5_ON_HTTPS = 'https://example.invalid/a/b/page.html';
+const R5_ON_FILE = 'file:///a/b/page.html';
+
+/**
+ * The reviewer's table: [label, the writing, what the audit reports of `<img src="…">`, what the URL parser makes
+ * of the writing from the https page and from the file:// page]. Each was loaded by Chrome 157 on an http page,
+ * and — but the two marked "not on http" — on a file:// page too, with the audit saying nothing.
+ */
+const R5_TABLE = [
+  ['https:host/path', 'https:host/path', 'external-url', 'https://example.invalid/a/b/host/path', 'https://host/path'],
+  ['https:/host/path', 'https:/host/path', 'external-url', 'https://example.invalid/host/path', 'https://host/path'],
+  [String.raw`https:\\host\path`, String.raw`https:\\host\path`, 'external-url', 'https://host/path', 'https://host/path'],
+  [String.raw`https:/\host/path`, String.raw`https:/\host/path`, 'external-url', 'https://host/path', 'https://host/path'],
+  [String.raw`\/host/path`, String.raw`\/host/path`, 'root-relative-url', 'https://host/path', 'file://host/path'],
+  ['http:host/path', 'http:host/path', 'external-url', 'http://host/path', 'http://host/path'],
+  [String.raw`\path`, String.raw`\path`, 'root-relative-url', 'https://example.invalid/path', 'file:///path'],
+  ['file:///… (not on http)', 'file:///C:/Windows/win.ini', 'external-url', 'file:///C:/Windows/win.ini', 'file:///C:/Windows/win.ini'],
+  ['file://host/share/x.png (not on http)', 'file://host/share/x.png', 'external-url', 'file://host/share/x.png', 'file://host/share/x.png'],
+];
+
+for (const [label, writing, code, onHttps, onFile] of R5_TABLE) {
+  test(`ruling AG 2 — ${label}: loaded by the browser, and reported (${code})`, async (t) => {
+    // what the URL parser makes of the writing from each page — the two meanings of ruling AG 2, pinned
+    assert.equal(new URL(writing, R5_ON_HTTPS).href, onHttps, 'from a page on https');
+    assert.equal(new URL(writing, R5_ON_FILE).href, onFile, 'from a page on file://');
+    assert.deepEqual(brief(await auditOf(t, { [R5]: `<img src="${writing}">` })), [`${R5}:1 [${code}]`]);
+  });
+}
+
+test('ruling AG 2 — the same writing wherever an address can be loaded or held: srcset, an image button, a table background, the url() of a style attribute, a form, a button, a ping', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [R5]: page(
+    '<img srcset="https:host/a.png 1x, b.png 2x" alt="">', // the first candidate; the second is a site file
+    '<input type="image" src="https:/host/btn.png" alt="">',
+    '<table background="https:host/bg.png"><tr><td>x</td></tr></table>',
+    '<div style="background:url(https:host/bg.png)">x</div>',
+    '<form action="https:host/submit"></form>',
+    '<button formaction="https:host/go">go</button>',
+    '<a href="x.html" ping="https:host/track">x</a>', // ping is not href: no exemption
+    '<a href="https:host/path">an outside link is allowed, on the href alone</a>',
+    '<div style="background:url(\\\\host\\\\bg.png)">x</div>', // in CSS a backslash is escaped — two make one: the site root
+  ) })), [
+    `${R5}:1 [external-url]`,
+    `${R5}:2 [external-url]`,
+    `${R5}:3 [external-url]`,
+    `${R5}:4 [css-external-url]`,
+    `${R5}:5 [external-url]`,
+    `${R5}:6 [external-url]`,
+    `${R5}:7 [external-url]`,
+    `${R5}:9 [css-root-relative]`,
+  ]);
+});
+
+test('ruling AG 2 — a <script src> written so is the outside resource it is: reported once, as that — no second script-src entry', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [R5]: page('<script src="https:host/x.js"></script>', '<script src="https:/\\host/y.js"></script>') })), [
+    `${R5}:1 [external-url]`,
+    `${R5}:2 [external-url]`,
+  ]);
+});
+
+test('ruling AG 2 — what is written is made what the parser is given first: character references, blanks and controls at both ends, a tab, a line feed or a carriage return inside — and the javascript: and the data: rule read the same', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [R5]: page(
+    '<img src="&#104;ttps:host/x.png" alt="">', // `&#104;` is h
+    '<img src="https&colon;host/x.png" alt="">', // the colon, named
+    '<img src="&#9;https:host/x.png&#10;" alt="">', // a tab and a line feed at both ends
+    '<img src="  https:host/x.png &#1;" alt="">', // blanks, and a control
+    '<img src="ht&#9;tps:host/x.png" alt="">', // a tab inside the scheme
+    '<img src="https:&#13;host/x.png" alt="">', // a carriage return after the scheme
+    '<a href="  javascript&#58;alert(1)">x</a>', // the javascript: rule, on what was made of the value
+    '<img src="jav&#9;ascript&#58;alert(1)" alt="">', // in any attribute
+    '<iframe src="da&#10;ta:text/html,x"></iframe>', // the data: rule too (`&#10;` is a line feed)
+  ) })), [
+    ...[1, 2, 3, 4, 5, 6].map((n) => `${R5}:${n} [external-url]`),
+    `${R5}:7 [script-url]`,
+    `${R5}:8 [script-url]`,
+    `${R5}:9 [unsupported-tag]`, `${R5}:9 [data-url]`,
+  ]);
+});
+
+test('ruling AG 2 — what stays allowed: a site-relative address, a fragment, a query, an empty one; an outside link on the href of an <a>, in these writings too, and a mailto: on it', async (t) => {
+  assert.deepEqual(await auditOf(t, { [R5]: page(
+    '<img src="x.png" alt=""><img src="../css/x.css" alt=""><img src="./a/b.png" alt="">', // the address is what is judged, not what it names
+    '<a href="#x">fragment</a> <a href="?q=1">query</a> <a href="">empty</a>',
+    '<a href="https://example.com/x">an outside link</a>',
+    '<a href="https:host/path">the same, without the //</a>',
+    '<a href="http:host/path">another scheme</a>',
+    '<a href="mailto:a@b.example">mail</a>',
+    '<a href="ftp://host/x">ftp</a>',
+    '<div style="background:url(../a.png)">x</div>',
+  ) }), []);
+});
+
+test('ruling AG 2 — the root-relative rule is a judgment on the writing: `/` or a backslash to begin with, `/\\` and `\\/` included — on the URL-bearing attributes only, <a href> included', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [R5]: page(
+    '<img src="\\path" alt="">', // one backslash: the site root to a browser
+    '<a href="/\\host/path">x</a>', // `/\`
+    '<img src="\\/host/path" alt="">', // `\/`
+    '<img src="\\\\host\\path" alt="">', // `\\`: another host to the parser, the site root by ruling
+    '<div data-x="\\\\host\\path" title="\\path">not URL-bearing attributes</div>', // nothing
+    '<a href="//host/path">a protocol-relative one keeps its own code</a>',
+  ) })), [
+    `${R5}:1 [root-relative-url]`,
+    `${R5}:2 [root-relative-url]`,
+    `${R5}:3 [root-relative-url]`,
+    `${R5}:4 [root-relative-url]`,
+    `${R5}:6 [protocol-relative-url]`,
+  ]);
+});
+
+test('ruling AG 2 — an address of its own rule is not an outside one on top: a data: image keeps its slot, and a javascript: URL is the script URL it was', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, { [R5]: page(
+    '<img src="data:image/png;base64,AAAA" alt="">', // allowed by A9 — and no outside address, though the parser gives it a null origin
+    '<a href="javascript:alert(1)">x</a>',
+    '<div onclick="x()" src="javascript:y()">z</div>',
+  ) })), [
+    `${R5}:2 [script-url]`,
+    `${R5}:3 [inline-event-handler]`, `${R5}:3 [script-url]`,
+  ]);
+});
+
+test('ruling AG 2 — in CSS the same: url(), @import, image-set() and the src of @font-face — in a stylesheet, in a <style> of the <head>, and in a style attribute', async (t) => {
+  assert.deepEqual(brief(await auditOf(t, {
+    'css/theme.css': page(
+      'a{background:url(https:host/a.png)}',
+      '@import "https:/host/b.css";',
+      'c{background:image-set("http:host/c.png" 1x)}',
+      '@font-face{font-family:d;src:"https:host/d.woff2"}',
+      String.raw`e{background:url(\\host\e.png)}`, // two backslashes are one, in CSS: the site root
+    ),
+    [R5]: '<head><style>f{background:url(https:host/f.png)}</style></head><div style="background:url(https:host/g.png)">x</div>',
+  })), [
+    ...[1, 2, 3, 4].map((n) => `css/theme.css:${n} [css-external-url]`),
+    'css/theme.css:5 [css-root-relative]',
+    `${R5}:1 [css-external-url]`,
+    `${R5}:1 [css-external-url]`,
+  ]);
+});

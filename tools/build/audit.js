@@ -19,8 +19,11 @@
 //         content, style… are covered at once):
 //         protocol-relative-url — an attribute value that starts with //,
 //         any attribute, <a href> included
-//         external-url — an attribute value that holds an http:// or
-//         https:// address, any attribute but the href of an <a>
+//         external-url — an attribute value that holds an outside address,
+//         any attribute but the href of an <a>: an http:// or https:// one,
+//         or one the URL parser reads as another site's from a page on https
+//         or on file:// — https:host/path, http:host/path, file:… (ruling
+//         AG 2; isOutsideAddress)
 //         css-external-url — in CSS (a stylesheet, a <style> block, a
 //         style="" attribute), an outside address of @import, url(),
 //         image-set() / image(), or the src of @font-face: by scheme, or
@@ -30,8 +33,10 @@
 //         stylesheets they are still read as before
 //   A3  root-relative-url: a URL-bearing attribute (URL_ATTRIBUTES — <a href>
 //         included, and each candidate of srcset) holds an address that
-//         starts with /; css-root-relative: the same in CSS. Dead under
-//         file://, and pointing past the site on a GitHub Pages project site.
+//         starts with / or with a backslash — `/\` and `\/` included, as a
+//         URL parser reads a backslash for a slash (ruling AG 2);
+//         css-root-relative: the same in CSS. Dead under file://, and
+//         pointing past the site on a GitHub Pages project site.
 //   A9  data-url / css-data-url (ruling AB b): a data: address is allowed
 //         only as an image that is not SVG (image/*, but not
 //         image/svg+xml), in the src / srcset of an <img> or a <source>, or
@@ -361,17 +366,117 @@ function decodeCharacterReferences(value) {
 }
 
 /**
- * A URL as a browser reads it: character references decoded, tabs and
- * newlines dropped (a URL parser ignores them), blanks and control
- * characters trimmed at both ends.
+ * What the URL parser is given, before it looks at anything (WHATWG URL, the
+ * basic URL parser, its first two steps): the leading and trailing C0 controls
+ * and blanks of the address go, then every tab, line feed and carriage return
+ * in what is left is deleted. Ruling AG 2: the javascript: and the data:
+ * rules read what this made of the value too — `java&#x09;script:` is a
+ * javascript: URL to a browser.
+ */
+function normalizeUrl(url) {
+  return url.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '').replace(/[\t\n\r]/g, '');
+}
+
+/**
+ * A URL as a browser reads it: character references decoded, then what the
+ * URL parser is given (normalizeUrl).
  */
 function readUrl(raw) {
-  return decodeCharacterReferences(raw)
-    .replace(/[\t\n\r]/g, '')
-    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
+  return normalizeUrl(decodeCharacterReferences(raw));
 }
 
 const isScriptUrl = (raw) => /^(?:javascript|vbscript):/i.test(readUrl(raw));
+
+// ---------------------------------------------------------------------------
+// How an address refers to something (ruling AG 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The page an address is read from — twice, because a page of this site is
+ * opened two ways: served over https, and opened as a file:// (it is built to
+ * be, and that is how the offline zip is read). A page on http reads like the
+ * two between them, so nothing is let through that would be loaded there: a
+ * value of the page's own scheme is relative on that page and another host
+ * on the others, and each of the three schemes is another host on two of the
+ * three pages.
+ */
+const PAGE_ON_HTTPS = 'https://example.invalid/a/b/page.html';
+const PAGE_ON_FILE = 'file:///a/b/page.html';
+/** The origin of PAGE_ON_HTTPS. A file:// page has none (an opaque origin). */
+const SITE_ORIGIN = 'https://example.invalid';
+
+/** Reported by their own rules (A9, A4), and not an outside address on top of that. */
+const OWN_RULE_SCHEME = /^(?:data|javascript|vbscript):/i;
+/** A value that names a scheme — `http:`, `ftp:` —, as the URL parser sees one. */
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+/**
+ * An http:// or https:// address anywhere in an attribute value: a
+ * content="0; url=https://…", a title that quotes one (ruling AA — wherever
+ * in the value the address sits). Kept beside the parser: what the rules
+ * reported before ruling AG 2, they report still.
+ */
+const HTTPS_ANYWHERE = /https?:\/\//i;
+
+/**
+ * Is `url` — as the URL parser is given it (normalizeUrl) — an address of
+ * another site? Ruling AG 2. The audit no longer goes by how a value begins:
+ * `https:host/path` is another host with no `//` at all. It is parsed from
+ * each of the two pages (the URL parser Node has built in — the algorithm
+ * browsers have, WHATWG URL), and it is outside when it is so from either:
+ *   • from the https page its origin is not the site's — another host, or
+ *     another scheme: `http:host/path` is `http://host/path` there;
+ *   • from the file:// page it has a host: `file://host/share` — and
+ *     `https:host/path`, which is `https://host/path` there. The https page
+ *     lets that one through, because the parser reads a value of the page's
+ *     own scheme as a RELATIVE address: `https:host/path` is `…/a/b/host/path`
+ *     from a page on https. (So one page would not do, and the first bullet
+ *     holds of the https page only: from a file:// page a site-relative
+ *     address has no origin but `null`, which is not the site's either.)
+ *   • it begins with `file:`, in any case: a file of the reader's own
+ *     machine, which a page opened as a file:// can show;
+ *   • neither page can parse it and it names a scheme (`http:`): nothing
+ *     loads it, and nothing of the site is in it either.
+ * `data:`, `javascript:` and `vbscript:` are no outside addresses: each is
+ * its own rule.
+ */
+function isOutsideAddress(url) {
+  if (OWN_RULE_SCHEME.test(url)) return false;
+  if (/^file:/i.test(url)) return true;
+  let onHttps = null;
+  let onFile = null;
+  try { onHttps = new URL(url, PAGE_ON_HTTPS); } catch { /* no address for a page on https */ }
+  try { onFile = new URL(url, PAGE_ON_FILE); } catch { /* no address for a page on file:// */ }
+  if (onHttps !== null && onHttps.origin !== SITE_ORIGIN) return true;
+  if (onFile !== null && onFile.host !== '') return true;
+  return onHttps === null && onFile === null && HAS_SCHEME.test(url);
+}
+
+/**
+ * The site root by the writing itself — `/` or a backslash to begin with,
+ * `/\` and `\/` included (a URL parser reads a backslash as a slash): dead
+ * under file://. A judgment kept on purpose (ruling AG 2): `<a href>` to a
+ * site-relative address is allowed, the site root is not. Not `//`: that is
+ * a protocol-relative address, its own code.
+ */
+const isRootRelative = (url) => (url[0] === '/' || url[0] === '\\') && !url.startsWith('//');
+
+/**
+ * A candidate of an attribute value that holds an outside address (ruling
+ * AG 2): an http:// or https:// address anywhere in it — as the rules always
+ * read it —, or, where it is not the site root by its writing, an address
+ * the URL parser reads as another site's. The site root is the root-relative
+ * rule's alone (`/\host/path` is the site root by its writing, though the
+ * parser reads another host in it).
+ */
+const isOutsideAttributeAddress = (candidate) => HTTPS_ANYWHERE.test(candidate)
+  || (!isRootRelative(candidate) && isOutsideAddress(candidate));
+
+/**
+ * Was this address reported for what it refers to — a protocol-relative one,
+ * an outside one, the site root? (A <script src> that was is not reported a
+ * second time for being off the first-party list.)
+ */
+const isReferencedAddress = (url) => url.startsWith('//') || isOutsideAttributeAddress(url) || isRootRelative(url);
 
 /**
  * The types a <script> block is a mere data block for (ruling AB a) — the
@@ -563,25 +668,27 @@ function tokenizeCss(css) {
 }
 
 /**
- * An address as a CSS token gives it, read as a URL parser reads it: tabs
- * and newlines dropped, blanks and control characters trimmed at both ends.
+ * An address as a CSS token gives it, made what the URL parser is given
+ * (normalizeUrl).
  * No character references here: a stylesheet, and the content of a <style>
  * element, decode none in a browser; the references of a style="" attribute
  * were decoded once, before its value was read as CSS.
  */
-const cssUrl = (raw) => raw.replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
+const cssUrl = normalizeUrl;
 
 /**
- * How an address written in CSS refers to something: an outside site (by
- * scheme, or protocol-relative), the site root, a data: address — or nothing
- * that concerns the audit.
+ * How an address written in CSS refers to something: an outside site — by
+ * the URL parser, from both pages (isOutsideAddress: ruling AG 2) — or
+ * protocol-relative; the site root by the writing (a slash or a backslash to
+ * begin with); a data: address — or nothing that concerns the audit. The
+ * same address in an attribute is judged by the same two (reportUrl).
  */
 function cssAddressKind(raw) {
   const url = cssUrl(raw);
-  if (url.startsWith('//') || /^https?:\/\//i.test(url)) return 'external';
-  if (url.startsWith('/')) return 'root-relative';
   if (/^data:/i.test(url)) return 'data';
-  return null;
+  if (url.startsWith('//')) return 'external';
+  if (isRootRelative(url)) return 'root-relative';
+  return isOutsideAddress(url) ? 'external' : null;
 }
 
 const CODE_OF_CSS_ADDRESS = Object.freeze({
@@ -759,11 +866,16 @@ function dataUrlAllowed(url, attribute, tagName) {
  * A2, A3 and A9 for one attribute value (ruling AA — by class, not by named
  * attribute; ruling AB b). `url` is the value as a browser reads it (readUrl).
  *   protocol-relative-url  it starts with // — any attribute, <a href> included
- *   external-url           it holds an http:// or https:// address — any
- *                          attribute but the href of an <a>, wherever in the
- *                          value the address sits (srcset, content, style…)
+ *   external-url           it holds an outside address — any attribute but
+ *                          the href of an <a>: an http:// or https:// one
+ *                          wherever in the value it sits (srcset, content,
+ *                          style…), or one the URL parser reads as another
+ *                          site's from a page on https or on file:// —
+ *                          `https:host/path`, `http:host/path`, `file:…`
+ *                          (isOutsideAddress; ruling AG 2)
  *   root-relative-url      a URL-bearing attribute (URL_ATTRIBUTES) holds an
- *                          address that starts with / — <a href> included
+ *                          address that starts with / or with a backslash —
+ *                          <a href> included (isRootRelative)
  *   data-url               it holds a data: address outside the image slots
  *                          (dataUrlAllowed)
  * One value may break several rules; that is several entries. `dataUrls`
@@ -774,10 +886,10 @@ function reportUrl(index, url, attribute, tagName, report, detail, { dataUrls = 
   // protocol-relative: the value itself, or any of the addresses it lists
   if (candidates.some((candidate) => candidate.startsWith('//'))) {
     report(index, 'protocol-relative-url', detail);
-  } else if (/https?:\/\//i.test(url) && !(tagName === 'a' && attribute === 'href')) {
+  } else if (!(tagName === 'a' && attribute === 'href') && candidates.some(isOutsideAttributeAddress)) {
     report(index, 'external-url', detail);
   }
-  if (URL_ATTRIBUTES.has(attribute) && candidates.some((candidate) => candidate.startsWith('/') && !candidate.startsWith('//'))) {
+  if (URL_ATTRIBUTES.has(attribute) && candidates.some(isRootRelative)) {
     report(index, 'root-relative-url', detail);
   }
   if (dataUrls && candidates.some((candidate) => /^data:/i.test(candidate) && !dataUrlAllowed(candidate, attribute, tagName))) {
@@ -897,10 +1009,11 @@ function checkTag(text, start, tag, report, inHead) {
   }
   if (tag.name === 'script') {
     if (src !== null) {
-      // An outside, protocol-relative or root-relative src was reported above;
-      // what is left is a site path — allowed only for the first-party list.
+      // An outside, protocol-relative or root-relative src was reported above
+      // (isReferencedAddress — the same judgment as for every attribute); what
+      // is left is a site path — allowed only for the first-party list.
       const url = readUrl(src);
-      if (!url.startsWith('/') && !/https?:\/\//i.test(url) && !ALLOWED_SCRIPT_SRC.includes(url)) report(start, 'script-src', snippet());
+      if (!isReferencedAddress(url) && !ALLOWED_SCRIPT_SRC.includes(url)) report(start, 'script-src', snippet());
     } else if (type === null || !isDataBlockType(type)) {
       report(start, 'script-inline', snippet());
     }
