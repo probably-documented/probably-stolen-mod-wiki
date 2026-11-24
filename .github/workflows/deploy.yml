@@ -1,0 +1,73 @@
+# 在线站部署:main 的每次推送 → 测试 → 构建并打离线包 → 部署到 GitHub Pages。
+# 离线包(zip,不含 CMS 管理界面)作为构建产物留存,供下载。
+# 本仓库零 npm 依赖,所以没有 npm install。
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只允许一个部署;不中断进行中的生产部署,跳过其间排队的运行。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # libarchive-tools 提供 bsdtar:离线包的打包与对应测试都需要它。
+      - name: Install bsdtar
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
+
+      # 读取 Pages 站点配置;若仓库尚未把 Pages 来源设为 GitHub Actions,这里会明确报错。
+      - name: Read the Pages site configuration
+        uses: actions/configure-pages@v6
+
+      - name: Test
+        run: npm test
+
+      - name: Build and pack
+        run: npm run pack
+
+      - name: Check the offline zip
+        run: |
+          ls -l offline-wiki-*.zip
+          if bsdtar -tf offline-wiki-*.zip | grep -qiE '^(\./)?admin/'; then
+            echo "::error::the offline zip contains the CMS (admin/)"
+            exit 1
+          fi
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+      - name: Upload the offline zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: offline-wiki
+          path: offline-wiki-*.zip
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
