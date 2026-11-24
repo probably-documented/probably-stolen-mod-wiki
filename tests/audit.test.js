@@ -1511,10 +1511,16 @@ test('the decoder — its edges, as a control: a reference to 0, to a surrogate,
 // violation is on was searched for from the top, and to the end, each time.
 //
 // What is asserted is an upper bound with room: linear reading takes a few
-// milliseconds on these files, the square took seconds.
+// milliseconds on these files here, and 648 ms on a slow CI runner (Node 22,
+// 2026-11-24 — the run failed on 500); the square took 12 to 70 seconds. Five
+// seconds tells the two apart on either machine. Every time guard in this
+// file asserts against TIME_LIMIT_MS.
 // ---------------------------------------------------------------------------
 
 const letters = (n) => { let s = ''; do { s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0); return s; };
+
+/** The upper bound of every time guard in this file — see the note above the first one. */
+const TIME_LIMIT_MS = 5000;
 
 test('ruling AC(3) — time grows with the size, not with its square: one tag of 6000 attributes (3000 distinct event attributes), 300 000 lines into the file', async (t) => {
   const attributes = Array.from({ length: 6000 }, (_, n) => (n % 2 ? `data-a${n}="1"` : `on${letters(n)}="x${n}()"`)).join(' ');
@@ -1524,7 +1530,7 @@ test('ruling AC(3) — time grows with the size, not with its square: one tag of
   const ms = performance.now() - started;
   assert.equal(violations.length, 3000, 'one entry per event attribute');
   assert.ok(violations.every((v) => v.code === 'inline-event-handler' && v.line === linesBefore + 1), 'each on the line the tag is on');
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to take seconds here, and minutes with more attributes`);
+  assert.ok(ms < TIME_LIMIT_MS, `the audit took ${ms.toFixed(0)} ms — it used to take seconds here, and minutes with more attributes`);
 });
 
 test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an outside address, and not one line break in it', async (t) => {
@@ -1534,7 +1540,7 @@ test('ruling AC(3) — the same for a long stylesheet: 8000 rules, each with an 
   const ms = performance.now() - started;
   assert.equal(violations.length, 8000);
   assert.ok(violations.every((v) => v.code === 'css-external-url' && v.line === 1));
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms — it used to grow with the square of the number of addresses`);
+  assert.ok(ms < TIME_LIMIT_MS, `the audit took ${ms.toFixed(0)} ms — it used to grow with the square of the number of addresses`);
 });
 
 // ---------------------------------------------------------------------------
@@ -1845,7 +1851,7 @@ test('review round 3, read by the HTML rules — 200 <style> in a row, none ever
   assert.deepEqual(brief(violations).slice(0, 2), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`], 'the <svg>, and the one <style>');
   assert.equal(violations.filter((v) => v.code === 'css-external-url').length, 500, 'each address once');
   assert.equal(violations.length, 502);
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
+  assert.ok(ms < TIME_LIMIT_MS, `the audit took ${ms.toFixed(0)} ms`);
 });
 
 test('review round 3, read by the HTML rules — time grows with the size, not with its square: 30 000 <style>, none ever closed, after an <svg>', async (t) => {
@@ -1857,7 +1863,7 @@ test('review round 3, read by the HTML rules — time grows with the size, not w
   const violations = await auditOf(t, { [R3]: html });
   const ms = performance.now() - started;
   assert.deepEqual(brief(violations), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`]);
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
+  assert.ok(ms < TIME_LIMIT_MS, `the audit took ${ms.toFixed(0)} ms`);
 });
 
 test('review round 3, read by the HTML rules — and not with the number of comments either: one <style> never closed, 10 000 comments each holding a rule, then one rule — 10 001 addresses', async (t) => {
@@ -1872,7 +1878,7 @@ test('review round 3, read by the HTML rules — and not with the number of comm
   assert.deepEqual(brief(violations).slice(0, 2), [`${R3}:1 [unsupported-tag]`, `${R3}:1 [unsupported-tag]`], 'the <svg>, and the one <style>');
   assert.equal(violations.filter((v) => v.code === 'css-external-url').length, 10001, 'what a comment holds is read as CSS too');
   assert.equal(violations.length, 10003);
-  assert.ok(ms < 500, `the audit took ${ms.toFixed(0)} ms`);
+  assert.ok(ms < TIME_LIMIT_MS, `the audit took ${ms.toFixed(0)} ms`);
 });
 
 // ===========================================================================
