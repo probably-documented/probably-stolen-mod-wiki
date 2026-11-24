@@ -52,6 +52,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { buildSkeleton } = require('../tools/build/skeleton-build.js');
+const { PAGE_FOLDERS } = require('../tools/build/content-images.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
@@ -295,9 +296,9 @@ test('K — config skeleton: GitHub backend with the additions sign-in and its s
   assert.ok(backend, 'config.yml has a backend block');
   assert.equal(value(backend, 'name'), 'github');
   assert.equal(value(backend, 'auth_type'), 'additions');
-  // Sveltia CMS 0.271.0 refuses to start without a media folder, so one is
-  // declared as an inert placeholder. The build never reads that directory;
-  // what happens to images and uploads is decided after the CMS is online.
+  // Sveltia CMS 0.271.0 refuses to start without a global media folder, so
+  // one is declared as a placeholder. No page's image goes there, and the
+  // build never reads that directory — pages keep their images beside them.
   assert.equal(unquote(value(config, 'media_folder')), 'assets/uploads');
   // The sign-in service: Sveltia CMS Additions, a Worker on Cloudflare. The
   // CMS refuses to start without its URL. Written as the service's own
@@ -311,6 +312,33 @@ test('K — config skeleton: GitHub backend with the additions sign-in and its s
     assert.equal(value(coll, 'create'), 'true', `${name}: contributors can create entries`);
     assert.equal(value(coll, 'delete'), 'true', `${name}: contributors can delete entries`);
   }
+});
+
+test('images beside the pages: each collection keeps them in its own images/ folder and references them relatively; uploads get URL-safe, unique names and a size cap', async () => {
+  const config = await readConfig();
+  // A relative media_folder (no leading slash) is entry-relative in Sveltia
+  // CMS: the file goes to <collection folder>/images/, and the body refers to
+  // it as `images/x.png` — a relative path, which works online and from
+  // file://. An absolute public folder would break the offline zip. The build
+  // publishes those folders beside the pages (content-images.js).
+  for (const [name, route] of [['items', 'item'], ['mechanics', 'mechanics']]) {
+    const coll = collection(config, name);
+    assert.equal(unquote(value(coll, 'media_folder')), 'images', `${name}: images are stored in its images/ folder`);
+    assert.equal(unquote(value(coll, 'public_folder')), 'images', `${name}: and referenced relative to the page`);
+    assert.equal(route, PAGE_FOLDERS.find(([folder]) => folder === name)?.[1], `${name}: the build publishes that folder beside its pages`);
+  }
+  // The global media folder is a placeholder the CMS requires; no page's image
+  // goes there, so the build does not read it.
+  assert.equal(unquote(value(config, 'media_folder')), 'assets/uploads');
+
+  const all = subBlock(subBlock(config, 'media_libraries'), 'all');
+  assert.ok(all, 'config.yml has media_libraries.all');
+  assert.equal(value(all, 'slugify_filename'), 'true', 'file names become URL-friendly');
+  assert.equal(unquote(value(all, 'filename_template')), '{{filename}}-{{uuid_short}}',
+    'the original name, then a unique suffix, so one page never reuses the same-named image of another');
+  const maxFileSize = Number(value(all, 'max_file_size'));
+  assert.ok(Number.isInteger(maxFileSize) && maxFileSize > 0 && maxFileSize <= 10 * 1024 * 1024,
+    `a size cap that keeps the repository small: ${maxFileSize}`);
 });
 
 test('every collection and field a contributor sees has a Chinese label; the fields that need explaining have a Chinese hint', async () => {
@@ -372,14 +400,17 @@ test('V — both bodies are Markdown fields, the last field of their collection,
   }
 });
 
-test('the body hints carry the ruled link policy: external links are fine, images are not supported yet', async () => {
+test('the body hints carry the ruled link and image policy: external links are fine, images are inserted and kept beside the page, as bitmaps only', async () => {
   const config = await readConfig();
   for (const name of ['items', 'mechanics']) {
     const body = fieldsOf(collection(config, name)).find((field) => value(field, 'name') === 'body');
     const hint = unquote(value(body, 'hint'));
     assert.match(hint, /Markdown/, `${name}.body hint: says the body is Markdown`);
     assert.match(hint, /外部链接/, `${name}.body hint: external links are allowed`);
-    assert.match(hint, /暂不支持插入图片/, `${name}.body hint: images are not supported yet`);
+    assert.match(hint, /图片/, `${name}.body hint: images can be inserted`);
+    assert.match(hint, /images/, `${name}.body hint: says where the images are kept`);
+    assert.match(hint, /SVG/, `${name}.body hint: SVG is called out as not allowed`);
+    assert.doesNotMatch(hint, /暂不支持插入图片/, `${name}.body hint: images are supported now`);
   }
 });
 

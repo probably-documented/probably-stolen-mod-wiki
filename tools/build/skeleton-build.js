@@ -46,6 +46,7 @@ const path = require('node:path');
 const { renderSite } = require('./render.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
+const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
@@ -616,10 +617,11 @@ async function injectAdmin(adminSource, distDir) {
  *   (relative paths resolve against cwd, like distDir/contentDir). A missing
  *   directory skips the injection; null skips it on purpose.
  * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number,
- *   texturesCopied: number, adminInjected: boolean}>}
+ *   texturesCopied: number, imagesPublished: number, adminInjected: boolean}>}
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   iconsDropped = declared icons with no texture file (→ 无图 fallback);
- *   texturesCopied = item textures copied from assets-src/mods/.
+ *   texturesCopied = item textures copied from assets-src/mods/;
+ *   imagesPublished = images copied from the pages' images/ folders.
  *   adminInjected = whether an admin tree was copied into dist.
  * @throws {Error} when distDir is neither the repo's own dist directory nor
  *   one inside the system temp directory (in particular the repo root, one
@@ -708,6 +710,16 @@ async function buildSkeleton({
           + '\n提示:机制页的文件名就是它在网站上的地址,只能用小写英文字母、数字和短横线。'
           + '请把文件名改成小写英文单词,单词之间用短横线,例如 `install-compat`。');
       }
+      //    Image formats (task 10b): an image the CMS stored beside a page
+      //    has to be a bitmap — an SVG can hold a script.
+      const badImages = await findUnsupportedImages(contentDir);
+      if (badImages.length > 0) {
+        throw new BuildError(
+          `[images] FAIL — ${badImages.length} 个图片文件不是支持的格式:\n`
+          + badImages.map((file) => `  ${toPosix(file)}`).join('\n')
+          + '\n提示:只支持 png、jpg、jpeg、gif、webp、avif 位图。SVG 等其它格式不能上传'
+          + '(SVG 可以内嵌脚本,对所有读者都有风险),请把图片转成 PNG 后重新上传。');
+      }
     }
     //    asset sources: a missing one is a certain failure, known right now.
     await assertAssetSources(assetsDir);
@@ -755,6 +767,9 @@ async function buildSkeleton({
     // 5b. Item textures → the paths the item pages reference.
     const texturesCopied = await copyItemTextures(data.items, assetsDir, distPath);
 
+    // 5c. Images beside the pages → the folders the pages are published to.
+    const imagesPublished = await copyPageImages(contentDir, distPath);
+
     // 6. Dangling references (dangling-refs.js): pages and assets are both on
     //    disk now, so this is the first moment the whole site can be asked
     //    whether it references a file it does not ship. A contributor may
@@ -783,7 +798,7 @@ async function buildSkeleton({
     //    settled in the pre-flight; here it is only copied.
     const adminInjected = adminSource != null && await injectAdmin(adminSource, distPath);
 
-    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, adminInjected };
+    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, imagesPublished, adminInjected };
   } catch (err) {
     process.exitCode = 1;
     throw err;
@@ -798,6 +813,9 @@ async function main() {
   console.log(`[build:skeleton] rendered ${result.pages} files → dist/`);
   console.log(`[build:skeleton] assets copied: ${result.assetsCopied} → dist/`);
   console.log(`[build:skeleton] item textures copied: ${result.texturesCopied} → dist/assets/items/`);
+  if (result.imagesPublished > 0) {
+    console.log(`[build:skeleton] page images published: ${result.imagesPublished} (beside their pages)`);
+  }
   console.log('[audit] OK — no violations (external resources, root-relative paths, dangerous HTML)');
   console.log(result.adminInjected
     ? '[build:skeleton] admin: injected → dist/admin/ (after the audit)'

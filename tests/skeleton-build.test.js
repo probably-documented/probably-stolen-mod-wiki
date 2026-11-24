@@ -1440,6 +1440,85 @@ test('validateMechanicSlugs: lowercase letters, digits and single hyphens pass; 
   assert.deepEqual(await validateMechanicSlugs(path.join(dir, '..', 'no-such-dir')), []);
 });
 
+// ---------------------------------------------------------------------------
+// Images beside the pages (task 10b). The CMS stores an image an editor
+// inserts in the page's own images/ folder — content/mechanics/images/ for a
+// mechanic page, content/items/images/ for an item page — and references it
+// relative to the page: `![alt](images/file.png)`. The build publishes those
+// folders beside the pages (dist/mechanics/images/, dist/item/images/), so the
+// same relative reference works online and from file://.
+// ---------------------------------------------------------------------------
+
+/** A 1×1 transparent PNG. */
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/** The repo's content/ with an image beside a mechanic page and one beside an item page, both referenced. */
+async function contentWithImages(t) {
+  const contentDir = await tmpDir(t, 'content-images');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  await fs.mkdir(path.join(contentDir, 'mechanics', 'images'));
+  await fs.mkdir(path.join(contentDir, 'items', 'images'));
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'images', 'loop.png'), PNG_1PX);
+  await fs.writeFile(path.join(contentDir, 'items', 'images', 'usage.png'), PNG_1PX);
+  await fs.appendFile(path.join(contentDir, 'mechanics', 'install-compat.md'), '\n\n![吞噬循环](images/loop.png)\n');
+  await fs.appendFile(path.join(contentDir, 'items', 'wondrous_milk.md'), '\n\n![用法](images/usage.png)\n');
+  return contentDir;
+}
+
+test('an image beside a page is published with it: content/mechanics/images/ → dist/mechanics/images/, content/items/images/ → dist/item/images/', async (t) => {
+  const distDir = await tmpDir(t, 'content-images-dist');
+  const contentDir = await contentWithImages(t);
+  const result = await build({ distDir, contentDir, warn: noop });
+
+  assert.equal(result.imagesPublished, 2);
+  for (const [route, file, alt, pageName] of [
+    ['mechanics', 'loop.png', '吞噬循环', 'install-compat'],
+    ['item', 'usage.png', '用法', 'wondrous_milk'],
+  ]) {
+    const published = path.join(distDir, route, 'images', file);
+    assert.deepEqual(await fs.readFile(published), PNG_1PX, `${route}/images/${file} is published byte for byte`);
+    const page = await fs.readFile(path.join(distDir, route, `${pageName}.html`), 'utf8');
+    assert.ok(page.includes(`<img src="images/${file}" alt="${alt}">`), `${pageName}.html references the image relative to the page`);
+  }
+});
+
+test('an image that is not a bitmap (an SVG can hold a script) → the build fails before rm dist, names each file, and says which formats are fine', async (t) => {
+  const distDir = await tmpDir(t, 'content-images-fail');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  const contentDir = await contentWithImages(t);
+  await fs.writeFile(
+    path.join(contentDir, 'mechanics', 'images', 'logo.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+  );
+  await fs.writeFile(path.join(contentDir, 'items', 'images', 'diagram.SVG'), '<svg/>');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the image format check to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 4, err.message);
+  assert.match(lines[0], /^\[images\] FAIL — 2 个图片文件不是支持的格式:$/, 'a heading in Chinese, with the count');
+  assert.deepEqual(
+    lines.slice(1, -1),
+    [
+      `  ${toPosix(path.join(contentDir, 'items', 'images', 'diagram.SVG'))}`,
+      `  ${toPosix(path.join(contentDir, 'mechanics', 'images', 'logo.svg'))}`,
+    ].sort(),
+    'one line per file, by its real path, whatever the letter case of the extension',
+  );
+  assert.match(lines[3], /^提示:/);
+  for (const word of ['png', 'webp', 'SVG', 'PNG']) assert.ok(lines[3].includes(word), `the hint says it: ${word}`);
+  // The heading and the hint are prose, in Chinese; the two lines between are paths.
+  assert.ok(hasChinese(lines[0]) && hasChinese(lines[3]), 'in Chinese');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (a pre-flight check, before rm dist)');
+});
+
 test('D11 — 机制页文件名不合规 → 构建失败(exitCode 1),中文提示逐个指出该文件,并说明改成小写英文短横线;上一个 dist 保留', async (t) => {
   const distDir = await tmpDir(t, 'mech-slug-fail');
   await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');

@@ -18,10 +18,20 @@ backend:
 
 site_url: https://probably-documented.github.io/probably-stolen-mod-wiki/
 
-# media_folder 只是让 CMS 配置通过校验的惰性占位:Sveltia CMS 0.271.0 在没有配置任何媒体库时
-# 要求必须有它。构建不读取这个目录,站点里也没有它;图片和上传的正式方案等 CMS 上线后另行
-# 处理(Task 10b)。
+# 顶层的 media_folder 只是让 CMS 配置通过校验的占位:Sveltia CMS 0.271.0 在没有配置任何云端媒体库时
+# 要求必须有它。页面的图片不放在这里(构建也不读取这个目录),而是放在每个页面自己旁边的 images/
+# 文件夹里,见下面各个 collection 的 media_folder。
 media_folder: assets/uploads
+
+# 上传文件的通用规则。
+media_libraries:
+  all:
+    # 文件名转成 URL 友好的形式(空格等会被处理掉)。
+    slugify_filename: true
+    # 保留原文件名,再加一段唯一的后缀:两个页面各自上传的图片不会重名、不会互相覆盖。
+    filename_template: '{{filename}}-{{uuid_short}}'
+    # 单个文件最大 5 MB。
+    max_file_size: 5242880
 
 collections:
   # 物品的「详解」:每个文件对应一件物品,文件名就是物品 ID(只能从下拉列表里选)。
@@ -37,6 +47,10 @@ collections:
     slug: '{{fields.slug}}'
     # 列表里显示的标题就是文件名(物品 ID)
     summary: '{{slug}}'
+    # 插入的图片存放在 content/items/images/,正文里按相对路径引用(images/文件名);构建会把它们
+    # 发布到物品页旁边。只支持位图(png、jpg、gif、webp 等),不支持 SVG。
+    media_folder: images
+    public_folder: images
     fields:
       - name: slug
         label: 物品
@@ -65,7 +79,7 @@ collections:
         # [[物品ID]] 和 html 直通块还没有实测(Task 10),在此之前不开放所见即所得
         modes:
           - raw
-        hint: '显示在物品详情页的「详解」一节。正文支持 Markdown,可以贴外部链接(会在新标签页打开)。暂不支持插入图片。'
+        hint: '显示在物品详情页的「详解」一节。正文支持 Markdown,可以贴外部链接(会在新标签页打开),也可以插入图片:上传的图片保存在页面旁边的 images 文件夹,自动转成 URL 友好的文件名。只支持 png、jpg、gif、webp 等位图图片,不支持 SVG。'
 
   # 机制说明:每个文件是一个页面,会出现在站点的「机制说明」索引里。
   - name: mechanics
@@ -74,6 +88,10 @@ collections:
     folder: content/mechanics
     create: true
     delete: true
+    # 插入的图片存放在 content/mechanics/images/,正文里按相对路径引用(images/文件名);构建会把
+    # 它们发布到机制页旁边。只支持位图(png、jpg、gif、webp 等),不支持 SVG。
+    media_folder: images
+    public_folder: images
     fields:
       - name: title
         label: 标题
@@ -92,4 +110,4 @@ collections:
         # [[物品ID]] 和 html 直通块还没有实测(Task 10),在此之前不开放所见即所得
         modes:
           - raw
-        hint: '正文支持 Markdown,可以贴外部链接(会在新标签页打开)。暂不支持插入图片。'
+        hint: '正文支持 Markdown,可以贴外部链接(会在新标签页打开),也可以插入图片:上传的图片保存在页面旁边的 images 文件夹,自动转成 URL 友好的文件名。只支持 png、jpg、gif、webp 等位图图片,不支持 SVG。'
