@@ -8,8 +8,8 @@
 
 backend:
   name: github
-  # TODO(Task 7): 把 OWNER 换成仓库所在的 GitHub 组织名(或用户名);下面 site_url 里的 OWNER 也要一起换。
-  repo: OWNER/probably-stolen-mod-wiki
+  # 仓库所在的 GitHub 组织。改名或搬家时,下面 site_url 与 tests/admin-config.test.js 要一起改。
+  repo: probably-documented/probably-stolen-mod-wiki
   branch: main
   auth_type: additions
   # TODO(Task 9): 填入 Sveltia CMS Additions Worker 的 URL
@@ -20,8 +20,7 @@ backend:
   # “The base_url option must be the URL of your Sveltia CMS Additions service.”
   # 这是预期的中间状态,登录服务上线、填入 base_url 之后就会消失。
 
-# TODO(Task 7): OWNER 同上。
-site_url: https://OWNER.github.io/probably-stolen-mod-wiki/
+site_url: https://probably-documented.github.io/probably-stolen-mod-wiki/
 
 # media_folder 只是让 CMS 配置通过校验的惰性占位:Sveltia CMS 0.271.0 在没有配置任何媒体库时
 # 要求必须有它。构建不读取这个目录,站点里也没有它;图片和上传的正式方案等 CMS 上线后另行

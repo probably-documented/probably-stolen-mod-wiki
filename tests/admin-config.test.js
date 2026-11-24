@@ -449,8 +449,8 @@ test('the default build injects the shell: dist/admin/ holds index.html, config.
 //     empty): `required: false`
 //   • the two collections have exactly their fields, each with its widget
 //   • backend.branch, backend.repo and site_url, exactly as written today.
-//     OWNER is a placeholder until Task 7 replaces it with the real
-//     organisation; these three assertions change with it.
+//     backend.repo and site_url name the organisation the site lives in:
+//     probably-documented. A wrong name here is an editor who cannot sign in.
 //   • an option of the 物品 dropdown is labelled with the item's name
 // Nothing under admin/ changes for this file.
 // ---------------------------------------------------------------------------
@@ -473,12 +473,12 @@ test('D10 — items 与 mechanics 的字段恰为清单(按顺序),widget 各就
   expect('mechanics', [['title', 'string'], ['nav_label', 'string'], ['body', 'markdown']]);
 });
 
-test('D10 — backend.branch、backend.repo、site_url 与 config 当前值精确匹配(OWNER 是 Task 7 之前的占位符,届时这三条断言随它更新)', async () => {
+test('D10 — backend.branch、backend.repo、site_url 指向本仓库:probably-documented/probably-stolen-mod-wiki', async () => {
   const config = await readConfig();
   const backend = subBlock(config, 'backend');
   assert.equal(value(backend, 'branch'), 'main');
-  assert.equal(value(backend, 'repo'), 'OWNER/probably-stolen-mod-wiki');
-  assert.equal(value(config, 'site_url'), 'https://OWNER.github.io/probably-stolen-mod-wiki/');
+  assert.equal(value(backend, 'repo'), 'probably-documented/probably-stolen-mod-wiki');
+  assert.equal(value(config, 'site_url'), 'https://probably-documented.github.io/probably-stolen-mod-wiki/');
 });
 
 test('D10 — 物品下拉里,fixture 数据中有名字的物品,选项 label 就是它的名字', async () => {
