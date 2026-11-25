@@ -18,6 +18,11 @@ backend:
 
 site_url: https://probably-documented.github.io/probably-stolen-mod-wiki/
 
+# Sveltia 默认把生成的文件名小写化;物品 ID 里有大写字母(gear.maidDress 等 8 个),
+# 文件名必须原样保留,否则构建的 ID 校验会拒绝它。
+slug:
+  lowercase: false
+
 # 顶层的 media_folder 只是让 CMS 配置通过校验的占位:Sveltia CMS 0.271.0 在没有配置任何云端媒体库时
 # 要求必须有它。页面的图片不放在这里(构建也不读取这个目录),而是放在每个页面自己旁边的 images/
 # 文件夹里,见下面各个 collection 的 media_folder。
@@ -299,6 +304,8 @@ collections:
       - name: body
         label: 详解正文
         widget: markdown
+        # 物品的正文是补充:现有 65 篇详解的正文都是空的,新建一篇也可以先不写。
+        required: false
         # 打开时是所见即所得的富文本编辑器;第一项是打开时的模式。
         modes:
           - rich_text

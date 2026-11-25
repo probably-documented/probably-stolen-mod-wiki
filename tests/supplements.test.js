@@ -124,3 +124,12 @@ test('contentDir 为 null:什么都不做', async () => {
   assert.deepEqual(data, structuredClone(FIXTURE_DATA));
   assert.deepEqual(await readSupplements(null), []);
 });
+
+test('大小写不敏感:文件名的 id 与数据里的 id 只差大小写时,仍然找到那件物品', async (t) => {
+  const contentDir = tmpDir(t, 'case');
+  await writeItem(contentDir, 'gear.maiddress', ['slug: gear.maidDress', "notes: '小写文件名'"]);
+  const data = { items: [{ id: 'gear.maidDress', notes: null, provenance: {} }], mods: [] };
+  await mergeSupplements(data, contentDir, () => {});
+  assert.equal(data.items[0].notes, '小写文件名');
+  assert.equal(data.items[0].provenance.notes, 'content:items/gear.maiddress.md');
+});

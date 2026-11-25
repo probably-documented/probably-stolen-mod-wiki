@@ -629,10 +629,26 @@ async function renderSite(data, options = {}) {
     out.set(`mechanics/${mech.slug}.html`, renderMechanicPage(data, model, mech));
   }
 
+  // Sveltia lowercases entry file names when it saves (measured: gear.maidDress
+  // becomes gear.maiddress.md), so the body file is found by name, ignoring
+  // case — the same rule resolveItemId gives the lints and the supplement merge.
+  let itemFiles = null;
+  if (contentDir != null) {
+    itemFiles = new Map();
+    let names = [];
+    try {
+      names = await fs.readdir(path.join(contentDir, 'items'));
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+    for (const name of names) itemFiles.set(name.toLowerCase(), name);
+  }
+
   for (const item of model.items) {
     let mdBody = null;
-    if (contentDir != null) {
-      const raw = await readOptional(path.join(contentDir, 'items', `${item.id}.md`));
+    if (itemFiles !== null) {
+      const wanted = `${item.id}.md`;
+      const raw = await readOptional(path.join(contentDir, 'items', itemFiles.get(wanted.toLowerCase()) ?? wanted));
       if (raw != null) mdBody = splitFrontmatter(raw).body;
     }
     out.set(`item/${item.id}.html`, renderItemPage(data, model, item, mdBody));

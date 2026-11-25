@@ -18,6 +18,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { splitFrontmatter } = require('../extract/frontmatter.js');
+const { resolveItemId } = require('./item-ids.js');
 
 const SCALAR_FIELDS = Object.freeze(['name', 'description', 'flavor', 'notes', 'icon']);
 const ARRAY_FIELDS = Object.freeze(['categories', 'tags', 'usage', 'sources', 'related', 'aliases']);
@@ -92,7 +93,9 @@ function applySupplement(item, frontmatter, fileName) {
 async function mergeSupplements(data, contentDir, warn = console.warn) {
   const byId = new Map((data.items ?? []).map((item) => [item.id, item]));
   for (const { id, frontmatter, fileName } of await readSupplements(contentDir)) {
-    const item = byId.get(id);
+    // A file name the CMS lowercased still names its item (resolveItemId).
+    const realId = resolveItemId(id, byId.keys());
+    const item = realId === null ? undefined : byId.get(realId);
     if (item === undefined) {
       // The id lint rejects unknown file names before this; be forgiving here
       // (a file without an item is skipped, never turned into a new item).

@@ -1895,3 +1895,53 @@ test('data: 注入的数据优先于 dataDir（dataDir 指向不存在的目录�
     await fs.access(path.join(distDir, 'item', `${item.id}.html`));
   }
 });
+
+// ---------------------------------------------------------------------------
+// An item page whose file name lost its capitals (Sveltia 0.271.0 lowercases
+// entry file names even with the top-level slug.lowercase: false — measured).
+// gear.maidDress is a real id; gear.maiddress.md must land on it everywhere:
+// the id lint, the slug lint, the supplement merge and the body read.
+// ---------------------------------------------------------------------------
+
+/** An item shaped like the data files, for the case-sensitivity tests. */
+function caseItem(id, name) {
+  return {
+    id, aliases: [], name, mod: FIXTURE_DATA.mods[0].id, price: 1, shape: [1, 1], icon: null,
+    categories: [], tags: [], description: null, flavor: null, usage: [], sources: [], related: [],
+    notes: null, provenance: {},
+  };
+}
+
+test('大写 id:文件名被 CMS 小写化后,构建仍把它归到真实 id(补充层与正文都读得到)', async (t) => {
+  const distDir = await tmpDir(t, 'case-dist');
+  const contentDir = await tmpDir(t, 'case-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'items', 'gear.maiddress.md'), [
+    '---', 'slug: gear.maidDress', "notes: '小写文件名里的备注'", '---', '', '这段正文也要出现。', '',
+  ].join('\n'));
+
+  const data = structuredClone(FIXTURE_DATA);
+  data.items.push(caseItem('gear.maidDress', '女仆装'));
+  const { exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, data }));
+
+  assert.equal(exitCode, before, err && err.message);
+  const page = await fs.readFile(path.join(distDir, 'item', 'gear.maidDress.html'), 'utf8');
+  assert.ok(page.includes('小写文件名里的备注'), 'the supplement lands on the real item');
+  assert.ok(page.includes('这段正文也要出现'), 'the body is read from the case-variant file');
+});
+
+test('大写 id:拼错的文件名(大小写也对不上)仍然是构建失败', async (t) => {
+  const distDir = await tmpDir(t, 'case-typo-dist');
+  const contentDir = await tmpDir(t, 'case-typo-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'items', 'gear.maidres.md'), '---\nslug: gear.maidDress\n---\n');
+
+  const data = structuredClone(FIXTURE_DATA);
+  data.items.push(caseItem('gear.maidDress', '女仆装'));
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, data }));
+
+  assert.ok(err instanceof Error, 'expected the id lint to fail the build');
+  assert.equal(exitCode, 1);
+  assert.match(err.message, /\[lint\] FAIL/);
+  assert.ok(err.message.includes('gear.maidres.md'), err.message);
+});

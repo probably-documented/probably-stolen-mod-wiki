@@ -48,6 +48,7 @@ const path = require('node:path');
 const { renderSite } = require('./render.js');
 const { loadWikiData } = require('./wiki-data.js');
 const { mergeSupplements } = require('./supplements.js');
+const { resolveItemId } = require('./item-ids.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
@@ -122,7 +123,9 @@ const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code ===
  * `<item.id>.md`. render.js reads content/items/<item.id>.md and nothing
  * else, so a file with any other name (a slug the CMS derived from a title,
  * an alias, a typo, a case-variant suffix) is committed happily and then
- * silently never renders. The build goes red instead.
+ * silently never renders. The build goes red instead. A name that differs from
+ * the real id by case only is accepted: Sveltia CMS lowercases entry file names
+ * when it saves, and every lookup goes through resolveItemId.
  * @param {string} contentItemsDir the content/items directory
  * @param {Iterable<string>} validIds the real item ids (aliases are not ids)
  * @returns {Promise<string[]>} offending file names, sorted. Empty when every
@@ -132,7 +135,7 @@ const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code ===
  *   reason other than "missing" (e.g. EACCES).
  */
 async function validateItemContentIds(contentItemsDir, validIds) {
-  const legalFiles = new Set([...validIds].map((id) => `${id}.md`));
+  const ids = [...validIds];
   let entries;
   try {
     entries = await fs.readdir(contentItemsDir, { withFileTypes: true });
@@ -143,18 +146,22 @@ async function validateItemContentIds(contentItemsDir, validIds) {
   const violations = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    // Byte-for-byte "<id>.md" or it is a violation. A case-variant suffix
-    // (.MD) counts too, even behind a real id: render.js opens <id>.md, which
-    // finds that file on Windows (case-insensitive) and misses it on Linux
-    // (CI), so the site would silently differ per platform.
-    if (/\.md$/i.test(entry.name) && !legalFiles.has(entry.name)) violations.push(entry.name);
+    if (!/\.md$/i.test(entry.name)) continue;
+    // The extension must be exactly .md (a .MD finds a file on Windows and
+    // misses it on Linux/CI), and the id must name a real item — possibly
+    // differing by case only (Sveltia CMS lowercases entry file names when it
+    // saves). resolveItemId is the one rule the lints, the supplement merge
+    // and the body read all use, so every platform agrees.
+    const fileId = entry.name.replace(/\.md$/i, '');
+    if (!/\.md$/.test(entry.name) || resolveItemId(fileId, ids) === null) violations.push(entry.name);
   }
   return violations.sort();
 }
 
 /**
  * Lint content/items/ a second time (task 6b D8): every `<item.id>.md` must
- * declare `slug` in its front matter, equal to the file name without .md.
+ * declare `slug` in its front matter, equal to the file name without .md
+ * (ignoring case: the CMS may have lowercased the file name).
  * In the CMS the 物品 dropdown is what an item file is NAMED after, and
  * render.js names the page after the FILE whatever the front matter says —
  * so a slug that disagrees with the file name usually means the wrong item
@@ -183,7 +190,9 @@ async function validateItemContentSlugs(contentItemsDir) {
     const expected = entry.name.replace(/\.md$/i, '');
     const source = await fs.readFile(path.join(contentItemsDir, entry.name), 'utf8');
     const { slug } = splitFrontmatter(source).fm;
-    if (typeof slug !== 'string' || slug !== expected) {
+    // Case-insensitive: the CMS may have lowercased the file name, while the
+    // slug field keeps the real id (gear.maidDress in gear.maiddress.md).
+    if (typeof slug !== 'string' || slug.toLowerCase() !== expected.toLowerCase()) {
       violations.push({ file: entry.name, slug: typeof slug === 'string' ? slug : null });
     }
   }

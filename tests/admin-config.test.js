@@ -562,6 +562,20 @@ test('对象列表字段:usage 与 sources 是 list,子字段各就各位', asyn
   assert.deepEqual(subFields(fieldOf('sources')), [['source', 'string'], ['detail', 'string'], ['probability', 'string']]);
 });
 
+test('items.body 不是必填:物品详解正文可以为空(真实的 65 篇都为空);机制页正文保持必填', async () => {
+  const config = await readConfig();
+  const bodyOf = (name) => fieldsOf(collection(config, name)).find((field) => value(field, 'name') === 'body');
+  assert.equal(value(bodyOf('items'), 'required'), 'false', 'an item page saves with an empty body');
+  assert.equal(value(bodyOf('mechanics'), 'required'), undefined, 'a mechanic page is its body: still required');
+});
+
+test('顶层的 slug 配置关掉小写化:含大写字母的物品 ID(8 个)保存后文件名不变', async () => {
+  const config = await readConfig();
+  const slug = subBlock(config, 'slug');
+  assert.ok(slug !== null, 'config.yml has a top-level slug block');
+  assert.equal(value(slug, 'lowercase'), 'false', 'the CMS keeps gear.maidDress as written, not gear.maiddress');
+});
+
 // ---------------------------------------------------------------------------
 // Rich text in the CMS (spec D / E): what the editor offers, and what the
 // preview pane shows.
