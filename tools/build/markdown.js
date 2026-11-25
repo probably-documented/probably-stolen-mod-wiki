@@ -2,27 +2,32 @@
 
 // Markdown -> HTML converter for the offline wiki site (Task 6).
 //
-// Ruled signature: mdToHtml(mdText, lookup, renderInline) -> {html, toc}
+// Ruled signature: mdToHtml(mdText, lookup, renderInline) -> {html, toc, warnings}
 //   - lookup(id) -> item|null      item lookup callback
 //   - renderInline(item) -> string card HTML callback injected by the caller;
 //     T6 never renders the card itself. When lookup misses, T6 emits
 //     `<span class="wikilink-missing">[[id]]</span>` and skips renderInline.
+//   - warnings: the table rows with more cells than their header, each with
+//     the line it is on (from 1) — the build reports them to the contributor.
 //
 // Supported: ATX headings (slug ids + toc), GFM pipe tables with alignment
 // (`\|` is a literal pipe inside a cell), ordered/unordered lists (2-space
 // nesting), **bold**, *italic*, _italic_, ~~strikethrough~~, `code`,
 // [text](#anchor), ![alt](src "title") images (the address as written),
-// backslash escapes, and paragraphs (single newline joins, blank line splits).
+// backslash escapes, blockquotes (text only), fenced code blocks (each line
+// numbered), and paragraphs (single newline joins, blank line splits).
 // The item links the CMS's rich-text editor mis-stores are restored
-// (restoreItemLinks). Everything else (e.g. blockquotes) survives as escaped
-// text.
+// (restoreItemLinks).
 //
-// ```html passthrough fences: an opening fence line of exactly ```html
-// (lowercase tag, trailing spaces allowed) starts a raw-html block. The body
-// lines are inserted verbatim — no escaping, no markdown parsing, no toc
-// entries — until the first closing fence line of exactly ```. Only a bare
-// ``` closes; ```js etc. inside the body stays content. An unterminated opener
-// falls back to ordinary paragraph text so the rest of the document survives.
+// Fences: an opening fence line of exactly ```html (lowercase tag, trailing
+// spaces allowed) starts a raw-html passthrough block. The body lines are
+// inserted verbatim — no escaping, no markdown parsing, no toc entries — until
+// the first closing fence line of exactly ```. Any other opening fence, the
+// bare ``` included, is a code block: its lines are escaped and numbered, and
+// nothing in it is parsed (a ```html line inside is just text). Only a bare
+// ``` closes either; ```js etc. inside a passthrough block stays content. An
+// unterminated opener falls back to ordinary paragraph text so the rest of
+// the document survives.
 // Security: raw html is NOT trusted here. Anyone who can edit content/ can
 // write a ```html block, and this renderer lets its lines through as they
 // are. What keeps a page safe is the build, not this file: the audit
@@ -33,7 +38,12 @@
 // it makes.
 
 const CODE_SENTINEL = /\u0000(\d+)\u0000/g;
-const HTML_FENCE_OPEN = /^```html\s*$/;
+/** A fence's opening line: three backticks, then the language tag (possibly empty). */
+const FENCE_OPEN = /^```(.*)$/;
+/** The only thing that closes a fence: a bare ``` on a line of its own. */
+const FENCE_CLOSE = '```';
+/** A blockquote marker: up to three spaces, `>`, then optionally one space or the end of the line. */
+const QUOTE_MARKER = /^ {0,3}>(?: ?|$)/;
 
 function escapeHtml(text) {
   return text
@@ -193,6 +203,48 @@ function joinParagraphLines(lines, ctx) {
 }
 
 /**
+ * A blockquote: the lines between the `> ` markers. Blank lines (a line that
+ * is only the marker) split it into paragraphs, which join their lines the
+ * way ordinary paragraphs do. No block-level syntax is recognised inside —
+ * the CMS's own blockquote holds text only — so nothing in it is swallowed
+ * and it yields no table-of-contents entry.
+ * @param {string[]} innerLines the lines with their markers removed
+ * @param {{ lookup: Function, renderInline: Function }} ctx
+ * @returns {string} '' when there is nothing between the markers
+ */
+function renderQuote(innerLines, ctx) {
+  const paragraphs = [];
+  let current = [];
+  for (const raw of innerLines) {
+    if (raw.trim() === '') {
+      if (current.length) {
+        paragraphs.push(current);
+        current = [];
+      }
+      continue;
+    }
+    current.push(raw.trim());
+  }
+  if (current.length) paragraphs.push(current);
+  if (paragraphs.length === 0) return '';
+  return `<blockquote>\n${paragraphs.map((lines) => joinParagraphLines(lines, ctx)).join('\n')}\n</blockquote>`;
+}
+
+/**
+ * A fenced code block: every line verbatim and html-escaped, each preceded by
+ * its line number (in an element hidden from assistive technology and left
+ * out of a selection — see theme.css). No Markdown is parsed inside, so a
+ * ```html line here is just text.
+ * @param {string[]} codeLines
+ * @returns {string}
+ */
+function renderCodeBlock(codeLines) {
+  const body = codeLines.map((code, idx) =>
+    `<span class="code-line-no" aria-hidden="true">${idx + 1}</span>${escapeHtml(code)}`).join('\n');
+  return `<pre><code>${body}</code></pre>`;
+}
+
+/**
  * The cells of a table row, trimmed. A `\` makes the character after it
  * literal, so `\|` is a pipe inside a cell and not a separator, and `\\|` is
  * a literal backslash followed by a separator. The row's leading pipe is
@@ -238,7 +290,20 @@ function parseAlign(cell) {
   return '';
 }
 
-function renderTable(header, aligns, rows, ctx) {
+/**
+ * Render a table. A body row with more cells than the header keeps only the
+ * header's cells (as GFM does) and is reported in `warnings`, so the build can
+ * tell the contributor — it is how an image dropped at the end of a table row
+ * ends up written.
+ * @param {string[]} header
+ * @param {string[]} aligns
+ * @param {string[][]} rows
+ * @param {{ lookup: Function, renderInline: Function }} ctx
+ * @param {number[]} rowLines the line of each row in the source, from 1
+ * @param {Array<{ line: number, headerCells: number, rowCells: number }>} warnings
+ * @returns {string}
+ */
+function renderTable(header, aligns, rows, ctx, rowLines, warnings) {
   const alignAttr = (idx) => {
     const a = aligns[idx];
     return a ? ` style="text-align:${a}"` : '';
@@ -249,7 +314,11 @@ function renderTable(header, aligns, rows, ctx) {
     html += `<th${alignAttr(idx)}>${renderInline(cell, ctx)}</th>`;
   });
   html += '</tr></thead><tbody>';
-  for (const row of rows) {
+  for (let k = 0; k < rows.length; k++) {
+    const row = rows[k];
+    if (row.length > header.length) {
+      warnings.push({ line: rowLines[k], headerCells: header.length, rowCells: row.length });
+    }
     html += '<tr>';
     for (let idx = 0; idx < header.length; idx++) {
       html += `<td>${renderInline(idx < row.length ? row[idx] : '', ctx)}</td>`;
@@ -302,6 +371,7 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
   const ctx = { lookup, renderInline: renderInlineCard };
   const usedCounts = new Map();
   const toc = [];
+  const warnings = [];
   const blocks = [];
   const lines = (mdText == null ? '' : String(mdText)).replace(/\r\n?/g, '\n').split('\n');
 
@@ -324,24 +394,28 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
       continue;
     }
 
-    // ```html passthrough fence: raw html block, verbatim (see header note).
-    if (HTML_FENCE_OPEN.test(trimmed)) {
+    // A fence — three backticks, then the language tag. `html` is the raw-html
+    // passthrough block (see the header note); anything else, the empty tag
+    // included, is a code block. Only a bare ``` closes either.
+    const fence = trimmed.match(FENCE_OPEN);
+    if (fence) {
       flushParagraph();
       let close = -1;
       for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() === '```') {
+        if (lines[j].trim() === FENCE_CLOSE) {
           close = j;
           break;
         }
       }
       if (close === -1) {
-        // Unterminated: treat the opener as ordinary text, keep parsing so
-        // the rest of the document is not swallowed.
+        // Unterminated: the opener is ordinary text. Keep parsing so the rest
+        // of the document is not swallowed.
         paragraph.push(trimmed);
         i++;
         continue;
       }
-      blocks.push(lines.slice(i + 1, close).join('\n'));
+      const body = lines.slice(i + 1, close);
+      blocks.push(fence[1].trim() === 'html' ? body.join('\n') : renderCodeBlock(body));
       i = close + 1;
       continue;
     }
@@ -359,6 +433,20 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
       continue;
     }
 
+    // Blockquote: consecutive `> ` lines. Text only — the inline rules apply,
+    // no block syntax (see renderQuote).
+    if (QUOTE_MARKER.test(line)) {
+      flushParagraph();
+      const inner = [];
+      while (i < lines.length && QUOTE_MARKER.test(lines[i])) {
+        inner.push(lines[i].replace(QUOTE_MARKER, ''));
+        i += 1;
+      }
+      const quote = renderQuote(inner, ctx);
+      if (quote !== '') blocks.push(quote);
+      continue;
+    }
+
     // Pipe table: a `|` line whose next line is an alignment delimiter row.
     if (trimmed.includes('|') && i + 1 < lines.length && isDelimiterRow(lines[i + 1])) {
       flushParagraph();
@@ -366,11 +454,13 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
       const aligns = splitRow(lines[i + 1]).map(parseAlign);
       i += 2;
       const rows = [];
+      const rowLines = [];
       while (i < lines.length && lines[i].trim().includes('|')) {
         rows.push(splitRow(lines[i]));
+        rowLines.push(i + 1);
         i++;
       }
-      blocks.push(renderTable(header, aligns, rows, ctx));
+      blocks.push(renderTable(header, aligns, rows, ctx, rowLines, warnings));
       continue;
     }
 
@@ -399,7 +489,7 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
   }
   flushParagraph();
 
-  return { html: blocks.join('\n'), toc };
+  return { html: blocks.join('\n'), toc, warnings };
 }
 
 module.exports = { mdToHtml, restoreItemLinks };

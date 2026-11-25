@@ -155,13 +155,10 @@ test('paragraph merging: single newline joins, blank line splits', () => {
   assert.ok(latin.includes('<p>call setup then run</p>'), 'latin words keep a space at the join');
 });
 
-test('unsupported syntax (blockquote) is kept as escaped text without crashing', () => {
+test('blockquotes: `> ` lines become one blockquote of paragraphs', () => {
   const ctx = makeCtx();
-  const md = '> 这是一段引用\n> 第二行';
-  const { html } = mdToHtml(md, ctx.lookup, ctx.renderInline);
-
-  assert.ok(html.includes('&gt; 这是一段引用'), 'blockquote marker kept as text');
-  assert.equal(html.includes('<blockquote>'), false, 'no blockquote element emitted');
+  const { html } = mdToHtml('> 这是一段引用\n> 第二行', ctx.lookup, ctx.renderInline);
+  assert.equal(html, '<blockquote>\n<p>这是一段引用第二行</p>\n</blockquote>');
 });
 
 test('anchor links render as <a> elements', () => {
@@ -567,4 +564,74 @@ test('an escaped pipe in a table cell is a literal pipe, not a separator', () =>
   // a pipe at the very end of the row is content when it is escaped
   const tail = render(['| a | b\\|', '| --- | --- |', '| 1 | 2 |'].join('\n'));
   assert.ok(tail.includes('<th>a</th><th>b|</th>'), tail);
+});
+
+// ---------------------------------------------------------------------------
+// Block level: blockquotes, fenced code blocks, table rows wider than their header
+// ---------------------------------------------------------------------------
+
+test('a `> ` line starts a blockquote; its lines make paragraphs', () => {
+  assert.equal(render('> 引用'), '<blockquote>\n<p>引用</p>\n</blockquote>');
+  assert.equal(render('> 一\n>\n> 二'), '<blockquote>\n<p>一</p>\n<p>二</p>\n</blockquote>');
+  assert.equal(render('   > 引用'), '<blockquote>\n<p>引用</p>\n</blockquote>');
+  // it may follow a paragraph with no blank line in between
+  assert.equal(render('段落\n> 引用'), '<p>段落</p>\n<blockquote>\n<p>引用</p>\n</blockquote>');
+});
+
+test('inline formatting works inside a blockquote; lists, headings and fences written there stay literal', () => {
+  assert.equal(render('> 见 **粗体** 和 [[wondrous_milk]] 和 [链接](a.html)'),
+    '<blockquote>\n<p>见 <strong>粗体</strong> 和 <span class="item-inline" data-item-id="wondrous_milk">神奇乳汁</span> 和 <a href="a.html">链接</a></p>\n</blockquote>');
+  // Nothing block-level is recognised inside a blockquote (the CMS's own
+  // blockquote holds text only), and the text after it is not swallowed.
+  // Lines join the way paragraph lines do: CJK lines concatenate directly.
+  assert.equal(render(['> - 列表', '> ## 标题', '> ```xml', '> <a>', '', '后面的正文'].join('\n')),
+    '<blockquote>\n<p>- 列表## 标题```xml&lt;a&gt;</p>\n</blockquote>\n<p>后面的正文</p>');
+});
+
+test('an empty blockquote emits nothing; an escaped > is a paragraph', () => {
+  assert.equal(render('前\n>\n后'), '<p>前</p>\n<p>后</p>');
+  assert.equal(render('\\> x'), '<p>&gt; x</p>');
+});
+
+/** A code block's line-number element. */
+const lineNo = (n) => `<span class="code-line-no" aria-hidden="true">${n}</span>`;
+const codeBlock = (body) => `<pre><code>${body}</code></pre>`;
+
+test('a fenced block is a code block: verbatim, escaped, numbered line by line, not in the toc', () => {
+  const ctx = makeCtx([milk]);
+  const { html, toc } = mdToHtml(['```js', 'const a = 1;', '', '  缩进 <tag> [[wondrous_milk]] *x*', '```'].join('\n'),
+    ctx.lookup, ctx.renderInline);
+  assert.equal(html, codeBlock(`${lineNo(1)}const a = 1;\n${lineNo(2)}\n${lineNo(3)}  缩进 &lt;tag&gt; [[wondrous_milk]] *x*`));
+  assert.deepEqual(toc, []);
+});
+
+test('a code block sits between paragraphs; a bare fence makes one too', () => {
+  assert.equal(render(['前', '', '```js', 'a', '```', '', '后'].join('\n')), `<p>前</p>\n${codeBlock(`${lineNo(1)}a`)}\n<p>后</p>`);
+  assert.equal(render(['```', '纯文本', '```'].join('\n')), codeBlock(`${lineNo(1)}纯文本`));
+});
+
+test('source shown in a code block is text: tags in it never become tags', () => {
+  const html = render(['```xml', '<script>alert(1)</script>', '</pre>', '```'].join('\n'));
+  assert.ok(html.includes(`${lineNo(1)}&lt;script&gt;alert(1)&lt;/script&gt;`), html);
+  assert.ok(html.includes(`${lineNo(2)}&lt;/pre&gt;`), html);
+  assert.ok(!html.includes('<script'), html);
+  assert.ok(!html.includes('</pre></code>'), html);
+});
+
+test('a ```html line inside a code block is content; a ```html fence is still a passthrough block', () => {
+  const html = render(['```', '```html', '<div>x</div>', '```', '```html', '<div>y</div>', '```'].join('\n'));
+  assert.ok(html.includes(lineNo(1) + '```html\n' + lineNo(2) + '&lt;div&gt;x&lt;/div&gt;'), html);
+  assert.ok(html.includes('<div>y</div>'), html);
+});
+
+test('a code fence that is never closed: its opening line is plain text, the rest still parses', () => {
+  assert.equal(render(['```js', 'code'].join('\n')), '<p>```js code</p>');
+});
+
+test('a table row with more cells than its header is reported in warnings; the table still renders the header\'s width', () => {
+  const ctx = makeCtx();
+  const wide = mdToHtml(['| A | B |', '| --- | --- |', '| 1 | 2 |![](images/x.png)'].join('\n'), ctx.lookup, ctx.renderInline);
+  assert.deepEqual(wide.warnings, [{ line: 3, headerCells: 2, rowCells: 3 }]);
+  assert.equal((wide.html.match(/<td>/g) ?? []).length, 2);
+  assert.deepEqual(mdToHtml(['| A |', '| --- |', '| 1 |'].join('\n'), ctx.lookup, ctx.renderInline).warnings, []);
 });
