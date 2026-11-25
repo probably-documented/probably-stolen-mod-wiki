@@ -95,7 +95,24 @@ const noop = () => {};
  * (relative to cwd); once Task 6 ships it, tests that did not ask for it must
  * not gain a dist/admin/ (and its extra .html files) behind their back.
  */
-const build = (options) => buildSkeleton({ adminDir: null, ...options });
+const build = (options) => buildSkeleton({ adminDir: null, data: structuredClone(FIXTURE_DATA), ...options });
+
+/** Write FIXTURE_DATA as a data dir (data/mods/*.json + data/wiki.json) under dir. */
+async function writeFixtureData(dir) {
+  const modsDir = path.join(dir, 'mods');
+  await fs.mkdir(modsDir, { recursive: true });
+  for (const mod of FIXTURE_DATA.mods) {
+    const items = FIXTURE_DATA.items.filter((it) => it.mod === mod.id);
+    await fs.writeFile(path.join(modsDir, `${mod.id}.json`),
+      JSON.stringify({ ...mod, itemCount: items.length, items }));
+  }
+  await fs.writeFile(path.join(dir, 'wiki.json'), JSON.stringify({
+    baseline: FIXTURE_DATA.baseline,
+    facets: FIXTURE_DATA.facets,
+    news: FIXTURE_DATA.news,
+    changelog: FIXTURE_DATA.changelog,
+  }));
+}
 
 async function tmpDir(t, label) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `skeleton-${label}-`));
@@ -465,7 +482,7 @@ test('B1 — admin/ 不参与断链检查:CMS 壳里的断链不会让构建失�
   await fs.writeFile(path.join(adminDir, 'vendor', 'cms.css'), 'a{background:url(../missing.png)}\n');
 
   const { exitCode, before } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));
+    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.equal(exitCode, before, 'the build passes');
   assert.ok((await fs.readFile(path.join(distDir, 'admin', 'index.html'), 'utf8')).includes('missing.html'), 'the shell IS in dist');
@@ -480,6 +497,7 @@ test('B2 — the CLI:stderr 是中文清单加提示,提示是最后一行,后�
   const cwd = await tmpDir(t, 'links-cli');
   await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
   await fs.appendFile(path.join(cwd, 'content', 'mechanics', 'install-compat.md'), '\n见 [不存在的页面](no-such-page.html)。\n');
+  await writeFixtureData(path.join(cwd, 'data'));
 
   const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
   assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
@@ -1027,7 +1045,7 @@ test('buildSkeleton injects adminDir into dist/admin after the audit — an exte
   assert.deepEqual(standalone.map((v) => `${v.file}:${v.line} [${v.code}]`), ['index.html:3 [external-url]']);
 
   const { exitCode, before } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, warn: noop }));
+    buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.equal(exitCode, before, 'the build passes: dist/admin did not exist yet when the audit ran');
   assert.equal(await fs.readFile(path.join(distDir, 'admin', 'index.html'), 'utf8'), shell);
@@ -1042,7 +1060,7 @@ test('buildSkeleton skips the admin injection when adminDir does not exist (or i
 
   for (const [option, what] of [[adminDir, 'a path that does not exist'], [null, 'null']]) {
     const { exitCode, before, result } = await capturingExitCode(() =>
-      buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir: option, warn: noop }));
+      buildSkeleton({ distDir, contentDir: REPO_CONTENT, adminDir: option, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
     assert.ok(result != null, `${what}: expected the build to pass`);
     assert.equal(exitCode, before, `${what}: a skipped injection is not a failure`);
@@ -1060,7 +1078,7 @@ test('buildSkeleton fails loudly when adminDir exists but is not a directory (in
   await fs.writeFile(adminDir, 'not a directory');
 
   const { err, exitCode } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: null, adminDir, warn: noop }));
+    buildSkeleton({ distDir, contentDir: null, adminDir, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.ok(err instanceof Error, `expected the non-directory adminDir to throw, got ${err}`);
   assert.match(err.message, /adminDir is not a directory/);
@@ -1076,7 +1094,7 @@ test('buildSkeleton refuses an adminDir inside distDir instead of letting rm dis
   await fs.writeFile(path.join(adminDir, 'index.html'), 'shell');
 
   const { err, exitCode } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: null, adminDir, warn: noop }));
+    buildSkeleton({ distDir, contentDir: null, adminDir, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.ok(err instanceof Error, `expected the adminDir-inside-distDir build to be refused, got ${err}`);
   assert.match(err.message, /adminDir .*inside distDir/);
@@ -1263,6 +1281,7 @@ test('C1 — the CLI:stderr 是中文清单加提示,提示是最后一行,后�
   const cwd = await tmpDir(t, 'audit-cli');
   await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
   await fs.appendFile(path.join(cwd, 'content', 'mechanics', 'install-compat.md'), '\n```html\n<script>alert(1)</script>\n```\n');
+  await writeFixtureData(path.join(cwd, 'data'));
 
   const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
   assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
@@ -1393,6 +1412,7 @@ test('D8 — the CLI:stderr 是中文清单加提示,提示是最后一行,后�
   await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
   const other = FIXTURE_DATA.items.find((it) => it.id !== FIXTURE_ITEM_ID);
   await fs.writeFile(path.join(cwd, 'content', 'items', `${other.id}.md`), '正文,没有 frontmatter。\n');
+  await writeFixtureData(path.join(cwd, 'data'));
 
   const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
   assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
@@ -1557,6 +1577,7 @@ test('D11 — the CLI:中文文件名的机制页 → 非零退出,stderr 是中
   const cwd = await tmpDir(t, 'mech-slug-cli');
   await fs.cp(REPO_CONTENT, path.join(cwd, 'content'), { recursive: true });
   await fs.rename(path.join(cwd, 'content', 'mechanics', 'install-compat.md'), path.join(cwd, 'content', 'mechanics', '安装与兼容性.md'));
+  await writeFixtureData(path.join(cwd, 'data'));
 
   const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'tools', 'build', 'skeleton-build.js')], { cwd, encoding: 'utf8' });
   assert.equal(run.status, 1, `exit code 1\n--- stderr ---\n${run.stderr}\n--- stdout ---\n${run.stdout}`);
@@ -1828,4 +1849,49 @@ test('a table row wider than its header → the build fails before rm dist, name
 
 test('the repository\'s own content has no table row wider than its header', async () => {
   assert.deepEqual(await findWideTableRows(REPO_CONTENT), []);
+});
+
+// ---------------------------------------------------------------------------
+// Data files (import plan task 5): data/mods/*.json + data/wiki.json
+// ---------------------------------------------------------------------------
+
+/** A tiny data dir: one mod, one item, the global parts in wiki.json. */
+async function writeDataDir(t, label) {
+  const dir = await tmpDir(t, label);
+  await fs.mkdir(path.join(dir, 'mods'));
+  await fs.writeFile(path.join(dir, 'mods', 'mod_a.json'), JSON.stringify({
+    id: 'mod_a', name: '模组 A', version: '1', author: 'x', prerequisites: [], description: '描述',
+    itemCount: 1,
+    items: [{
+      id: 'data_item', aliases: [], name: '数据物品', mod: 'mod_a', price: 10, shape: [1, 1], icon: null,
+      categories: [], tags: [], description: '来自数据', flavor: null, usage: [], sources: [], related: [],
+      notes: null, provenance: {},
+    }],
+  }));
+  await fs.writeFile(path.join(dir, 'wiki.json'), JSON.stringify({
+    baseline: { date: '2026-11-18', versions: { mod_a: '1' } }, facets: { categories: [] }, news: [], changelog: [],
+  }));
+  return dir;
+}
+
+test('dataDir: 不注入 data 时,构建从 dataDir 的 mod 文件读数据', async (t) => {
+  const distDir = await tmpDir(t, 'data-dir');
+  const dataDir = await writeDataDir(t, 'data-src');
+  const { exitCode, before } = await capturingExitCode(() => build({ distDir, contentDir: null, dataDir, data: null }));
+
+  assert.equal(exitCode, before, 'the build passes');
+  const page = await fs.readFile(path.join(distDir, 'item', 'data_item.html'), 'utf8');
+  assert.ok(page.includes('数据物品'), 'the item page comes from the data file');
+});
+
+test('data: 注入的数据优先于 dataDir（dataDir 指向不存在的目录也不影响）', async (t) => {
+  const distDir = await tmpDir(t, 'data-inject');
+  const dataDir = path.join(os.tmpdir(), `no-such-data-${Date.now()}`);
+  const { exitCode, before } = await capturingExitCode(() =>
+    build({ distDir, contentDir: null, data: structuredClone(FIXTURE_DATA), dataDir }));
+
+  assert.equal(exitCode, before, 'the build passes');
+  for (const item of FIXTURE_DATA.items) {
+    await fs.access(path.join(distDir, 'item', `${item.id}.html`));
+  }
 });

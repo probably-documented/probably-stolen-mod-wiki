@@ -313,6 +313,8 @@ async function pack({
   contentDir = 'content',
   assetsDir,
   adminDir = 'admin',
+  data = null,
+  dataDir = 'data',
   warn = console.warn,
   executable = BSDTAR,
 } = {}) {
@@ -322,7 +324,7 @@ async function pack({
   assertZipOutsideDist(distDir, zip);
 
   // 1. Fresh build — logs and failure semantics exactly those of `npm run build`.
-  const build = await buildSkeleton({ distDir, contentDir, assetsDir, adminDir, warn });
+  const build = await buildSkeleton({ distDir, contentDir, assetsDir, adminDir, data, dataDir, warn });
 
   // 2. Pack to a temporary name, verify, then put it under the final name.
   const tmpZip = `${zip}.tmp.zip`;

@@ -46,6 +46,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { renderSite } = require('./render.js');
+const { loadWikiData } = require('./wiki-data.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
@@ -652,6 +653,8 @@ async function buildSkeleton({
   contentDir = 'content',
   assetsDir = DEFAULT_ASSETS_DIR,
   adminDir = 'admin',
+  data = null,
+  dataDir = 'data',
   warn = console.warn,
 } = {}) {
   try {
@@ -676,13 +679,17 @@ async function buildSkeleton({
     //    resolveAdminSource): inside dist → refused (step 3 would delete it
     //    before step 7 reads it); missing → nothing to inject; not a
     //    directory → refused (fs.cp would copy that file to dist/admin).
+    //    Site data: injected (tests, tools) or the repo's data/mods/*.json.
+    //    Read-only, like everything else in this step; a broken data file is
+    //    one Chinese line from loadWikiData.
+    const payload = data != null ? structuredClone(data) : await loadWikiData(dataDir);
     const adminSource = await resolveAdminSource(adminDir, distPath);
     //    id lint (the CMS can create content/items files under any slug),
     //    then the slug lint (task 6b D8): what a file declares in its front
     //    matter must be the item it is named after.
     if (contentDir != null) {
       const itemsPath = path.join(contentDir, 'items');
-      const idViolations = await validateItemContentIds(itemsPath, FIXTURE_DATA.items.map((it) => it.id));
+      const idViolations = await validateItemContentIds(itemsPath, payload.items.map((it) => it.id));
       if (idViolations.length > 0) {
         // Paths from the real contentDir (a contributor is told where the
         // file is), in Chinese, one actionable hint last — like the other
@@ -734,15 +741,18 @@ async function buildSkeleton({
     //    asset sources: a missing one is a certain failure, known right now.
     await assertAssetSources(assetsDir);
 
-    // 1. Data prep — touches only a private clone of the frozen literal.
-    const data = structuredClone(FIXTURE_DATA);
-    const iconsDropped = await dropMissingIcons(data.items, { modsDir: path.join(assetsDir, TEXTURES_DIR), warn });
-    data.mechanics = await mergeMechanicsContent(data.mechanics, contentDir);
+    // 1. Data prep — the payload (injected, or read from the data files) is a
+    //    private clone; only it is mutated below.
+    const modDirs = new Map(payload.mods.map(({ id }) => [id, id]));
+    const iconsDropped = await dropMissingIcons(payload.items, {
+      modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
+    });
+    payload.mechanics = await mergeMechanicsContent(payload.mechanics, contentDir);
 
     //    The top-nav about entry is declared by a page (frontmatter
     //    `nav_label`, task 5b A). Exactly one page may declare it: two would
     //    be two 关于本站 entries. Known right now, before rm dist.
-    const aboutPages = mechanicsWithNavLabel(data.mechanics);
+    const aboutPages = mechanicsWithNavLabel(payload.mechanics);
     if (aboutPages.length > 1) {
       // Heading, the pages, then the hint as the last line — the shape of
       // every contributor-facing report.
@@ -755,7 +765,7 @@ async function buildSkeleton({
     }
 
     // 2. Render — before rm, so a failed build keeps the previous dist.
-    const rendered = await renderSite(data, { contentDir });
+    const rendered = await renderSite(payload, { contentDir });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
     //    Retries (RETRY): on Windows the rm of a directory that was just
@@ -775,7 +785,7 @@ async function buildSkeleton({
     const assetsCopied = await copyAssets(assetsDir, distPath);
 
     // 5b. Item textures → the paths the item pages reference.
-    const texturesCopied = await copyItemTextures(data.items, assetsDir, distPath);
+    const texturesCopied = await copyItemTextures(payload.items, assetsDir, distPath);
 
     // 5c. Images beside the pages → the folders the pages are published to.
     const imagesPublished = await copyPageImages(contentDir, distPath);

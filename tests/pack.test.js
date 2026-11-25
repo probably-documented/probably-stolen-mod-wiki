@@ -27,6 +27,7 @@ const {
   resolveBsdtar, BSDTAR, readVersion, zipName, MAX_ZIP_BYTES, assertUnderSizeLimit,
   createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, runBsdtar,
 } = require('../tools/pack.js');
+const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const execFileP = promisify(execFile);
@@ -252,7 +253,7 @@ test('packSite: a fresh build + one zip that holds exactly dist minus admin/ and
   await fs.writeFile(path.join(adminDir, 'vendor', 'cms.js'), '// cms\n');
   await fs.writeFile(zipPath, 'stale zip from an earlier pack');
 
-  const result = await packSite({ distDir, zipPath, contentDir: path.join(REPO_ROOT, 'content'), adminDir, warn: noop });
+  const result = await packSite({ distDir, zipPath, contentDir: path.join(REPO_ROOT, 'content'), adminDir, data: structuredClone(FIXTURE_DATA), warn: noop });
 
   // built: the site, and the shell injected after the audit
   await fs.access(path.join(distDir, 'index.html'));
@@ -286,7 +287,7 @@ test('packSite: by default the zip is named after package.json and lands beside 
   await fs.writeFile(packageJsonPath, '{ "version": "0.0.0-test" }\n');
   const distDir = path.join(root, 'dist');
 
-  const result = await packSite({ distDir, packageJsonPath, contentDir: null, adminDir: null, warn: noop });
+  const result = await packSite({ distDir, packageJsonPath, contentDir: null, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop });
 
   assert.equal(result.zipPath, path.join(root, 'offline-wiki-0.0.0-test.zip'));
   assert.equal(path.dirname(result.zipPath), path.dirname(distDir), 'same parent as dist — beside it');
@@ -303,7 +304,7 @@ test('packSite: a failed build aborts packing — no zip is written and a previo
   await fs.writeFile(path.join(contentDir, 'items', 'fake_id.md'), 'x');
 
   const { err, exitCode } = await capturingExitCode(() =>
-    packSite({ distDir: path.join(root, 'dist'), zipPath, contentDir, adminDir: null, warn: noop }));
+    packSite({ distDir: path.join(root, 'dist'), zipPath, contentDir, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.ok(err instanceof Error, `expected the failed build to abort packing, got ${err}`);
   assert.match(err.message, /fake_id\.md/);
@@ -342,7 +343,7 @@ test('packSite: no bsdtar → "[pack] bsdtar not found", exitCode 1, the previou
   const distDir = path.join(root, 'dist');
 
   const { err, exitCode } = await capturingExitCode(() =>
-    packSite({ distDir, zipPath, contentDir: null, adminDir: null, warn: noop, executable }));
+    packSite({ distDir, zipPath, contentDir: null, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop, executable }));
 
   assert.ok(err instanceof Error, `expected the missing bsdtar to fail the pack, got ${err}`);
   assert.match(err.message, /^\[pack\] bsdtar not found: /);
@@ -359,7 +360,7 @@ test('packSite: an unreadable package.json is a failed pack too — exitCode 1, 
   await fs.writeFile(packageJsonPath, '{ not json');
 
   const { err, exitCode } = await capturingExitCode(() =>
-    packSite({ distDir: path.join(root, 'dist'), packageJsonPath, contentDir: null, adminDir: null, warn: noop }));
+    packSite({ distDir: path.join(root, 'dist'), packageJsonPath, contentDir: null, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop }));
 
   assert.ok(err instanceof SyntaxError, `expected the JSON error, got ${err}`);
   assert.equal(exitCode, 1);
@@ -446,7 +447,7 @@ test('packSite: the temporary zip is renamed onto the final name through the ret
   fs.rename = async (a, b) => { seen.rename.push([path.resolve(a), path.resolve(b)]); return real.rename(a, b); };
   t.after(() => { fs.rm = real.rm; fs.rename = real.rename; });
 
-  await packSite({ distDir, zipPath, contentDir: null, adminDir: null, warn: noop });
+  await packSite({ distDir, zipPath, contentDir: null, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop });
 
   assert.deepEqual(seen.rename, [[tmpZip, zipPath]], 'exactly one rename: the verified temp zip → the final name');
   const rmOfTmp = seen.rm.find((call) => call.p === path.resolve(tmpZip));
@@ -483,7 +484,7 @@ test('D4 — the retry policy is one object: what pack.js uses is the very objec
   const zipPath = path.join(root, 'offline-wiki-test.zip');
 
   const { err } = await capturingExitCode(() => packSite({
-    distDir, zipPath, contentDir: null, adminDir: null, warn: noop,
+    distDir, zipPath, contentDir: null, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop,
     executable: path.join(root, 'no-such-dir', 'bsdtar'), // not there: the build runs, the packing fails — both get observed
   }));
   assert.ok(err instanceof Error, `the packing fails for want of bsdtar, after the build ran, got ${err}`);

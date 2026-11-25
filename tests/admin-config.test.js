@@ -455,7 +455,7 @@ test('the default build injects the shell: dist/admin/ holds index.html, config.
 
   const distDir = await tmpDir(t, 'inject');
   const { result, exitCode, before } = await capturingExitCode(() =>
-    buildSkeleton({ distDir, contentDir: null, warn: noop })); // adminDir is NOT passed: the default has to find admin/
+    buildSkeleton({ distDir, contentDir: null, data: structuredClone(FIXTURE_DATA), warn: noop })); // adminDir is NOT passed: the default has to find admin/
 
   assert.equal(result.adminInjected, true, 'the default adminDir is injected');
   assert.equal(exitCode, before, 'a build that injects the shell is not a failure');
