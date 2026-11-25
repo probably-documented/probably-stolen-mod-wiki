@@ -47,6 +47,7 @@ const path = require('node:path');
 
 const { renderSite } = require('./render.js');
 const { loadWikiData } = require('./wiki-data.js');
+const { mergeSupplements } = require('./supplements.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
@@ -744,6 +745,9 @@ async function buildSkeleton({
     // 1. Data prep — the payload (injected, or read from the data files) is a
     //    private clone; only it is mutated below.
     const modDirs = new Map(payload.mods.map(({ id }) => [id, id]));
+    //    The hand-written layer first: its icon overrides must go through
+    //    dropMissingIcons too, and its empty values never overwrite the data.
+    await mergeSupplements(payload, contentDir, warn);
     const iconsDropped = await dropMissingIcons(payload.items, {
       modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
     });
