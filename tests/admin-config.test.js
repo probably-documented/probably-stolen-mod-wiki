@@ -83,6 +83,8 @@ const VENDORED = Object.freeze([
   'chunks/assets/_shared-module_0-C8f2zUat.js',
   'chunks/assets/_shared-module_46-Dfds8-Cf.js',
   'chunks/assets/_shared-module_64-Dh5oNTNO.js',
+  'chunks/react-dom.js',
+  'chunks/assets/rolldown-runtime-BWaJ3C7D.js',
 ]);
 
 const readText = (file) => fs.readFile(file, 'utf8');
