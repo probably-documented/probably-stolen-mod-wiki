@@ -47,7 +47,7 @@ async function loadWikiData(dataDir = 'data') {
   if (files.length === 0) throw new Error(`数据目录里没有任何 mod 文件: ${modsDir}`);
 
   const mods = [];
-  const items = [];
+  const itemsByMod = new Map();
   const seenItems = new Set();
 
   for (const file of files) {
@@ -74,6 +74,7 @@ async function loadWikiData(dataDir = 'data') {
       itemCount: modItems.length,
     });
 
+    const out = [];
     for (const item of modItems) {
       if (typeof item.id !== 'string' || item.id === '') throw new Error(`${label}: 有物品没有 id`);
       if (seenItems.has(item.id)) throw new Error(`${label}: 物品 id 重复: ${item.id}`);
@@ -81,9 +82,17 @@ async function loadWikiData(dataDir = 'data') {
       if (item.mod !== payload.id) {
         throw new Error(`${label}: 物品 ${item.id} 的 mod 是 ${JSON.stringify(item.mod)},不是 ${payload.id}`);
       }
-      items.push(item);
+      out.push(item);
     }
+    itemsByMod.set(payload.id, out);
   }
+
+  // The data's own mod order (the home page and the data baseline show it);
+  // a mod the order does not mention follows, by file name.
+  const order = Array.isArray(wiki.modOrder) ? wiki.modOrder : [];
+  const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+  mods.sort((a, b) => rank(a.id) - rank(b.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const items = mods.flatMap((mod) => itemsByMod.get(mod.id));
 
   return {
     baseline: wiki.baseline,

@@ -63,6 +63,29 @@ test('加载:mods 按文件名排序、items 按 mod 拼接、mechanics 为空�
   assert.equal(data.mods[1].itemCount, 2);
 });
 
+test('mod 顺序:wiki.json 的 modOrder 决定顺序,文件名字母序只是兜底', async (t) => {
+  const wiki = { ...WIKI, modOrder: ['b_mod', 'a_mod'] };
+  const dir = writeData(tmpDir(t, 'order'), {
+    'a_mod.json': MOD('a_mod', ['i1']),
+    'b_mod.json': MOD('b_mod', ['i2', 'i3']),
+  }, wiki);
+  const data = await loadWikiData(dir);
+  assert.deepEqual(data.mods.map((m) => m.id), ['b_mod', 'a_mod']);
+  assert.deepEqual(data.items.map((i) => i.id), ['i2', 'i3', 'i1']);
+  assert.deepEqual(data.mods.map((m) => m.itemCount), [2, 1]);
+});
+
+test('mod 顺序:modOrder 里没有的 mod 按文件名排在后面', async (t) => {
+  const wiki = { ...WIKI, modOrder: ['b_mod'] };
+  const dir = writeData(tmpDir(t, 'order-tail'), {
+    'a_mod.json': MOD('a_mod', ['i1']),
+    'b_mod.json': MOD('b_mod', ['i2']),
+    'c_mod.json': MOD('c_mod', ['i3']),
+  }, wiki);
+  const data = await loadWikiData(dir);
+  assert.deepEqual(data.mods.map((m) => m.id), ['b_mod', 'a_mod', 'c_mod']);
+});
+
 test('缺 wiki.json → 中文错误指出文件', async (t) => {
   const dir = writeData(tmpDir(t, 'no-wiki'), { 'a_mod.json': MOD('a_mod', ['i1']) }, null);
   await assert.rejects(loadWikiData(dir), /data\/wiki\.json 不存在/);
