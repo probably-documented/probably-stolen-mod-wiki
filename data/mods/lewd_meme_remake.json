@@ -1,0 +1,550 @@
+{
+  "id": "lewd_meme_remake",
+  "name": "淫色深空：暗流交易",
+  "version": "1.6.4",
+  "author": "白银（原作）/ 扫地机（扩展）",
+  "prerequisites": [
+    "lewd_meme"
+  ],
+  "description": "非官方扩展，原作者白银，扩展作者扫地机。需要同时启用 lewd_meme 1.9.2 或更高版本，当前核验 1.9.2。\r\n\r\n【1.6.4】夜间沿用原版活动、受孕、分娩和产出，追加三种自有乳汁与疲劳。每份追加乳汁先扣产出区一瓶原版神奇乳汁，无瓶装则扣神奇乳汁桶一次，无可扣除也照常产出；优先直接补入已有同类桶，失败退回来源。疲劳只修正本模组估值；入夜达到 90 时，该角色活动、双方产出、受孕、已有孕期和分娩全部暂停，当晚恢复 5 点。\r\n治安部剧情管制奖励按原有登记键及完成节点生效，修复新物品初始化、旧物品读档补登与精液桶的遗漏；对应原生管制加价和案值豁免保留，无需重新交货。\r\n本体、开启结算的苗床箱、闹钟及开启的陷阱使用同一疲劳规则，其它位置每天恢复 25 点。等级系数按 1～10 级逐级降低，11 级起不累积疲劳；不再追加破处疲劳。\r\n\r\n本体夜间结算后扫描整个产出区，精液至少 8 瓶、每种自有乳汁至少 3 瓶可新建桶装；原版与自有神奇乳汁合并计数装入神奇乳汁桶，修复原版剩余瓶装遗漏。四个开关分别控制新建，已有同类桶仍自动补充。桶上限 1000 次，使用后输入数量批量取出。侵蚀区苗床箱可选调用原版循环，读取全部存储页并在经验与原版夜报前统一结算，主苗床区为空也参与；默认关闭。\r\n\r\n保留苗床收购商、名册、治安部专线 26535、剧情管制、报告便签及 tooltip 扩展。删除破处回避、产物倍率、自有夜间与分区 API。原版女儿标识用于治安部终章，旧出生标识兼容补齐。\r\n\r\n模组 ID、命名空间、物品 ID 及旧存档键保留；文件名和程序集名均为 ShadowTrade。更新后重启游戏，只保留一份 ShadowTrade.dll。详情见 README.md 和 docs。素材版权归原作者所有，侵删；仅供个人游玩与学习交流，请勿商用。",
+  "itemCount": 10,
+  "items": [
+    {
+      "id": "tentacle_manual_remake",
+      "aliases": [],
+      "name": "触手本体 · 暗流交易说明",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        2,
+        2
+      ],
+      "icon": "items/lewd_meme/item_note.png",
+      "categories": [
+        "工具"
+      ],
+      "tags": [],
+      "description": "暗流交易规则的内置速查:夜间结算追加乳汁、疲劳与透支、桶装、收购与治安部支线四段说明(据 ItemFactory.cs RefreshManualDescription 全文概括)",
+      "flavor": "字迹歪歪扭扭，一看就是用触手写的。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击阅读:夜间结算(先扣后产)、疲劳系数与透支门禁、桶装阈值与开关、交易与便签规则速查;详细机制见模组目录 README 与 docs",
+          "source": "据 ItemFactory.cs RefreshManualDescription 与 docs/玩法指南.md"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动补发",
+          "detail": "启用暗流交易后,打开本体窗口时便签区自动补发(便签区扩展到 2×4 以容纳两张说明书),已存在则不重复塞",
+          "probability": "必得(据 CompatOriginal.cs 便签区扩展/SeedNote)"
+        }
+      ],
+      "related": [
+        "tentacle_manual"
+      ],
+      "notes": "带【重要物品】【不可转售】标签;数值位随读取刷新(onLoaded 挂 RefreshManualDescription)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "description": "content:items/tentacle_manual_remake.md",
+        "notes": "content:items/tentacle_manual_remake.md",
+        "categories": "content:items/tentacle_manual_remake.md",
+        "usage": "content:items/tentacle_manual_remake.md",
+        "sources": "content:items/tentacle_manual_remake.md",
+        "related": "content:items/tentacle_manual_remake.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "lewd_meme_phone_card",
+      "aliases": [],
+      "name": "治安部线人名片",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        2,
+        1
+      ],
+      "icon": "items/lewd_meme_remake/phone_card.png",
+      "categories": [
+        "文件"
+      ],
+      "tags": [],
+      "description": "一张廉价的名片，正面只印了一个号码：26535。",
+      "flavor": "背面用铅笔写着：想通了再打。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击打开名片窗口,查看电话号码;用原版电话拨打 26535 接入治安部专线,按电话需求准备材料,确认后次日上门(预约沿用原版电话冷却)",
+          "source": "据 SecurityLiaison.cs(Number=26535)与 docs/玩法指南.md 治安部支线"
+        }
+      ],
+      "sources": [
+        {
+          "source": "剧情获得",
+          "detail": "向收购商卖出首名角色后的次日,治安部线人上门送名片",
+          "probability": "卖首名角色必得(据 SecurityLiaison.cs 头注与玩法指南)"
+        }
+      ],
+      "related": [
+        "tentacle_semen",
+        "maiden_lower"
+      ],
+      "notes": "主线依次交付 5 份精液、双处女下层区角色、30 份精液、带女儿标识且调教值>200 的角色;完成节点把排卵诱发剂/精液/苗床逐级列为管制品(据机制页 security-branch)。带【重要物品】标签。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/lewd_meme_phone_card.md",
+        "categories": "content:items/lewd_meme_phone_card.md",
+        "usage": "content:items/lewd_meme_phone_card.md",
+        "sources": "content:items/lewd_meme_phone_card.md",
+        "related": "content:items/lewd_meme_phone_card.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "night_report_note_remake",
+      "aliases": [],
+      "name": null,
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        2,
+        2
+      ],
+      "icon": null,
+      "categories": [],
+      "tags": [],
+      "description": "记录当晚结算的手写便签。点击阅读，可翻页。",
+      "flavor": null,
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
+      "provenance": {
+        "price": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "usage": "待补充",
+        "sources": "待补充",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "milk_rich",
+      "aliases": [],
+      "name": "浓缩乳汁",
+      "mod": "lewd_meme_remake",
+      "price": 150,
+      "shape": [
+        2,
+        3
+      ],
+      "icon": "items/lewd_meme_remake/milk_high.png",
+      "categories": [
+        "奢侈品",
+        "饮料",
+        "零食",
+        "食物"
+      ],
+      "tags": [],
+      "description": "从贫乳苗床身上挤出的浓稠乳汁，营养密度很高。入口浓烈，后劲绵长。",
+      "flavor": "贫乳的乳汁才是真正滋补的东西。",
+      "usage": [
+        {
+          "type": "drag-target",
+          "text": "拖到苗床少女身上喂食:疲劳 −25(下限 40,已低于或等于 40 时不消耗)",
+          "source": "据 ItemFactory.cs CreateMilkVariant(relief 25)与 MaidenFatigue.cs Feed"
+        },
+        {
+          "type": "drink",
+          "text": "点击自己喝掉:立即 +30 信用点,瓶子销毁(「饮下一瓶浓缩乳汁」)",
+          "source": "据 ItemFactory.cs CreateMilkVariant onActivateSlotItemFunc"
+        },
+        {
+          "type": "sell",
+          "text": "单价固定 150,是三种追加乳汁中的高价档;橱窗摆出它可提高收购商到店概率",
+          "source": "据 ItemFactory.cs unitValue 与玩法指南「收购商」节"
+        },
+        {
+          "type": "process",
+          "text": "产出区攒满 3 瓶自动新建/补充 [[barrel_milk_rich]];也可手动拖到同类桶上补充",
+          "source": "据机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "夜间结算追加",
+          "detail": "贫乳苗床泌乳等级 ≥1(或怀孕)时每夜追加;泌乳等级 2 起每级 +30 个百分点,概率超 100% 后可能多份;每份先扣产出区一瓶原版 [[wondrous_milk]]",
+          "probability": "基础 30%,随泌乳等级提升(据玩法指南三种追加乳汁表)"
+        }
+      ],
+      "related": [
+        "milk_diluted",
+        "wondrous_milk",
+        "barrel_milk_rich"
+      ],
+      "notes": "完成治安部支线后的归档服务按案值要求本物品(据玩法指南/机制页 security-branch)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/milk_rich.md",
+        "categories": "content:items/milk_rich.md",
+        "usage": "content:items/milk_rich.md",
+        "sources": "content:items/milk_rich.md",
+        "related": "content:items/milk_rich.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "milk_diluted",
+      "aliases": [],
+      "name": "清甜乳汁",
+      "mod": "lewd_meme_remake",
+      "price": 50,
+      "shape": [
+        2,
+        3
+      ],
+      "icon": "items/lewd_meme_remake/milk_low.png",
+      "categories": [
+        "奢侈品",
+        "饮料",
+        "零食",
+        "食物"
+      ],
+      "tags": [],
+      "description": "从巨乳苗床身上挤出的乳汁，产量充足，口感清甜。",
+      "flavor": "一大瓶，喝着痛快。",
+      "usage": [
+        {
+          "type": "drag-target",
+          "text": "拖到苗床少女身上喂食:疲劳 −20(下限 40,已低于或等于 40 时不消耗)",
+          "source": "据 ItemFactory.cs CreateMilkVariant(relief 20)与 MaidenFatigue.cs Feed"
+        },
+        {
+          "type": "drink",
+          "text": "点击自己喝掉:立即 +30 信用点,瓶子销毁(「饮下一瓶清甜乳汁」)",
+          "source": "据 ItemFactory.cs CreateMilkVariant onActivateSlotItemFunc"
+        },
+        {
+          "type": "sell",
+          "text": "单价固定 50,三种追加乳汁中的量产档;橱窗摆出它可提高收购商到店概率",
+          "source": "据 ItemFactory.cs unitValue 与玩法指南「收购商」节"
+        },
+        {
+          "type": "process",
+          "text": "产出区攒满 3 瓶自动新建/补充 [[barrel_milk_diluted]];也可手动拖到同类桶上补充",
+          "source": "据机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "夜间结算追加",
+          "detail": "巨乳苗床泌乳等级 ≥1(或怀孕)时每夜追加;泌乳等级 2 起每级 +30 个百分点;每份先扣产出区一瓶原版 [[wondrous_milk]]",
+          "probability": "基础 70%,随泌乳等级提升(据玩法指南三种追加乳汁表)"
+        }
+      ],
+      "related": [
+        "milk_rich",
+        "wondrous_milk",
+        "barrel_milk_diluted"
+      ],
+      "notes": "三种乳汁都可在橱窗展示以提高收购商到店概率:1 种约 33%、2 种约 66%、3 种 100%(据玩法指南)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/milk_diluted.md",
+        "categories": "content:items/milk_diluted.md",
+        "usage": "content:items/milk_diluted.md",
+        "sources": "content:items/milk_diluted.md",
+        "related": "content:items/milk_diluted.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "barrel_semen",
+      "aliases": [],
+      "name": "桶装触手精液",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/lewd_meme_remake/barrel_semen.png",
+      "categories": [
+        "违禁品",
+        "奢侈品"
+      ],
+      "tags": [],
+      "description": "桶装触手精液。使用后输入要取出的瓶数，放不下时停止，次数用完后桶消失。",
+      "flavor": "一整桶，够你用很久。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击使用后输入要取出的瓶数,逐瓶放回 [[tentacle_semen]]:成功放置一瓶才扣一次,空间不足即停止,余量留桶;次数用完后桶消失",
+          "source": "据 ItemFactory.cs SetupBarrelCallbacks(BarrelDispense.Open)与 UseCountHelper(destroyOnEmpty)"
+        },
+        {
+          "type": "drag-target",
+          "text": "把瓶装 [[tentacle_semen]] 拖到桶上补充,一比一换算,每桶上限 1000 次",
+          "source": "据 ItemFactory.cs SetupLiquidTargeting 与机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动装桶",
+          "detail": "每晚结算后扫描本体产出区:已有同类桶先自动补满,剩余瓶装满 8 瓶且「自动新建」开启时新建一桶(开关默认开启)",
+          "probability": "8 瓶阈值(据玩法指南桶装表)"
+        }
+      ],
+      "related": [
+        "tentacle_semen",
+        "barrel_milk_wondrous"
+      ],
+      "notes": "占格 4×4,II 级管制品(完成治安部支线「30 份精液交货」后列入);管制品不记对应违禁案值;桶装不作为剧情要求的瓶装材料,交任务前先取出(据 ItemFactory.cs contrabandLevel 2、机制页 security-branch / barrel-system)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/barrel_semen.md",
+        "categories": "content:items/barrel_semen.md",
+        "usage": "content:items/barrel_semen.md",
+        "sources": "content:items/barrel_semen.md",
+        "related": "content:items/barrel_semen.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "barrel_milk_wondrous",
+      "aliases": [],
+      "name": "桶装神奇乳汁",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/lewd_meme_remake/barrel_milk_wondrous.png",
+      "categories": [
+        "奢侈品"
+      ],
+      "tags": [],
+      "description": "桶装神奇乳汁。使用后输入要取出的瓶数，放不下时停止，次数用完后桶消失。",
+      "flavor": "这一桶够上层区的太太们喝一阵子。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击使用后输入要取出的瓶数,逐瓶放回乳汁:成功放置一瓶才扣一次,空间不足即停止,余量留桶;次数用完后桶消失",
+          "source": "据 ItemFactory.cs SetupBarrelCallbacks(BarrelDispense.Open)与 UseCountHelper(destroyOnEmpty)"
+        },
+        {
+          "type": "drag-target",
+          "text": "把瓶装乳汁拖到桶上补充(原版 [[wondrous_milk]] 与自有 milk_wondrous 都认),一比一换算,每桶上限 1000 次",
+          "source": "据 ItemFactory.cs SetupLiquidTargeting 与机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动装桶",
+          "detail": "每晚结算后扫描本体产出区:已有同类桶先自动补满;原版神奇乳汁与自有神奇乳汁合计满 3 瓶且「自动新建」开启时新建一桶;追加乳汁每份先扣一瓶原版乳汁或扣本桶一次(先扣后产)",
+          "probability": "合计 3 瓶阈值(据玩法指南桶装表)"
+        }
+      ],
+      "related": [
+        "wondrous_milk",
+        "barrel_milk_rich",
+        "barrel_milk_diluted"
+      ],
+      "notes": "原版没有独立的另一种神奇乳汁桶,本桶沿用现有桶 ID;追加乳汁直接入桶时「本夜追加」与「库存装桶」分项记账(据玩法指南)。占格 4×4。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/barrel_milk_wondrous.md",
+        "categories": "content:items/barrel_milk_wondrous.md",
+        "usage": "content:items/barrel_milk_wondrous.md",
+        "sources": "content:items/barrel_milk_wondrous.md",
+        "related": "content:items/barrel_milk_wondrous.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "barrel_milk_rich",
+      "aliases": [],
+      "name": "桶装浓缩乳汁",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/lewd_meme_remake/barrel_milk_rich.png",
+      "categories": [
+        "奢侈品"
+      ],
+      "tags": [],
+      "description": "桶装浓缩乳汁。使用后输入要取出的瓶数，放不下时停止，次数用完后桶消失。",
+      "flavor": "贫乳的精华，都在这里。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击使用后输入要取出的瓶数,逐瓶放回 [[milk_rich]]:成功放置一瓶才扣一次,空间不足即停止,余量留桶;次数用完后桶消失",
+          "source": "据 ItemFactory.cs SetupBarrelCallbacks(BarrelDispense.Open)与 UseCountHelper(destroyOnEmpty)"
+        },
+        {
+          "type": "drag-target",
+          "text": "把瓶装 [[milk_rich]] 拖到桶上补充,一比一换算,每桶上限 1000 次",
+          "source": "据 ItemFactory.cs SetupLiquidTargeting 与机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动装桶",
+          "detail": "每晚结算后扫描本体产出区:已有同类桶先自动补满,剩余瓶装满 3 瓶且「自动新建」开启时新建一桶(开关默认开启)",
+          "probability": "3 瓶阈值(据玩法指南桶装表)"
+        }
+      ],
+      "related": [
+        "milk_rich",
+        "barrel_milk_wondrous",
+        "barrel_milk_diluted"
+      ],
+      "notes": "新桶依次尝试产出区、己方柜台、仓库,成功放置才扣瓶装;占格 4×4(据玩法指南)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/barrel_milk_rich.md",
+        "categories": "content:items/barrel_milk_rich.md",
+        "usage": "content:items/barrel_milk_rich.md",
+        "sources": "content:items/barrel_milk_rich.md",
+        "related": "content:items/barrel_milk_rich.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "barrel_milk_diluted",
+      "aliases": [],
+      "name": "桶装清甜乳汁",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/lewd_meme_remake/barrel_milk_diluted.png",
+      "categories": [
+        "奢侈品"
+      ],
+      "tags": [],
+      "description": "桶装清甜乳汁。使用后输入要取出的瓶数，放不下时停止，次数用完后桶消失。",
+      "flavor": "一大桶，喝着痛快。",
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击使用后输入要取出的瓶数,逐瓶放回 [[milk_diluted]]:成功放置一瓶才扣一次,空间不足即停止,余量留桶;次数用完后桶消失",
+          "source": "据 ItemFactory.cs SetupBarrelCallbacks(BarrelDispense.Open)与 UseCountHelper(destroyOnEmpty)"
+        },
+        {
+          "type": "drag-target",
+          "text": "把瓶装 [[milk_diluted]] 拖到桶上补充,一比一换算,每桶上限 1000 次",
+          "source": "据 ItemFactory.cs SetupLiquidTargeting 与机制页 barrel-system"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动装桶",
+          "detail": "每晚结算后扫描本体产出区:已有同类桶先自动补满,剩余瓶装满 3 瓶且「自动新建」开启时新建一桶(开关默认开启)",
+          "probability": "3 瓶阈值(据玩法指南桶装表)"
+        }
+      ],
+      "related": [
+        "milk_diluted",
+        "barrel_milk_wondrous",
+        "barrel_milk_rich"
+      ],
+      "notes": "占格 4×4;关闭自动新建后已有桶仍自动补充,手动拖拽充填与取出不受影响(据玩法指南)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "flavor": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/barrel_milk_diluted.md",
+        "categories": "content:items/barrel_milk_diluted.md",
+        "usage": "content:items/barrel_milk_diluted.md",
+        "sources": "content:items/barrel_milk_diluted.md",
+        "related": "content:items/barrel_milk_diluted.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    },
+    {
+      "id": "maiden_ledger_item",
+      "aliases": [],
+      "name": "苗床名册",
+      "mod": "lewd_meme_remake",
+      "price": 0,
+      "shape": [
+        2,
+        3
+      ],
+      "icon": "items/lewd_meme_remake/namelist.png",
+      "categories": [
+        "文件"
+      ],
+      "tags": [],
+      "description": "黑色封皮的册子。每一名被你卖出去的苗床，都留了一页在这里。",
+      "flavor": null,
+      "usage": [
+        {
+          "type": "use",
+          "text": "点击翻页阅读:第一页汇总成交数、收入,之后每页 5 条,左侧苗床立绘 + 成交价,右侧详细数据,记录最近 100 笔交易;阅读中成交立即刷新",
+          "source": "据 MaidenLedger.cs(RecordsPerPage/MaxRecords)与 docs/玩法指南.md"
+        }
+      ],
+      "sources": [
+        {
+          "source": "自动发放",
+          "detail": "启用暗流交易后第一次开业时发到柜台外侧;读档后首次开门检测到场上已有触手本体但名册缺失时补发(档案存 ModData,物品丢了也能补)",
+          "probability": "必得(据 MaidenLedger.cs 首次开门补发注释)"
+        }
+      ],
+      "related": [
+        "maiden_lower",
+        "tentacle_body"
+      ],
+      "notes": "原生纸书:2×3 图标,保留当前无文盲阅读限制的行为(据玩法指南)。",
+      "provenance": {
+        "name": "source:LewdMemeShadowTrade/Source",
+        "price": "source:LewdMemeShadowTrade/Source",
+        "icon": "source:LewdMemeShadowTrade/Source",
+        "description": "source:LewdMemeShadowTrade/Source",
+        "notes": "content:items/maiden_ledger_item.md",
+        "categories": "content:items/maiden_ledger_item.md",
+        "usage": "content:items/maiden_ledger_item.md",
+        "sources": "content:items/maiden_ledger_item.md",
+        "related": "content:items/maiden_ledger_item.md",
+        "shape": "source:LewdMemeShadowTrade/Source"
+      }
+    }
+  ]
+}

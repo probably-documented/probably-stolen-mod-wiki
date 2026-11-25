@@ -1,0 +1,361 @@
+{
+  "id": "dui_mian_lan_qiu_ji_tearl",
+  "name": "tearlaments",
+  "version": "15",
+  "author": "duimianlanqiuji",
+  "prerequisites": [
+    "lewd_meme"
+  ],
+  "description": "Character mod for Tearlaments from Yu-Gi-Oh. Kitkallos sells the three Tearlaments maidens at a 10% discount and buys any maiden-tagged item plus water above base quality at a 20% premium. Putting two tag-marked Tearlaments items in the trash can merges them immediately into a maiden-like placeholder item, even before the exchange is unlocked. Tearlaments maidens in the brood zone produce Aquashard Crystals at 20% per maiden per night and never leave milk. Item text and the customer name follow the game language through Localization/*.csv. Requires lewd_meme 2.0.2+ (TentacleApi 1.2.0+) and uses its TentacleApi and double-click maiden panel. All settings live in TearlamentsConfig.cs.",
+  "itemCount": 6,
+  "items": [
+    {
+      "id": "tearlaments_kitkallos",
+      "aliases": [],
+      "name": "珠淚哀歌族商人",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": null,
+      "shape": [
+        null,
+        null
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments.png",
+      "categories": [],
+      "tags": [],
+      "description": null,
+      "flavor": null,
+      "usage": [
+        {
+          "type": "sell",
+          "text": "到店的特殊顾客:开场白结束后把三位珠泪哀歌族歌姬放上柜台直售表,可以从她那里买下 [[tearlaments_merrli]] / [[tearlaments_havnis]] / [[tearlaments_scheiren]]",
+          "source": "据 CustomCustomer.cs ConfigureDialogue→PopulateStock(AddDirectSellingItemToTable)"
+        },
+        {
+          "type": "sell",
+          "text": "收购两类东西:任何带 MAIDEN_FEMALE 标签的物品,以及纯净水/高质量水(基础水与水粮不收);对话原文「我会收购少女和高于基础品质的水,价格从优。我的三位歌姬打九折。」",
+          "source": "据 CustomCustomer.cs willAcceptItem 与 TearlamentsConfig.cs Customer.Accept* 水位开关"
+        },
+        {
+          "type": "sell",
+          "text": "收购价修正:整体 buyPriceModifier −10%;放上称台的物品挂价格特征——少女类 −25%(顾客折扣),验收水类 +20%(供货加价)",
+          "source": "据 CustomCustomer.cs ApplyBuyPriceFeature(-25/+20)与 item_feature_client_discount/supplier_markup"
+        }
+      ],
+      "sources": [
+        {
+          "source": "到店顾客",
+          "detail": "按下层区市民身份生成,预算 150000+随机 50000,接受违禁品(AcceptingContrabandOverride);角色来自游戏王 Tearlaments 卡组的 Kitkallos",
+          "probability": "顾客到店池随机(据 CustomCustomer.cs CreateClient 与 manifest Description)"
+        }
+      ],
+      "related": [],
+      "notes": "价格口径说明:manifest Description 写「歌姬 9 折出售、少女与好水 20% 溢价收购」,反编译源码字面为少女收购特征 −25%、水 +20%、整体 −10%,与 manifest 略有出入,数值以源码为准并在此注明(据 CustomCustomer.cs)。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_kitkallos_name",
+        "icon": "content:items/tearlaments_kitkallos.md",
+        "notes": "content:items/tearlaments_kitkallos.md",
+        "usage": "content:items/tearlaments_kitkallos.md",
+        "sources": "content:items/tearlaments_kitkallos.md"
+      }
+    },
+    {
+      "id": "tearlaments_aquashard",
+      "aliases": [],
+      "name": "水碎片水晶",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": 800,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments.png",
+      "categories": [
+        "奢侈品"
+      ],
+      "tags": [],
+      "description": "受盡折磨的人魚所流下的哀傷之淚，在深海中凝結而成的珍珠結晶。暴君曾為收集它而揮舞鞭子。",
+      "flavor": "每一道微光，都是一聲從未被聽見的哀嘆。",
+      "usage": [
+        {
+          "type": "sell",
+          "text": "高价奢侈品(基础价 800):受尽折磨的人鱼之泪凝成的珍珠结晶,可直接出售变现;[[tearlaments_kitkallos]] 到店时会收购少女与纯净水/高质量水",
+          "source": "据 CustomItem.cs CreateAquashard(unitValue 800, LUXURY_ITEM+AQUASHARD)与 CustomCustomer.cs willAcceptItem"
+        }
+      ],
+      "sources": [
+        {
+          "source": "巢穴区夜产",
+          "detail": "放进触手巢穴扩展(brood)巢穴区的珠泪哀歌族少女,每夜产出一颗水碎片水晶(v15 源码为必产:BroodTribute.Chance=1;manifest Description 写 20% 已过期,以源码为准);她们夜产不产生任何乳汁",
+          "probability": "每位人鱼每夜 1 颗(据反编译产物 v15 BroodTribute.cs/TearlamentsConfig.cs)"
+        },
+        {
+          "source": "商店购买",
+          "detail": "具体进货渠道以游戏内货架为准;设定上由古代海洋文明珍视的深海凝结物",
+          "probability": "待补充"
+        }
+      ],
+      "related": [
+        "tearlaments_kitkallos"
+      ],
+      "notes": "机制页 tearlaments-trade 将其作为「高于基础品质的水」的例子;反编译源码中 kitkallos 的验收名单按水的品质特征(纯净水/高质量水)判定,未直接按 AQUASHARD 标签放行,能否被她收购取决于 WaterHelper 对其特征的识别,待实测(据 CustomCustomer.cs)。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_aquashard_name",
+        "description": "loc:zh:tearlaments_aquashard_description",
+        "flavor": "loc:zh:tearlaments_aquashard_flavor",
+        "icon": "content:items/tearlaments_aquashard.md",
+        "notes": "content:items/tearlaments_aquashard.md",
+        "price": "content:items/tearlaments_aquashard.md",
+        "categories": "content:items/tearlaments_aquashard.md",
+        "usage": "content:items/tearlaments_aquashard.md",
+        "sources": "content:items/tearlaments_aquashard.md",
+        "related": "content:items/tearlaments_aquashard.md",
+        "shape": "content:items/tearlaments_aquashard.md"
+      }
+    },
+    {
+      "id": "tearlaments_merrli",
+      "aliases": [],
+      "name": "珠淚哀歌族·梅洛人魚",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": 200,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments_merrli.png",
+      "categories": [
+        "违禁品"
+      ],
+      "tags": [],
+      "description": "在暴政下逃亡的珠淚哀歌族少女，手持捕魚網在幽暗海水中求生。她的歌聲曾因恐懼而顫抖，卻從未沉默。",
+      "flavor": "在鞭子落下之前，她唱的是搖籃曲；在那之後，她唱的是反抗的序曲。",
+      "usage": [
+        {
+          "type": "buy",
+          "text": "从 [[tearlaments_kitkallos]] 的柜台直售表买下(对话结束后三位歌姬一起上架)",
+          "source": "据 CustomCustomer.cs PopulateStock"
+        },
+        {
+          "type": "drag-target",
+          "text": "lewd_meme 运行时携带完整苗床协议(MAIDEN_FEMALE/年轻/处女等标签,深海·艺人·普乳·少女,力 2 智 4 魅 5):可被触手体系当作苗床收购与互动;lewd_meme 缺席时作为普通违禁品流通",
+          "source": "据 MaidenProtocol.cs Apply 与 TearlamentsConfig.cs Maidens[0]"
+        },
+        {
+          "type": "sell",
+          "text": "作为违禁品转售;卖给 kitkallos 时按少女类收购价修正结算",
+          "source": "据 TearlamentsConfig.cs(CONTRABAND)与 CustomCustomer.cs ApplyBuyPriceFeature"
+        }
+      ],
+      "sources": [
+        {
+          "source": "[[tearlaments_kitkallos]] 出售",
+          "detail": "珠泪哀歌族商人到店开场的柜台直售;「我的三位歌姬打九折」",
+          "probability": "她到店必上架(据 CustomCustomer.cs PopulateStock)"
+        }
+      ],
+      "related": [
+        "tearlaments_kitkallos",
+        "tearlaments_havnis",
+        "tearlaments_scheiren"
+      ],
+      "notes": "设定(据 zh-Hans.csv):在暴政下逃亡,手持捕鱼网求生,歌声从未沉默。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_merrli_name",
+        "description": "loc:zh:tearlaments_merrli_description",
+        "flavor": "loc:zh:tearlaments_merrli_flavor",
+        "icon": "loc:zh:tearlaments_merrli_name",
+        "notes": "content:items/tearlaments_merrli.md",
+        "price": "content:items/tearlaments_merrli.md",
+        "categories": "content:items/tearlaments_merrli.md",
+        "usage": "content:items/tearlaments_merrli.md",
+        "sources": "content:items/tearlaments_merrli.md",
+        "related": "content:items/tearlaments_merrli.md",
+        "shape": "content:items/tearlaments_merrli.md"
+      }
+    },
+    {
+      "id": "tearlaments_havnis",
+      "aliases": [],
+      "name": "珠淚哀歌族·哈弗妮絲",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": 300,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments_havnis.png",
+      "categories": [
+        "违禁品"
+      ],
+      "tags": [],
+      "description": "承載著王國隱秘悲傷的人魚少女，她的痛苦揭開了佩爾雷諾表面之下的真實秩序。",
+      "flavor": "有些悲傷太過沉重，無法化作珍珠——只能化作刀刃。",
+      "usage": [
+        {
+          "type": "buy",
+          "text": "从 [[tearlaments_kitkallos]] 的柜台直售表买下(对话结束后三位歌姬一起上架)",
+          "source": "据 CustomCustomer.cs PopulateStock"
+        },
+        {
+          "type": "drag-target",
+          "text": "lewd_meme 运行时携带完整苗床协议(MAIDEN_FEMALE/巨乳/处女等标签,深海·酒保·巨乳·御姐,力 3 智 3 魅 4):可被触手体系当作苗床收购与互动;lewd_meme 缺席时作为普通违禁品流通",
+          "source": "据 MaidenProtocol.cs Apply 与 TearlamentsConfig.cs Maidens[1]"
+        },
+        {
+          "type": "sell",
+          "text": "作为违禁品转售;卖给 kitkallos 时按少女类收购价修正结算",
+          "source": "据 TearlamentsConfig.cs(CONTRABAND)与 CustomCustomer.cs ApplyBuyPriceFeature"
+        }
+      ],
+      "sources": [
+        {
+          "source": "[[tearlaments_kitkallos]] 出售",
+          "detail": "珠泪哀歌族商人到店开场的柜台直售;「我的三位歌姬打九折」",
+          "probability": "她到店必上架(据 CustomCustomer.cs PopulateStock)"
+        }
+      ],
+      "related": [
+        "tearlaments_kitkallos",
+        "tearlaments_merrli",
+        "tearlaments_scheiren"
+      ],
+      "notes": "设定(据 zh-Hans.csv):承载王国隐秘悲伤的人鱼少女,她的痛苦揭开佩尔雷诺表面之下的真实秩序。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_havnis_name",
+        "description": "loc:zh:tearlaments_havnis_description",
+        "flavor": "loc:zh:tearlaments_havnis_flavor",
+        "icon": "loc:zh:tearlaments_havnis_name",
+        "notes": "content:items/tearlaments_havnis.md",
+        "price": "content:items/tearlaments_havnis.md",
+        "categories": "content:items/tearlaments_havnis.md",
+        "usage": "content:items/tearlaments_havnis.md",
+        "sources": "content:items/tearlaments_havnis.md",
+        "related": "content:items/tearlaments_havnis.md",
+        "shape": "content:items/tearlaments_havnis.md"
+      }
+    },
+    {
+      "id": "tearlaments_scheiren",
+      "aliases": [],
+      "name": "珠淚哀歌族·塞壬人魚",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": 400,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments_scheiren.png",
+      "categories": [
+        "违禁品"
+      ],
+      "tags": [],
+      "description": "被囚禁於宮廷中的倖存者，手中緊握的鎖鏈既是枷鎖，也是斬斷枷鎖的決心。",
+      "flavor": "她不再等待被拯救。深海記得她的沉默，正如記得暴君的每一鞭。",
+      "usage": [
+        {
+          "type": "buy",
+          "text": "从 [[tearlaments_kitkallos]] 的柜台直售表买下(对话结束后三位歌姬一起上架)",
+          "source": "据 CustomCustomer.cs PopulateStock"
+        },
+        {
+          "type": "drag-target",
+          "text": "lewd_meme 运行时携带完整苗床协议(MAIDEN_FEMALE/处女等标签,深海·研究员·贫乳·熟女,力 4 智 5 魅 3):可被触手体系当作苗床收购与互动;lewd_meme 缺席时作为普通违禁品流通",
+          "source": "据 MaidenProtocol.cs Apply 与 TearlamentsConfig.cs Maidens[2]"
+        },
+        {
+          "type": "sell",
+          "text": "作为违禁品转售;卖给 kitkallos 时按少女类收购价修正结算",
+          "source": "据 TearlamentsConfig.cs(CONTRABAND)与 CustomCustomer.cs ApplyBuyPriceFeature"
+        }
+      ],
+      "sources": [
+        {
+          "source": "[[tearlaments_kitkallos]] 出售",
+          "detail": "珠泪哀歌族商人到店开场的柜台直售;「我的三位歌姬打九折」",
+          "probability": "她到店必上架(据 CustomCustomer.cs PopulateStock)"
+        }
+      ],
+      "related": [
+        "tearlaments_kitkallos",
+        "tearlaments_merrli",
+        "tearlaments_havnis"
+      ],
+      "notes": "设定(据 zh-Hans.csv):被囚禁于宫廷中的幸存者,锁链既是枷锁,也是斩断枷锁的决心。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_scheiren_name",
+        "description": "loc:zh:tearlaments_scheiren_description",
+        "flavor": "loc:zh:tearlaments_scheiren_flavor",
+        "icon": "loc:zh:tearlaments_scheiren_name",
+        "notes": "content:items/tearlaments_scheiren.md",
+        "price": "content:items/tearlaments_scheiren.md",
+        "categories": "content:items/tearlaments_scheiren.md",
+        "usage": "content:items/tearlaments_scheiren.md",
+        "sources": "content:items/tearlaments_scheiren.md",
+        "related": "content:items/tearlaments_scheiren.md",
+        "shape": "content:items/tearlaments_scheiren.md"
+      }
+    },
+    {
+      "id": "tearlaments_kitkallos_merge",
+      "aliases": [],
+      "name": "珠淚哀歌族·琪特卡洛斯",
+      "mod": "dui_mian_lan_qiu_ji_tearl",
+      "price": 500,
+      "shape": [
+        4,
+        4
+      ],
+      "icon": "items/dui_mian_lan_qiu_ji_tearl/tearlaments_kitkallos_merge.png",
+      "categories": [
+        "违禁品"
+      ],
+      "tags": [],
+      "description": "深海悲嘆所凝聚而成的融合體。暴君以鎖鏈與恐懼將人魚的哀傷鍛造成這副模樣——她仍是囚徒，卻已是所有反抗的起點。",
+      "flavor": "鎖鏈還未落下，她已在深淵中握緊了第一把刀刃。",
+      "usage": [
+        {
+          "type": "process",
+          "text": "把两件带「珠泪合成」标记的珠泪哀歌族物品(如 [[tearlaments_merrli]]/[[tearlaments_havnis]]/[[tearlaments_scheiren]])放进垃圾桶,立即融合成这位融合体少女;不需要解锁交易也能触发",
+          "source": "据反编译产物 v15 TearlamentsConfig.cs BinExchange(TriggerTag=TEARLAMENTS_BIN_MERGE/RequiredUnits=2)与 manifest Description"
+        },
+        {
+          "type": "drag-target",
+          "text": "走 lewd_meme 少女协议(UseLewdMemeProtocol,深海·研究员·普乳·少女·处女,力/智/魅 4/4/4):可被触手体系当作苗床收购与互动",
+          "source": "据反编译产物 v15 TearlamentsConfig.cs BinExchange.Result 与 manifest Description"
+        },
+        {
+          "type": "sell",
+          "text": "违禁品,4×4,基价 500;卖给 [[tearlaments_kitkallos]] 时按少女类收购价修正结算",
+          "source": "据反编译产物 v15 TearlamentsConfig.cs(CONTRABAND/UnitValue=500)与 CustomCustomer.cs ApplyBuyPriceFeature"
+        }
+      ],
+      "sources": [
+        {
+          "source": "垃圾桶融合",
+          "detail": "珠泪哀歌族物品两件一组,丢进垃圾桶即得",
+          "probability": "必得(据 BinExchange RequiredUnits=2)"
+        }
+      ],
+      "related": [
+        "tearlaments_kitkallos",
+        "tearlaments_merrli",
+        "tearlaments_havnis",
+        "tearlaments_scheiren"
+      ],
+      "notes": "源码内描述文案仍是占位符「Replace this text when the final item is ready」,页面文案以 zh-Hans.csv 定位文案为准(据反编译产物 v15 与 Localization/zh-Hans.csv)。",
+      "provenance": {
+        "name": "loc:zh:tearlaments_kitkallos_merge_name",
+        "description": "loc:zh:tearlaments_kitkallos_merge_description",
+        "flavor": "loc:zh:tearlaments_kitkallos_merge_flavor",
+        "icon": "loc:zh:tearlaments_kitkallos_merge_name",
+        "notes": "content:items/tearlaments_kitkallos_merge.md",
+        "price": "content:items/tearlaments_kitkallos_merge.md",
+        "categories": "content:items/tearlaments_kitkallos_merge.md",
+        "usage": "content:items/tearlaments_kitkallos_merge.md",
+        "sources": "content:items/tearlaments_kitkallos_merge.md",
+        "related": "content:items/tearlaments_kitkallos_merge.md",
+        "shape": "content:items/tearlaments_kitkallos_merge.md"
+      }
+    }
+  ]
+}
