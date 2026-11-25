@@ -25,7 +25,7 @@ const { promisify } = require('node:util');
 
 const {
   resolveBsdtar, BSDTAR, readVersion, zipName, MAX_ZIP_BYTES, assertUnderSizeLimit,
-  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, runBsdtar,
+  createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, runBsdtar, main,
 } = require('../tools/pack.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
@@ -495,4 +495,17 @@ test('D4 — the retry policy is one object: what pack.js uses is the very objec
   assert.ok(rmOfDist !== undefined && rmOfTmpZip !== undefined, `fs.rm was called for dist and for the temp zip, got ${JSON.stringify(seen.rm)}`);
   assert.deepEqual(rmOfDist.opts, { recursive: true, force: true, ...buildRetry }, 'the build entry: fs.rm(dist, { recursive, force, …RETRY })');
   assert.deepEqual(rmOfTmpZip.opts, { force: true, recursive: true, ...buildRetry }, 'pack.js: fs.rm(tmp zip, { force, recursive, …RETRY })');
+});
+
+// ---------- the command line: the release workflow names the zip after the date ----------
+
+test('main: the CLI packs under the given name — the options are packSite\'s', { skip: !hasBsdtar }, async (t) => {
+  const root = await tmpDir(t, 'main');
+  const zipPath = path.join(root, 'offline-wiki-2099-01-02.zip');
+  const result = await main({
+    distDir: path.join(root, 'dist'), zipPath, contentDir: null, adminDir: null,
+    data: structuredClone(FIXTURE_DATA), warn: noop,
+  });
+  assert.equal(result.zipPath, zipPath);
+  await fs.access(zipPath);
 });

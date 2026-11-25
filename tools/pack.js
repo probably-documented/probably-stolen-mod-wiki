@@ -348,8 +348,14 @@ async function pack({
   }
 }
 
-async function main() {
-  const result = await packSite();
+/**
+ * `node tools/pack.js [zip 路径]`:不带参数时文件名取自 package.json 的版本;给了路径就用它,
+ * 发布工作流按日期命名。options 原样交给 packSite;返回 packSite 的结果。
+ * @param {Parameters<typeof packSite>[0]} [options]
+ * @returns {ReturnType<typeof packSite>}
+ */
+async function main(options) {
+  const result = await packSite(options);
   const { build, entries } = result;
   console.log(`[pack] build: ${build.pages} files rendered, ${build.assetsCopied} assets copied, audit OK, `
     + `admin ${build.adminInjected ? 'injected into dist' : 'not found'}`);
@@ -357,10 +363,11 @@ async function main() {
   console.log(`[pack] zip ready — ${result.zipPath}`);
   console.log(`[pack] zip size: ${fmtBytes(result.size)} (${result.size} bytes, ${files} files, admin/ excluded)`);
   console.log('[pack] size check: OK (< 100 MB)');
+  return result;
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  main({ zipPath: process.argv[2] }).catch((err) => {
     console.error('[pack] fatal:', err.message || err);
     process.exitCode = 1;
   });
@@ -368,5 +375,5 @@ if (require.main === module) {
 
 module.exports = {
   BSDTAR, MAX_ZIP_BYTES, resolveBsdtar, readVersion, zipName, assertUnderSizeLimit,
-  runBsdtar, createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, RETRY,
+  runBsdtar, createZip, listZipEntries, leakedAdminEntries, packSite, renameWithRetries, RETRY, main,
 };
