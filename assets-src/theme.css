@@ -38,6 +38,7 @@
   --dk-line:#857576; --dk-text:#e1e0d0; --dk-muted:#c5c9b8; --dk-faint:#9d9a8c;
   --dk-accent:#e0a27a; --dk-accent-2:#f0c39f; --dk-metal:#a9afa2; --dk-rust:#b97c57;
   --mk-note:#2b2330;
+  --dk-code:#15111c;
 }
 *{box-sizing:border-box}
 body{
@@ -199,6 +200,10 @@ form.header-search, form.ps-site__search{margin:0}
 .content-box img{max-width:100%}
 .content-box hr{border:0; border-top:1px solid var(--dk-line); margin:16px 0}
 .content-box blockquote{border-left:3px solid var(--dk-line); margin:10px 0; padding:2px 14px; color:var(--dk-muted)}
+/* 代码块:左内边距放在行号上(行号带底色),否则横向滚动时滚到左边的内容会在内边距里露出半截字 */
+.content-box pre{--code-pad:14px; margin:12px 0; padding:12px var(--code-pad) 12px 0; background:var(--dk-code); border:1px solid var(--dk-edge); border-radius:3px; color:var(--dk-text); font-family:Consolas,"Cascadia Mono","Courier New","Microsoft YaHei",monospace; font-size:13px; line-height:1.6; white-space:pre; overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--dk-panel) transparent}
+.content-box pre code{display:block; background:none; border:0; padding:0; font-size:inherit; color:inherit}
+.content-box pre .code-line-no{display:inline-block; position:sticky; left:0; width:calc(2em + var(--code-pad)); padding:0 1.2em 0 var(--code-pad); text-align:right; color:var(--dk-faint); background:var(--dk-code); user-select:none}
 .content-box table:not(.wiki-table):not(.ps-infobox){border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; background:var(--dk-bg)}
 .content-box table:not(.wiki-table):not(.ps-infobox) th{background:var(--dk-panel); color:var(--dk-text); border:1px solid var(--dk-line); padding:7px 12px; text-align:left; font-size:12.5px}
 .content-box table:not(.wiki-table):not(.ps-infobox) td{border:1px solid var(--dk-line); padding:6px 12px; color:var(--dk-text)}
@@ -219,4 +224,6 @@ form.header-search, form.ps-site__search{margin:0}
   .flow-arrow .stem{background:#000}
   .flow-arrow .head{border-top-color:#000}
   .flow-branch, .flow-loop{border:1px dashed #666}
+  /* 代码块:打印时不铺深色底 */
+  .content-box pre, .content-box pre .code-line-no{background:#fff; border-color:#000}
 }
