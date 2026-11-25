@@ -1,0 +1,108 @@
+# 离线包发布:两个包之间至少隔 3 天,有更新才发。
+#
+# 三种触发走同一条规则(tools/release-policy.js):
+#   自上一个 Release 以来 main 有新提交,并且距上一个 Release 已满 3 天 → 测试、构建、打包、发布。
+#   否则什么都不做,运行日志里写明原因。
+# - push:冷却已过时,新提交立刻发出新的包。
+# - schedule:每 3 天检查一次。日子在月末会挨得近一些(28 号、31 号、下月 1 号),没关系:
+#   冷却是按上一个包的发布时间算的,多检查一次只会多一次「跳过」。
+# - workflow_dispatch:手动检查一次,规则相同,不能绕过冷却。
+name: Release offline
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 */3 * *'
+  workflow_dispatch:
+
+# 创建 Release 和 tag 需要 contents 的写权限。部署工作流(Deploy)保持只读。
+permissions:
+  contents: write
+
+# 同一时间只跑一个;不取消正在进行的发布。
+concurrency:
+  group: release-offline
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 要拿上一个 Release 对应的提交来比较,需要完整历史
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # libarchive-tools 提供 bsdtar:打包和检查离线包都需要它。
+      - name: Install bsdtar
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
+
+      # 规则只有一个出处。结论写给后面的步骤。
+      - name: Decide whether to release
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/should-release.js --github-output "$GITHUB_OUTPUT"
+
+      - name: Report the decision
+        env:
+          REASON: ${{ steps.decide.outputs.reason }}
+        run: echo "$REASON"
+
+      - name: Test
+        if: steps.decide.outputs.release == 'true'
+        run: npm test
+
+      - name: Build and pack
+        if: steps.decide.outputs.release == 'true'
+        env:
+          ZIP: ${{ steps.decide.outputs.zip }}
+        run: node tools/pack.js "$ZIP"
+
+      - name: Check the offline zip
+        if: steps.decide.outputs.release == 'true'
+        env:
+          ZIP: ${{ steps.decide.outputs.zip }}
+        run: |
+          ls -l "$ZIP"
+          if bsdtar -tf "$ZIP" | grep -qiE '^(\./)?admin/'; then
+            echo "::error::the offline zip contains the CMS (admin/)"
+            exit 1
+          fi
+
+      - name: Write the release notes
+        if: steps.decide.outputs.release == 'true'
+        env:
+          PREVIOUS_TAG: ${{ steps.decide.outputs.previous_tag }}
+        run: |
+          {
+            echo "离线包:解压后双击 index.html 即可浏览,不需要联网。数据基线见站内首页的「全站通知」。"
+            echo
+            if [ -n "$PREVIOUS_TAG" ]; then
+              echo "自 $PREVIOUS_TAG 以来的提交:"
+              echo
+              git log --oneline "$PREVIOUS_TAG..HEAD" | head -n 50
+            else
+              echo "这是第一个离线包。"
+            fi
+          } > release-notes.md
+
+      # --target 指向这次运行检出的提交:判断和发布之间即使有新推送,tag 也不会指到别的提交上。
+      - name: Publish the release
+        if: steps.decide.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          ZIP: ${{ steps.decide.outputs.zip }}
+        run: |
+          gh release create "$TAG" "$ZIP" \
+            --target "$(git rev-parse HEAD)" \
+            --title "离线包 ${TAG#offline-}" \
+            --notes-file release-notes.md
