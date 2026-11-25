@@ -113,16 +113,17 @@ function parseFlowList(raw) {
 }
 
 const KV_LINE_RE = /^([A-Za-z][\w-]*)\s*:\s?(.*)$/;
-const LIST_ITEM_RE = /^\s+-\s*(.*)$/;
+const LIST_ITEM_INDENTED_RE = /^(\s+)-\s*(.*)$/;
 // 真对象项形态:`key:` 后须空格或行尾(YAML mapping)。冒号后紧跟非空
 // (如 http://x、draft:AI)是 plain scalar,不得误判为对象项而静默丢弃。
 const KVISH_RE = /^[A-Za-z][\w-]*\s*:(\s|$)/;
 
 /**
  * frontmatter 行 → data(kv 之外的行跳过,空行不可能是 kv)。
- * `key:`(值空)后随缩进 `- item` 行时累积为标量列表(CMS 原生
- * YAML 多行列表);遇非列表行即止。对象项行(`- key: value`)按
- * 现有"跳过非 kv 行"的宽容行为处理,不抛错。
+ * `key:`(值空)后随缩进 `- item` 行时累积为列表(CMS 原生 YAML 多行列表):
+ * 项是 plain scalar 时按标量解析;项是 `- key: value`(YAML mapping)时解析
+ * 成对象,比它缩进更深的 `key: value` 行是同一对象的键。遇非列表行即止。
+ * 更深的多级嵌套不在子集内:跳过,不抛错。
  */
 function parseKvLines(lines) {
   const data = {};
@@ -133,14 +134,36 @@ function parseKvLines(lines) {
     if (match[2].trim() === '') {
       // key: 值空 → 尝试收集后续列表行
       const items = [];
+      let itemIndent = -1;
+      let currentObject = null; // the object item the lines below are filling
       let j = i + 1;
       while (j < lines.length) {
-        const item = lines[j].match(LIST_ITEM_RE);
-        if (item === null) break; // 非列表行:frontmatter 结束或下一个 kv
-        if (!KVISH_RE.test(item[1].trim())) {
-          items.push(parseFrontmatterScalar(item[1].trim()));
-        } // 对象项(- key: value):超集不实现,跳过该行
-        j += 1;
+        const item = lines[j].match(LIST_ITEM_INDENTED_RE);
+        if (item !== null) {
+          const indent = item[1].length;
+          if (itemIndent === -1) itemIndent = indent;
+          if (indent !== itemIndent) break; // 缩进变化不在子集内
+          const text = item[2].trim();
+          if (KVISH_RE.test(text)) {
+            const kv = text.match(KV_LINE_RE);
+            currentObject = { [kv[1]]: kv[2].trim() === '' ? '' : parseFrontmatterScalar(kv[2].trim()) };
+            items.push(currentObject);
+          } else {
+            currentObject = null;
+            items.push(parseFrontmatterScalar(text));
+          }
+          j += 1;
+          continue;
+        }
+        // A deeper `key: value` line continues the object item above it.
+        const kv = lines[j].trim().match(KV_LINE_RE);
+        const indent = lines[j].match(/^\s*/)[0].length;
+        if (currentObject !== null && kv !== null && indent > itemIndent) {
+          currentObject[kv[1]] = kv[2].trim() === '' ? '' : parseFrontmatterScalar(kv[2].trim());
+          j += 1;
+          continue;
+        }
+        break; // 非列表行:frontmatter 结束或下一个 kv
       }
       if (items.length > 0) {
         data[match[1]] = items;

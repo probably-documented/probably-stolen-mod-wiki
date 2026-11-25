@@ -10,8 +10,9 @@
 //   key:                   后随缩进 "- item" 的标量列表(项可带引号)
 //   key: [a, b]            flow 列表(兼容)
 //   key: {...} / [...]     单行 JSON(旧方言,保留)
-// 明确拒绝的超集:列表对象项(- key: value 续行)、多级嵌套——不实现、
-// 不抛错,按现有"跳过非 kv 行"的宽容行为处理。
+// 对象块列表(key: 下每项是 - key: value 的对象,Sveltia 的 list-of-objects
+// 写法)已支持,续行是同一对象的键;更深的多级嵌套仍不实现、不抛错,
+// 按"跳过无法识别的行"的宽容行为处理。
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -86,14 +87,12 @@ test('Sveltia 风格混排:多行列表与旧单行 JSON 共存于同一份 fron
   assert.equal(fm.sold, true);
 });
 
-// ---------- 明确拒绝的超集:不实现、不抛错 ----------
+// ---------- 对象块列表(list-of-objects)与宽容行为 ----------
 
-test('超集:列表对象项(- key: value 续行)不解析成对象,不抛错', () => {
+test('对象块列表:列表项是 - key: value 时解析成对象,续行是同一对象的键', () => {
   const { fm } = splitFrontmatter(
     '---\nusage:\n  - type: use\n    text: hi\n---\nb');
-  // 契约:绝不产出对象解析(数组项全为非 object,或整体不是数组)
-  const ok = !Array.isArray(fm.usage) || fm.usage.every((v) => v === null || typeof v !== 'object');
-  assert.ok(ok, '对象列表项不得被解析成对象');
+  assert.deepEqual(fm.usage, [{ type: 'use', text: 'hi' }]);
 });
 
 test('含冒号的裸标量项是 YAML plain scalar,保留在列表(fix: KVISH 误判)', () => {
@@ -104,12 +103,12 @@ test('含冒号的裸标量项是 YAML plain scalar,保留在列表(fix: KVISH �
   assert.deepEqual(fm.links, ['http://example.com', 'draft:AI']);
 });
 
-test('真对象项仍跳过:KVISH 收紧为冒号后须空格或行尾', () => {
+test('对象项与标量项可以混排: - key: value 开对象,plain scalar 仍是标量', () => {
   const { fm } = splitFrontmatter(
     '---\nmixed:\n  - type: use\n  - http://x\n  - key:\n---\nb');
-  // `- type: use`(冒号后空格)与 `- key:`(冒号后行尾)是真对象项形态 → 跳过;
+  // `- type: use`(冒号后空格)与 `- key:`(冒号后行尾)是对象项;
   // `- http://x` 是 plain scalar → 保留
-  assert.deepEqual(fm.mixed, ['http://x']);
+  assert.deepEqual(fm.mixed, [{ type: 'use' }, 'http://x', { key: '' }]);
 });
 
 test('超集:多级嵌套行按现有跳过行为处理,不抛错', () => {
@@ -265,4 +264,30 @@ tags:
   assert.equal(fm.path, 'C:\\dir\\');
   assert.deepEqual(fm.tags, ["it's", 'a"b']);
   assert.equal(body, '正文 [[tentacle_body]]\n');
+});
+
+// ---------- 对象块列表:与单行 JSON 等价 ----------
+
+test('对象块列表: - key: value 的项解析成对象数组', () => {
+  const { fm } = splitFrontmatter([
+    '---', 'usage:', '  - type: sell', '    text: 卖掉它', '    source: 据 a.cs',
+    '  - type: process', '    text: 加工', '    source: 据 b.cs', '---', '', '正文',
+  ].join('\n'));
+  assert.deepEqual(fm.usage, [
+    { type: 'sell', text: '卖掉它', source: '据 a.cs' },
+    { type: 'process', text: '加工', source: '据 b.cs' },
+  ]);
+});
+
+test('对象块列表: 与单行 JSON 写法解析结果相同', () => {
+  const json = splitFrontmatter('---\nusage: [{"type":"sell","text":"卖掉它"}]\n---\n').fm;
+  const block = splitFrontmatter('---\nusage:\n  - type: sell\n    text: 卖掉它\n---\n').fm;
+  assert.deepEqual(block, json);
+});
+
+test('对象块列表: 值里的引号、转义与数字', () => {
+  const { fm } = splitFrontmatter([
+    '---', 'items:', "  - name: 'it''s'", '    count: 3', '    note: "a\\"b"', '---',
+  ].join('\n'));
+  assert.deepEqual(fm.items, [{ name: "it's", count: 3, note: 'a"b' }]);
 });
