@@ -10,7 +10,8 @@
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
 //      rm guard → CMS shell source → item id lint → item slug lint → mechanic
-//      page name lint → asset sources
+//      page name lint → image formats → table rows wider than their header
+//      → asset sources
 //   1. data prep (drop missing icons, merge content/mechanics — mechanics.js,
 //      at most one page declaring the top-nav about entry)
 //   2. render
@@ -34,8 +35,9 @@
 // and delete pages, so many checks exist only to tell THEM what to fix —
 // the rm guard's refusal, a content/items file that is not named after an
 // item or does not declare the slug it is named after, a mechanic page
-// with a file name that is not its address, two pages declaring the
-// top-nav label, a dangling link, an audit violation. Their message is the
+// with a file name that is not its address, an image that is not a bitmap,
+// two pages declaring the top-nav label, a table row wider than its header,
+// a dangling link, an audit violation. Their message is the
 // whole report — in Chinese: the files, what is wrong, what to do — and
 // main() prints it without a stack trace.
 
@@ -47,6 +49,7 @@ const { renderSite } = require('./render.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
+const { findWideTableRows, formatWideTableRows } = require('./wide-tables.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
@@ -631,14 +634,15 @@ async function injectAdmin(adminSource, distDir) {
  *   `<item.id>.md`, when such a file does not declare `slug` equal to its
  *   own name (D8), when a content/mechanics file name is not a legal page
  *   slug (D11), when an asset source is missing, when more than one
- *   mechanics page declares a top-nav label (`nav_label`), on any
+ *   mechanics page declares a top-nav label (`nav_label`), when a table row
+ *   of an edited page has more cells than its header (wide-tables.js), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on a site-audit
  *   violation; process.exitCode is set to 1 before the throw.
  *   Contributor-facing failures (the rm guard's refusal, the item id and
- *   slug lints, the mechanic page name lint, the nav_label conflict,
- *   dangling references, the site audit) are BuildErrors whose message
- *   says what to do and names the files to edit.
+ *   slug lints, the mechanic page name lint, the nav_label conflict, a
+ *   table row wider than its header, dangling references, the site audit)
+ *   are BuildErrors whose message says what to do and names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
  *   old dist is removed, which therefore stays as it was; the dangling-
  *   reference and audit failures need the written site and come after.
@@ -720,6 +724,12 @@ async function buildSkeleton({
           + '\n提示:只支持 png、jpg、jpeg、gif、webp、avif 位图。SVG 等其它格式不能上传'
           + '(SVG 可以内嵌脚本,对所有读者都有风险),请把图片转成 PNG 后重新上传。');
       }
+      //    Table rows wider than their header (rich text in the CMS): an
+      //    image dropped at the end of a table row is written as one more
+      //    cell, which the renderer drops. The page would lose the image
+      //    without a word, so the contributor is told which line to fix.
+      const wideRows = await findWideTableRows(contentDir);
+      if (wideRows.length > 0) throw new BuildError(formatWideTableRows(wideRows, contentDir));
     }
     //    asset sources: a missing one is a certain failure, known right now.
     await assertAssetSources(assetsDir);

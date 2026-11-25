@@ -60,6 +60,7 @@ const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 const { auditExternalLinks, CODES } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
+const { findWideTableRows } = require('../tools/build/wide-tables.js');
 
 /** The footer credit link templates.js writes on every page (templates.js keeps its own copy). */
 const BWIKI_CREDIT_URL = 'https://wiki.biligame.com/probablystolen';
@@ -1798,4 +1799,33 @@ test('source shown in a code block is text: the build passes, and neither the au
   assert.ok(page.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'the source is in the page, escaped');
   assert.ok(page.includes('src="https://example.com/x.png"'), '…as text: the quotes are still there for a regex to find');
   assert.ok(!page.includes('<img src="https://'), 'and not as a real tag');
+});
+
+test('a table row wider than its header → the build fails before rm dist, names the file and line, and says what to do', async (t) => {
+  const distDir = await tmpDir(t, 'wide-table-fail');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  const contentDir = await tmpDir(t, 'wide-table-content');
+  await fs.mkdir(path.join(contentDir, 'mechanics'), { recursive: true });
+  // three lines of frontmatter, a blank, the header, the delimiter — the wide row is line 7
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'wide.md'),
+    '---\ntitle: 宽表\n---\n\n| A | B |\n| --- | --- |\n| 1 | 2 |![](images/x.png)\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the wide-table check to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  const lines = err.message.split('\n');
+  assert.equal(lines.length, 3, err.message);
+  assert.match(lines[0], /^\[table\] FAIL — 1 处表格行比表头多出了单元格:$/, 'a heading in Chinese, with the count');
+  assert.equal(lines[1], `  ${toPosix(path.join(contentDir, 'mechanics', 'wide.md'))} 第 7 行(表头 2 格,这一行 3 格)`);
+  assert.match(lines[2], /^提示:.*单独占一行。$/);
+  // Chinese + names the file: the hint tells them to open it
+  assert.match(err.message, /[\u4e00-\u9fff]/, 'the message is in Chinese');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (refused before rm dist)');
+});
+
+test('the repository\'s own content has no table row wider than its header', async () => {
+  assert.deepEqual(await findWideTableRows(REPO_CONTENT), []);
 });
