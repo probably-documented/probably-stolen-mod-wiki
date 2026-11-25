@@ -55,6 +55,8 @@ collections:
       - name: slug
         label: 物品
         widget: select
+        # 不进右侧的预览面板:预览里只留正文(两个集合里其它不是正文的字段同此)。
+        preview: false
         hint: '只能从列表里选。这个值就是页面的文件名:选了哪件物品,这篇详解就显示在那件物品的页面上。'
         options:
           - label: 神奇乳汁
@@ -75,11 +77,21 @@ collections:
       - name: body
         label: 详解正文
         widget: markdown
-        # 只开放原文(Markdown)编辑:富文本模式会把 Markdown 重新排版,会不会改写
-        # [[物品ID]] 和 html 直通块还没有实测(Task 10),在此之前不开放所见即所得
+        # 打开时是所见即所得的富文本编辑器;第一项是打开时的模式。
         modes:
+          - rich_text
           - raw
-        hint: '显示在物品详情页的「详解」一节。正文支持 Markdown,可以贴外部链接(会在新标签页打开),也可以插入图片:上传的图片保存在页面旁边的 images 文件夹,自动转成 URL 友好的文件名。只支持 png、jpg、gif、webp 等位图图片,不支持 SVG。'
+        # 编辑器组件。写出这一项就只启用列出的组件:image 和 table 必须都写(只写 table 会把
+        # 图片挤掉);code-block 也要写,否则默认启用的代码块会被关掉。
+        editor_components:
+          - image
+          - table
+          - code-block
+        # 关闭「带说明文字的图片」:它会写成 HTML 的 <figure>,站点不支持。
+        captioned_images: false
+        # 代码块的语言列表是编辑器内置的,去不掉 HTML。语言选了 HTML 的代码块,站点按 html 直通块
+        # 处理:内容直接生效,不是显示源码。hint 里提醒贡献者,展示源码选 XML 或纯文本。
+        hint: '显示在物品详情页的「详解」一节。编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
 
   # 机制说明:每个文件是一个页面,会出现在站点的「机制说明」索引里。
   - name: mechanics
@@ -96,18 +108,30 @@ collections:
       - name: title
         label: 标题
         widget: string
+        preview: false
         hint: '页面的标题,会显示在「机制说明」索引里。文件名由它自动生成。'
       - name: nav_label
         label: 顶部导航上的名字
         widget: string
+        preview: false
         required: false
         hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航——目前是「关于本站」那一页。'
       # 正文要放在字段的最后一个
       - name: body
         label: 正文
         widget: markdown
-        # 只开放原文(Markdown)编辑:富文本模式会把 Markdown 重新排版,会不会改写
-        # [[物品ID]] 和 html 直通块还没有实测(Task 10),在此之前不开放所见即所得
+        # 打开时是所见即所得的富文本编辑器;第一项是打开时的模式。
         modes:
+          - rich_text
           - raw
-        hint: '正文支持 Markdown,可以贴外部链接(会在新标签页打开),也可以插入图片:上传的图片保存在页面旁边的 images 文件夹,自动转成 URL 友好的文件名。只支持 png、jpg、gif、webp 等位图图片,不支持 SVG。'
+        # 编辑器组件。写出这一项就只启用列出的组件:image 和 table 必须都写(只写 table 会把
+        # 图片挤掉);code-block 也要写,否则默认启用的代码块会被关掉。
+        editor_components:
+          - image
+          - table
+          - code-block
+        # 关闭「带说明文字的图片」:它会写成 HTML 的 <figure>,站点不支持。
+        captioned_images: false
+        # 代码块的语言列表是编辑器内置的,去不掉 HTML。语言选了 HTML 的代码块,站点按 html 直通块
+        # 处理:内容直接生效,不是显示源码。hint 里提醒贡献者,展示源码选 XML 或纯文本。
+        hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'

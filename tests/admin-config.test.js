@@ -24,8 +24,8 @@
 //       placeholder media folder (Sveltia CMS 0.271.0 refuses to start
 //       without one; the build never reads it), the URL of the sign-in
 //       service, and the two collections contributors edit, both
-//       creatable and deletable. The body hints carry the ruled link
-//       policy: external links are fine, images are not supported yet.
+//       creatable and deletable. The body hints are the ruled text (spec D):
+//       what the rich-text editor does to a page, and where its limits are.
 //   L — an item page's file name is the item id (the build lints it), so the
 //       `slug` select offers exactly the real item ids and nothing else.
 //       What a contributor may type is what the renderer reads: the body.
@@ -34,9 +34,14 @@
 //       mechanics collection. Item pages are not checked: the renderer
 //       reads nothing of their front matter, and the CMS writes keys it
 //       does not know back unchanged.
-//   V — both bodies are Markdown fields opened in raw mode only: until the
-//       rich-text round trip has been tried on [[id]] and ```html blocks,
-//       WYSIWYG editing stays closed.
+//   V — both bodies are Markdown fields that open in rich text, with raw
+//       Markdown one switch away: the first of `modes` is the mode the
+//       editor opens in. WYSIWYG editing stayed closed until the rich-text
+//       round trip had been tried on [[id]] and ```html blocks; it has been
+//       (tests/round-trip.test.js), and it is open now. Tables, images and
+//       code blocks are on in the editor, captioned images are off (the site
+//       does not render a <figure>), and the fields that are not the body
+//       stay out of the preview pane.
 //
 // And the build: with its default adminDir, buildSkeleton really injects
 // the shell into dist/admin/.
@@ -388,7 +393,7 @@ test('S — every front matter key of content/mechanics/*.md is a field of the m
   // back unchanged when an entry is saved.
 });
 
-test('V — both bodies are Markdown fields, the last field of their collection, opened in raw mode only', async () => {
+test('V — 两个正文都是 Markdown 字段、各自集合的最后一个字段,打开时是富文本,可以切回原文', async () => {
   const config = await readConfig();
   for (const name of ['items', 'mechanics']) {
     const fields = fieldsOf(collection(config, name));
@@ -396,19 +401,23 @@ test('V — both bodies are Markdown fields, the last field of their collection,
     assert.equal(value(body, 'name'), 'body', `${name}: the body is the last field`);
     assert.equal(value(body, 'widget'), 'markdown', `${name}.body is a Markdown field`);
     const modes = listItems(subBlock(body, 'modes')).map((mode) => mode.map((line) => line.text));
-    assert.deepEqual(modes, [['raw']], `${name}.body: raw mode only`);
+    assert.deepEqual(modes, [['rich_text'], ['raw']], `${name}.body: rich text first — the mode the editor opens in — then raw`);
   }
 });
 
-test('the body hints carry the ruled link and image policy: external links are fine, images are inserted and kept beside the page, as bitmaps only', async () => {
+test('the body hints are the ruled text (spec D): raw Markdown is one switch away, an image goes on its own line, the table menu is named, source is shown from an XML or plain-text code block, external links are fine, images are bitmaps only', async () => {
   const config = await readConfig();
   for (const name of ['items', 'mechanics']) {
     const body = fieldsOf(collection(config, name)).find((field) => value(field, 'name') === 'body');
     const hint = unquote(value(body, 'hint'));
     assert.match(hint, /Markdown/, `${name}.body hint: says the body is Markdown`);
+    assert.match(hint, /以 Markdown 编辑/, `${name}.body hint: names the switch back to raw Markdown`);
     assert.match(hint, /外部链接/, `${name}.body hint: external links are allowed`);
     assert.match(hint, /图片/, `${name}.body hint: images can be inserted`);
-    assert.match(hint, /images/, `${name}.body hint: says where the images are kept`);
+    assert.match(hint, /单独占一行/, `${name}.body hint: an image goes on its own line`);
+    assert.match(hint, /删除表格/, `${name}.body hint: says where the table menu is`);
+    assert.match(hint, /XML/, `${name}.body hint: source is shown from an XML code block`);
+    assert.match(hint, /HTML/, `${name}.body hint: …and names the HTML code block, which does not show source`);
     assert.match(hint, /SVG/, `${name}.body hint: SVG is called out as not allowed`);
     assert.doesNotMatch(hint, /暂不支持插入图片/, `${name}.body hint: images are supported now`);
   }
@@ -526,4 +535,32 @@ test('D10 — 物品下拉里,fixture 数据中有名字的物品,选项 label �
   for (const item of FIXTURE_DATA.items.filter((it) => it.name === null)) {
     assert.equal(labelOf.get(item.id), item.id, `${item.id}: listed by its id`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Rich text in the CMS (spec D / E): what the editor offers, and what the
+// preview pane shows.
+// ---------------------------------------------------------------------------
+
+test('两个正文都启用图片、表格、代码块三个编辑器组件,并关闭带说明文字的图片', async () => {
+  const config = await readConfig();
+  for (const name of ['items', 'mechanics']) {
+    const body = fieldsOf(collection(config, name)).find((field) => value(field, 'name') === 'body');
+    assert.deepEqual(listItems(subBlock(body, 'editor_components')).map((c) => c.map((line) => line.text)),
+      [['image'], ['table'], ['code-block']]);
+    assert.equal(value(body, 'captioned_images'), 'false');
+  }
+});
+
+test('不是正文的字段不进预览面板', async () => {
+  const config = await readConfig();
+  for (const name of ['items', 'mechanics']) {
+    const others = fieldsOf(collection(config, name)).filter((field) => value(field, 'name') !== 'body');
+    for (const field of others) assert.equal(value(field, 'preview'), 'false', `${name}.${value(field, 'name')}`);
+  }
+});
+
+test('index.html 隐藏预览面板里的字段名,编辑区的不受影响', async () => {
+  const html = await readText(INDEX_PATH);
+  assert.ok(html.includes('[data-field-type][data-key-path] > h4 { display: none !important; }'));
 });

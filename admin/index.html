@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
     <title>Sveltia CMS</title>
+    <!-- 预览面板给每个字段加了一行字段名(如「正文」),页面上并没有这一行。
+         编辑区里的字段名在 header 里面,不受影响。 -->
+    <style>
+      [data-field-type][data-key-path] > h4 { display: none !important; }
+    </style>
   </head>
   <body>
     <script src="./vendor/sveltia-cms.js"></script>
