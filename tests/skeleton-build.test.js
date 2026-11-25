@@ -53,7 +53,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildSkeleton, validateItemContentIds, formatAuditViolations, RETRY,
+  buildSkeleton, validateItemContentIds, itemIdViolations, formatAuditViolations, RETRY,
   validateItemContentSlugs, validateMechanicSlugs,
 } = require('../tools/build/skeleton-build.js');
 const { findDanglingRefs } = require('../tools/build/dangling-refs.js');
@@ -825,7 +825,7 @@ test('E4 — id 校验的报错面向贡献者:中文,按实际 contentDir 逐�
   assert.ok(!contentDir.endsWith('content') && toPosix(contentDir) !== 'content', 'sanity: this content dir is NOT the default "content"');
   const lines = err.message.split('\n');
   assert.equal(lines.length, 4, err.message);
-  assert.match(lines[0], /^\[lint\] FAIL — 2 个文件的文件名不是真实物品的 ID[^\n]*:$/, 'a heading in Chinese, with the count');
+  assert.match(lines[0], /^\[lint\] FAIL — 2 个文件的文件名与真实物品的 ID 不一致.*:$/, 'a heading in Chinese, with the count');
   assert.equal(lines[1], `  ${itemsDir}/aaa_fake.md`, 'the real content dir, sorted');
   assert.equal(lines[2], `  ${itemsDir}/zzz_fake.md`);
   assert.match(lines[3], /^提示:.*[\u4e00-\u9fff]。$/, 'the report ends with one actionable hint');
@@ -1849,6 +1849,7 @@ test('a table row wider than its header → the build fails before rm dist, name
 
 test('the repository\'s own content has no table row wider than its header', async () => {
   assert.deepEqual(await findWideTableRows(REPO_CONTENT), []);
+  assert.deepEqual(await findWideTableRows(path.join(REPO_ROOT, 'content')), [], 'the real content pages too');
 });
 
 // ---------------------------------------------------------------------------
@@ -1944,4 +1945,37 @@ test('大写 id:拼错的文件名(大小写也对不上)仍然是构建失败',
   assert.equal(exitCode, 1);
   assert.match(err.message, /\[lint\] FAIL/);
   assert.ok(err.message.includes('gear.maidres.md'), err.message);
+});
+
+test('itemIdViolations:两个文件指向同一件物品时两个都列出(Windows 上无法用真实文件构造,单测)', () => {
+  const entries = [
+    { name: 'GEAR.maidDress.md', isFile: () => true },
+    { name: 'gear.maiddress.md', isFile: () => true },
+    { name: 'gear.maiddress.MD', isFile: () => true },
+    { name: 'notes.txt', isFile: () => true },
+    { name: 'folder.md', isFile: () => false },
+  ];
+  assert.deepEqual(itemIdViolations(entries, ['gear.maidDress']),
+    ['GEAR.maidDress.md', 'gear.maiddress.MD', 'gear.maiddress.md']);
+});
+
+test('itemIdViolations:没有精确命中又拼错的名字仍然违规', () => {
+  assert.deepEqual(itemIdViolations([{ name: 'gear.maidres.md', isFile: () => true }], ['gear.maidDress']),
+    ['gear.maidres.md']);
+});
+
+test('分类筛选跟着合并后的物品:content 里的新分类不用重新导出数据', async (t) => {
+  const distDir = await tmpDir(t, 'chip-dist');
+  const contentDir = await tmpDir(t, 'chip-content');
+  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'items', `${FIXTURE_ITEM_ID}.md`), [
+    '---', `slug: ${FIXTURE_ITEM_ID}`, 'categories:', '  - 新分类', '---', '',
+  ].join('\n'));
+
+  const { exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+
+  const itemsHtml = await fs.readFile(path.join(distDir, 'items.html'), 'utf8');
+  assert.ok(itemsHtml.includes('<span class="item-inline" data-category="新分类">新分类</span>'),
+    'the category chip comes from the merged items');
 });

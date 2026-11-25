@@ -86,6 +86,11 @@ test('mod 顺序:modOrder 里没有的 mod 按文件名排在后面', async (t) 
   assert.deepEqual(data.mods.map((m) => m.id), ['b_mod', 'a_mod', 'c_mod']);
 });
 
+test('itemCount 与 items 数量不符 → 中文错误指出文件', async (t) => {
+  const dir = writeData(tmpDir(t, 'count'), { 'a_mod.json': { ...MOD('a_mod', ['i1']), itemCount: 2 } });
+  await assert.rejects(loadWikiData(dir), /data\/mods\/a_mod\.json.*itemCount 是 2.*items 有 1 个/);
+});
+
 test('缺 wiki.json → 中文错误指出文件', async (t) => {
   const dir = writeData(tmpDir(t, 'no-wiki'), { 'a_mod.json': MOD('a_mod', ['i1']) }, null);
   await assert.rejects(loadWikiData(dir), /data\/wiki\.json 不存在/);

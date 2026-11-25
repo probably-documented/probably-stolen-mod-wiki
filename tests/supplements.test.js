@@ -133,3 +133,11 @@ test('大小写不敏感:文件名的 id 与数据里的 id 只差大小写时,�
   assert.equal(data.items[0].notes, '小写文件名');
   assert.equal(data.items[0].provenance.notes, 'content:items/gear.maiddress.md');
 });
+
+test('shape:块列表的两个数字覆盖数据里的尺寸', async (t) => {
+  const contentDir = tmpDir(t, 'shape');
+  await writeItem(contentDir, 'wondrous_milk', ['shape:', '  - 4', '  - 5']);
+  const data = structuredClone(FIXTURE_DATA);
+  await mergeSupplements(data, contentDir, () => {});
+  assert.deepEqual(itemOf(data, 'wondrous_milk').shape, [4, 5]);
+});

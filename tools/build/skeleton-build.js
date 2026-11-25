@@ -6,7 +6,7 @@
 // BuildError that tells them which file to edit and how.
 //
 // Unlike modwiki's full builder this never touches the game directory or the
-// decompile cache: the site is rendered from the frozen FIXTURE_DATA literal
+// decompile cache: the site is rendered from the data files (tests inject the frozen FIXTURE_DATA literal)
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
 //      rm guard → CMS shell source → item id lint → item slug lint → mechanic
@@ -143,7 +143,22 @@ async function validateItemContentIds(contentItemsDir, validIds) {
     if (isMissing(err)) return [];
     throw err;
   }
+  return itemIdViolations(entries, ids);
+}
+
+/**
+ * The id-lint findings for a directory listing (pure): a file name that names
+ * no real item, or a second file that names an item another file already
+ * names — gear.maidDress.md and gear.maiddress.md would silently split a
+ * page's body and front matter between them.
+ * @param {Array<{ name: string, isFile: () => boolean }>} entries
+ * @param {Iterable<string>} ids the real item ids
+ * @returns {string[]} offending file names, sorted
+ */
+function itemIdViolations(entries, ids) {
+  const known = [...ids];
   const violations = [];
+  const seen = new Map(); // realId -> the first file that names it
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     if (!/\.md$/i.test(entry.name)) continue;
@@ -153,9 +168,21 @@ async function validateItemContentIds(contentItemsDir, validIds) {
     // saves). resolveItemId is the one rule the lints, the supplement merge
     // and the body read all use, so every platform agrees.
     const fileId = entry.name.replace(/\.md$/i, '');
-    if (!/\.md$/.test(entry.name) || resolveItemId(fileId, ids) === null) violations.push(entry.name);
+    const realId = /\.md$/.test(entry.name) ? resolveItemId(fileId, known) : null;
+    if (realId === null) {
+      violations.push(entry.name);
+      continue;
+    }
+    // Two files that name the same item — gear.maidDress.md and
+    // gear.maiddress.md — would silently split the body and the front matter
+    // between them. Report both.
+    if (seen.has(realId)) {
+      violations.push(seen.get(realId), entry.name);
+      continue;
+    }
+    seen.set(realId, entry.name);
   }
-  return violations.sort();
+  return [...new Set(violations)].sort();
 }
 
 /**
@@ -706,8 +733,8 @@ async function buildSkeleton({
         // contributor-facing reports.
         const itemsDir = toPosix(itemsPath);
         throw new BuildError(
-          `[lint] FAIL — ${idViolations.length} 个文件的文件名不是真实物品的 ID`
-          + '(只有「<物品ID>.md」会被渲染成该物品页的「详解」,其它文件名会被静默忽略):\n'
+          `[lint] FAIL — ${idViolations.length} 个文件的文件名与真实物品的 ID 不一致,或两个文件指向同一件物品`
+          + '(只有「<物品ID>.md」会被渲染成该物品页的「详解」;大小写可以不同,但不能重复):\n'
           + idViolations.map((v) => `  ${itemsDir}/${v}`).join('\n')
           + '\n提示:请把文件改名为真实物品的 ID(物品详情页的「物品ID」一栏可以查到),扩展名保持 .md;不需要的文件请删除。');
       }
@@ -757,6 +784,10 @@ async function buildSkeleton({
     //    The hand-written layer first: its icon overrides must go through
     //    dropMissingIcons too, and its empty values never overwrite the data.
     await mergeSupplements(payload, contentDir, warn);
+    // The category chips follow the merged items, as the offline build's
+    // facets do: a category a contributor adds in the CMS shows up in the
+    // filter without waiting for a data re-export.
+    payload.facets = { categories: [...new Set(payload.items.flatMap((it) => it.categories ?? []))].sort() };
     const iconsDropped = await dropMissingIcons(payload.items, {
       modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
     });
@@ -864,6 +895,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildSkeleton, validateItemContentIds, validateItemContentSlugs, validateMechanicSlugs,
+  buildSkeleton, validateItemContentIds, itemIdViolations, validateItemContentSlugs, validateMechanicSlugs,
   formatAuditViolations, RETRY,
 };

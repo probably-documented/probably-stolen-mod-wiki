@@ -10,8 +10,9 @@
 // so a declared icon has no texture source. buildSkeleton runs the real
 // build's missing-texture path (dropMissingIcons → warn → item.icon = null →
 // the templates' 无图 fallback) rather than shipping <img src> pointing at
-// files dist does not carry. copyItemTextures (source L314-331) is NOT
-// migrated: there is nothing to copy.
+// files dist does not carry. copyItemTextures lives in skeleton-build.js: it
+// copies the kept textures from assets-src/mods/<modId>/Textures/Items/ into
+// dist/assets/items/<modId>/.
 //
 // Sole adaptation — MOD_DIRS: the source derives it from merge.js MOD_TABLE
 // (install directory ↔ mod id). Repo A has no install directories and must

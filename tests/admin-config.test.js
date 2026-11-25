@@ -383,7 +383,7 @@ test('S — every front matter key of content/mechanics/*.md is a field of the m
   assert.ok(mechanics, 'config.yml has a mechanics collection');
   const editable = new Set([...fieldNames(mechanics), 'body']);
 
-  const dir = path.join(REPO_ROOT, 'tests', 'fixtures', 'content', 'mechanics');
+  const dir = path.join(REPO_ROOT, 'content', 'mechanics');
   const files = (await fs.readdir(dir)).filter((name) => /\.md$/i.test(name)).sort();
   assert.ok(files.length > 0, 'sanity: the repo has mechanic pages to check');
   for (const name of files) {
@@ -569,7 +569,24 @@ test('items.body 不是必填:物品详解正文可以为空(真实的 65 篇都
   assert.equal(value(bodyOf('mechanics'), 'required'), undefined, 'a mechanic page is its body: still required');
 });
 
-test('顶层的 slug 配置关掉小写化:含大写字母的物品 ID(8 个)保存后文件名不变', async () => {
+test('物品的十个手写字段都不是必填:留空就用数据里的值', async () => {
+  const items = collection(await readConfig(), 'items');
+  const hand = ['description', 'flavor', 'notes', 'usage', 'sources', 'related', 'categories', 'price', 'icon', 'shape'];
+  for (const name of hand) {
+    const field = fieldsOf(items).find((f) => value(f, 'name') === name);
+    assert.equal(value(field, 'required'), 'false', `${name}: not required`);
+  }
+});
+
+test('备注的提示不说反话:留空是沿用现有数据里的值,不是不显示', async () => {
+  const items = collection(await readConfig(), 'items');
+  const notes = fieldsOf(items).find((field) => value(field, 'name') === 'notes');
+  const hint = unquote(value(notes, 'hint'));
+  assert.match(hint, /现有数据/, hint);
+  assert.doesNotMatch(hint, /留空就不显示/, hint);
+});
+
+test('顶层 slug 配置存在(实测 Sveltia 0.271.0 不生效;构建端按大小写不敏感的唯一匹配兜底)', async () => {
   const config = await readConfig();
   const slug = subBlock(config, 'slug');
   assert.ok(slug !== null, 'config.yml has a top-level slug block');
