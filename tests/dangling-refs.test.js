@@ -231,3 +231,46 @@ test('D5 — only the TOP-LEVEL admin/ is skipped: an `admin` deeper down is the
   assert.equal(result.scanned, 6,
     'index.html, items.html, mechanics/admin.html, item/admin/panel.html, item/admin/ADMIN/DEEPER.html, css/admin/theme.css — nothing under the top-level admin/');
 });
+
+// ---------------------------------------------------------------------------
+// Code blocks (rich text in the CMS)
+//
+// A code block shows source as text. What it shows is escaped (`&lt;a
+// href="…"&gt;`), but the quotes are still there for HTML_REF_RE to find — so
+// a contributor who displays a link in a code block, as the field hint tells
+// them to, must not fail the build over it.
+// ---------------------------------------------------------------------------
+
+/** What the renderer makes of a fenced block whose source shows links and an image. */
+const PAGE_WITH_CODE_BLOCK = [
+  '<div class="content-box">',
+  '<pre><code><span class="code-line-no" aria-hidden="true">1</span>&lt;a href="nope.html"&gt;说明&lt;/a&gt;',
+  '<span class="code-line-no" aria-hidden="true">2</span>&lt;img src="images/none.png"&gt;',
+  '</code></pre>',
+  '<p>行内 <code>&lt;link href="also-nope.html"&gt;</code> <a href="b.html">真的链接</a></p>',
+  '</div>',
+].join('\n');
+
+test('a code block and a code span are text: the href/src shown inside them are not references', async (t) => {
+  const dist = await tree(t, 'code-block', { 'mechanics/a.html': PAGE_WITH_CODE_BLOCK, 'mechanics/b.html': null });
+
+  const result = await findDanglingRefs(dist);
+
+  assert.deepEqual(result.dangling, []);
+  // both pages were looked at: the one with the code block still counts
+  assert.equal(result.scanned, 2);
+});
+
+test('the same markup outside a code block is a reference like any other', async (t) => {
+  const dist = await tree(t, 'not-code', { 'a.html': '<a href="nope.html">x</a>' });
+
+  assert.deepEqual((await findDanglingRefs(dist)).dangling, [{ file: 'a.html', ref: 'nope.html' }]);
+});
+
+test('a <pre> that holds real tags is not a code block: its references are checked', async (t) => {
+  // the renderer escapes everything it puts between <pre> and <code>; a real
+  // tag in there was written by hand in an html passthrough block
+  const dist = await tree(t, 'real-tags', { 'a.html': '<pre><a href="nope.html">x</a></pre>' });
+
+  assert.deepEqual((await findDanglingRefs(dist)).dangling, [{ file: 'a.html', ref: 'nope.html' }]);
+});

@@ -20,6 +20,7 @@
 //     root-relative (/x) and protocol-relative (//x) refs, fragment-only refs
 //   - query and hash are stripped, the result is percent-decoded (a file may
 //     be linked as `a%20b.png`), and must then resolve to a file dist ships
+//   - not read at all: what a code block or a code span shows (blankRenderedCode)
 // "Ships" is membership in the list of files actually under distDir — so a
 // path outside dist, a directory, or a case variant is dangling too, on every
 // platform alike (a `Index.html` link opens on win32 and 404s on the Linux
@@ -39,8 +40,41 @@ const HTML_REF_RE = /\b(?:href|src)\s*=\s*["']([^"']*)["']/gi;
 const CSS_URL_RE = /url\(\s*["']?([^"')]*)["']?\s*\)/g;
 /** Has a scheme (http:, mailto:, data:, javascript: …), or is root-/protocol-relative, or a bare fragment. */
 const NOT_A_SITE_FILE_RE = /^(?:[a-z][a-z0-9+.-]*:|\/|#)/i;
+/** A `<pre>` or `<code>` element with what it holds. */
+const CODE_ELEMENT_RE = /<(pre|code)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+/** The line number the renderer puts before every line of a code block. */
+const CODE_LINE_NO_RE = /<span\b[^>]*\bcode-line-no\b[^>]*>\d+<\/span>/g;
+/** The opening and closing tags of the `<code>` the renderer wraps a code block in. */
+const BARE_CODE_TAG_RE = /<\/?code>/gi;
+/** Any other tag, closing tag, comment or declaration. */
+const ANY_TAG_RE = /<\/?[a-z!]/i;
 
 const toPosix = (p) => p.split(path.sep).join('/');
+
+/**
+ * The page with what its code blocks and code spans show blanked out — so
+ * that a link or an image DISPLAYED there is not taken for one the page
+ * makes. The renderer escapes that source (`&lt;a href="…"&gt;`), but the
+ * quotes survive, and HTML_REF_RE reads text.
+ *
+ * Only what the renderer made counts. Everything it puts inside a `<pre>` or
+ * `<code>` is escaped text, plus at most its line-number elements and the
+ * bare `<code>` pair it wraps a block in. An element that holds any other tag
+ * — a hand-written `<pre><a href="…">x</a></pre>` in an html passthrough
+ * block — is left exactly as it is, and its references are checked.
+ *
+ * The blanked content keeps its line breaks, so nothing that counts lines
+ * is thrown off.
+ * @param {string} html
+ * @returns {string}
+ */
+function blankRenderedCode(html) {
+  return html.replace(CODE_ELEMENT_RE, (element, tag, inner) => {
+    const shown = inner.replace(CODE_LINE_NO_RE, '').replace(BARE_CODE_TAG_RE, '');
+    if (ANY_TAG_RE.test(shown)) return element;
+    return `<${tag}>${inner.replace(/[^\n]/g, ' ')}</${tag}>`;
+  });
+}
 
 /**
  * Every file under dir (absolute, sorted) — except the CMS shell.
@@ -68,13 +102,14 @@ async function listSiteFiles(dir, isRoot = true) {
 }
 
 /**
- * The site-file references of one file: href/src values of an .html page,
+ * The site-file references of one file: href/src values of an .html page —
+ * outside what its code blocks and code spans show (blankRenderedCode) — and
  * url() targets of a .css stylesheet, null for anything else.
  * @returns {Promise<string[]|null>}
  */
 async function refsOf(file) {
   if (/\.html$/i.test(file)) {
-    return [...(await fs.readFile(file, 'utf8')).matchAll(HTML_REF_RE)].map((m) => m[1]);
+    return [...blankRenderedCode(await fs.readFile(file, 'utf8')).matchAll(HTML_REF_RE)].map((m) => m[1]);
   }
   if (/\.css$/i.test(file)) {
     return [...(await fs.readFile(file, 'utf8')).matchAll(CSS_URL_RE)].map((m) => m[1]);

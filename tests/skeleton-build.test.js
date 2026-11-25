@@ -1773,3 +1773,29 @@ test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了不允许的标签
     assert.ok(page[at - 1].includes(tag), `line ${at}: ${page[at - 1]}`);
   }
 });
+
+test('source shown in a code block is text: the build passes, and neither the audit nor the dangling-reference check reads a link or a script in it', async (t) => {
+  const distDir = await tmpDir(t, 'code-block-build');
+  const contentDir = await tmpDir(t, 'code-block-content');
+  await fs.mkdir(path.join(contentDir, 'mechanics'), { recursive: true });
+  // Two links to pages that do not exist, an external image, fetch( and a
+  // <script> tag: every one of them is a build failure outside a code block.
+  await fs.writeFile(path.join(contentDir, 'mechanics', 'code-demo.md'), [
+    '---', 'title: 代码块', '---', '',
+    '```xml',
+    '<a href="no-such-page.html">已删除的页面</a>',
+    '<a href="also-gone.html">另一个不存在的页面</a>',
+    '<img src="https://example.com/x.png">',
+    'fetch("/api")',
+    '<script>alert(1)</script>',
+    '```', '',
+  ].join('\n'));
+
+  const { exitCode, before } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.equal(exitCode, before, 'the build passes');
+  const page = await fs.readFile(path.join(distDir, 'mechanics', 'code-demo.html'), 'utf8');
+  assert.ok(page.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'the source is in the page, escaped');
+  assert.ok(page.includes('src="https://example.com/x.png"'), '…as text: the quotes are still there for a regex to find');
+  assert.ok(!page.includes('<img src="https://'), 'and not as a real tag');
+});
