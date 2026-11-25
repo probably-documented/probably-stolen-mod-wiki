@@ -1051,7 +1051,11 @@ test('buildSkeleton injects adminDir into dist/admin after the audit — an exte
   assert.equal(await fs.readFile(path.join(distDir, 'admin', 'index.html'), 'utf8'), shell);
   const injected = (await listFiles(path.join(distDir, 'admin')))
     .map((f) => toPosix(path.relative(path.join(distDir, 'admin'), f))).sort();
-  assert.deepEqual(injected, ['config.yml', 'index.html', 'vendor/cms.js'], 'the whole tree, nested directories included');
+  // The shell as it was copied, plus the CMS's own script and catalogs, which the build
+  // writes once the shell is in (tools/build/cms-assets.js).
+  assert.deepEqual(injected,
+    ['admin.js', 'config.yml', 'index.html', 'items-by-mod.json', 'templates.json', 'vendor/cms.js'],
+    'the whole tree, nested directories included');
 });
 
 test('buildSkeleton skips the admin injection when adminDir does not exist (or is null)', async (t) => {

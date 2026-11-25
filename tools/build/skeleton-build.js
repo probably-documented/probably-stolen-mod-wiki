@@ -52,6 +52,8 @@ const { resolveItemId } = require('./item-ids.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
+const { readContentLayout } = require('./content-layout.js');
+const { writeCmsAssets } = require('./cms-assets.js');
 const { findWideTableRows, formatWideTableRows } = require('./wide-tables.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
@@ -658,12 +660,15 @@ async function injectAdmin(adminSource, distDir) {
  *   (relative paths resolve against cwd, like distDir/contentDir). A missing
  *   directory skips the injection; null skips it on purpose.
  * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number,
- *   texturesCopied: number, imagesPublished: number, adminInjected: boolean}>}
+ *   texturesCopied: number, imagesPublished: number, adminInjected: boolean,
+ *   cmsAssets: { templates: number, items: number } | null}>}
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   iconsDropped = declared icons with no texture file (→ 无图 fallback);
  *   texturesCopied = item textures copied from assets-src/mods/;
  *   imagesPublished = images copied from the pages' images/ folders.
  *   adminInjected = whether an admin tree was copied into dist.
+ *   cmsAssets = the CMS's scripts and catalogs written after the shell ({ templates, items }),
+ *   or null when no shell was injected.
  * @throws {Error} when distDir is neither the repo's own dist directory nor
  *   one inside the system temp directory (in particular the repo root, one
  *   of its ancestors, or any other directory inside the repo — paths.js
@@ -721,6 +726,10 @@ async function buildSkeleton({
     //    one Chinese line from loadWikiData.
     const payload = data != null ? structuredClone(data) : await loadWikiData(dataDir);
     const adminSource = await resolveAdminSource(adminDir, distPath);
+    // The per-mod content layout, read here because it is read-only like everything else in the
+    // pre-flight. The CMS's item catalog uses it to tell which items already have an entry; the
+    // checks and the image publishing join when the build moves to the new layout.
+    const layout = await readContentLayout(contentDir);
     //    id lint (the CMS can create content/items files under any slug),
     //    then the slug lint (task 6b D8): what a file declares in its front
     //    matter must be the item it is named after.
@@ -862,7 +871,13 @@ async function buildSkeleton({
     //    settled in the pre-flight; here it is only copied.
     const adminInjected = adminSource != null && await injectAdmin(adminSource, distPath);
 
-    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, imagesPublished, adminInjected };
+    // 8b. CMS scripts and catalogs, written after the shell is in dist/admin/: they are for
+    // the online CMS only, exactly like the shell — after the audit, out of the offline zip.
+    const cmsAssets = adminInjected
+      ? await writeCmsAssets({ repoRoot: REPO_ROOT, distDir: distPath, layout, data: payload })
+      : null;
+
+    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, imagesPublished, adminInjected, cmsAssets };
   } catch (err) {
     process.exitCode = 1;
     throw err;
@@ -884,6 +899,9 @@ async function main() {
   console.log(result.adminInjected
     ? '[build:skeleton] admin: injected → dist/admin/ (after the audit)'
     : '[build:skeleton] admin: none found, skipped');
+  if (result.cmsAssets) {
+    console.log(`[build:skeleton] cms: admin.js, ${result.cmsAssets.templates} templates, ${result.cmsAssets.items} items in the catalog → dist/admin/`);
+  }
 }
 
 if (require.main === module) {

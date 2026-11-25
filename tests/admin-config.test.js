@@ -472,7 +472,9 @@ test('the default build injects the shell: dist/admin/ holds index.html, config.
 
   const injected = path.join(distDir, 'admin');
   const files = (await listFiles(injected)).map((file) => toPosix(path.relative(injected, file)));
-  for (const rel of ['index.html', 'config.yml', ...VENDORED.map((vendored) => `vendor/${vendored}`)]) {
+  // …index.html, config.yml, every vendored file, and the CMS's own scripts and catalogs,
+  // which the build writes once the shell is in (tools/build/cms-assets.js).
+  for (const rel of ['index.html', 'config.yml', 'admin.js', 'templates.json', 'items-by-mod.json', ...VENDORED.map((vendored) => `vendor/${vendored}`)]) {
     assert.ok(files.includes(rel), `dist/admin/${rel} is missing after the build; dist/admin holds ${JSON.stringify(files)}`);
   }
 
