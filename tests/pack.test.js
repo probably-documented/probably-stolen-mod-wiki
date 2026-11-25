@@ -253,7 +253,7 @@ test('packSite: a fresh build + one zip that holds exactly dist minus admin/ and
   await fs.writeFile(path.join(adminDir, 'vendor', 'cms.js'), '// cms\n');
   await fs.writeFile(zipPath, 'stale zip from an earlier pack');
 
-  const result = await packSite({ distDir, zipPath, contentDir: path.join(REPO_ROOT, 'content'), adminDir, data: structuredClone(FIXTURE_DATA), warn: noop });
+  const result = await packSite({ distDir, zipPath, contentDir: path.join(REPO_ROOT, 'tests', 'fixtures', 'content'), adminDir, data: structuredClone(FIXTURE_DATA), warn: noop });
 
   // built: the site, and the shell injected after the audit
   await fs.access(path.join(distDir, 'index.html'));

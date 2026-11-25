@@ -383,7 +383,7 @@ test('S — every front matter key of content/mechanics/*.md is a field of the m
   assert.ok(mechanics, 'config.yml has a mechanics collection');
   const editable = new Set([...fieldNames(mechanics), 'body']);
 
-  const dir = path.join(REPO_ROOT, 'content', 'mechanics');
+  const dir = path.join(REPO_ROOT, 'tests', 'fixtures', 'content', 'mechanics');
   const files = (await fs.readdir(dir)).filter((name) => /\.md$/i.test(name)).sort();
   assert.ok(files.length > 0, 'sanity: the repo has mechanic pages to check');
   for (const name of files) {

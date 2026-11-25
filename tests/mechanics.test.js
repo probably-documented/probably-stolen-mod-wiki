@@ -16,7 +16,7 @@ const path = require('node:path');
 const { mergeMechanicsContent, mechanicTitle, mechanicsWithNavLabel } = require('../tools/build/mechanics.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
-const REPO_CONTENT = path.join(__dirname, '..', 'content');
+const REPO_CONTENT = path.join(__dirname, '..', 'tests', 'fixtures', 'content');
 
 async function tmpDir(t, label) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `mechanics-${label}-`));

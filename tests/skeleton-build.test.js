@@ -66,7 +66,7 @@ const { findWideTableRows } = require('../tools/build/wide-tables.js');
 const BWIKI_CREDIT_URL = 'https://wiki.biligame.com/probablystolen';
 
 const REPO_ROOT = path.join(__dirname, '..');
-const REPO_CONTENT = path.join(REPO_ROOT, 'content');
+const REPO_CONTENT = path.join(REPO_ROOT, 'tests', 'fixtures', 'content');
 const REPO_ASSETS = path.join(REPO_ROOT, 'assets-src');
 const FIXTURE_ITEM_ID = FIXTURE_DATA.items[0].id; // brief Step 4: <id> = items[0].id
 const DATA_JS_PREFIX = 'window.WIKI_DATA = ';
