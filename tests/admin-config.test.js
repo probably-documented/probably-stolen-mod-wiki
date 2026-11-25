@@ -192,6 +192,13 @@ function unquote(raw) {
 }
 
 const readConfig = async () => blockOf(await readText(CONFIG_PATH));
+
+/** The real data files under data/mods/, one object per mod (sorted by file name). */
+async function readDataMods() {
+  const dir = path.join(REPO_ROOT, 'data', 'mods');
+  const files = (await fs.readdir(dir)).filter((name) => name.endsWith('.json')).sort();
+  return Promise.all(files.map(async (name) => JSON.parse(await fs.readFile(path.join(dir, name), 'utf8'))));
+}
 const collection = (config, name) => listItems(subBlock(config, 'collections')).find((coll) => value(coll, 'name') === name);
 const fieldsOf = (coll) => listItems(subBlock(coll, 'fields'));
 const fieldNames = (coll) => fieldsOf(coll).map((field) => unquote(value(field, 'name')));
@@ -289,7 +296,8 @@ test('L — the 物品 dropdown of the items collection offers exactly the real 
   const ids = options.map((option) => unquote(value(option, 'value')));
   assert.equal(new Set(ids).size, ids.length, `the dropdown lists an id twice: ${JSON.stringify(ids)}`);
 
-  const realIds = FIXTURE_DATA.items.map((item) => item.id);
+  const realIds = (await readDataMods()).flatMap((mod) => mod.items.map((item) => item.id));
+  assert.equal(realIds.length, 74, 'sanity: the data files hold every real item');
   assert.deepEqual([...ids].sort(), [...realIds].sort(),
     'the dropdown must list every real item id (aliases are not ids) and nothing else');
 });
@@ -507,7 +515,11 @@ test('D10 — items 与 mechanics 的字段恰为清单(按顺序),widget 各就
     assert.deepEqual(fields.map((field) => value(field, 'widget')), expected.map(([, widget]) => widget),
       `${collName}: widgets, in the same order`);
   };
-  expect('items', [['slug', 'select'], ['body', 'markdown']]);
+  expect('items', [
+    ['slug', 'select'], ['description', 'string'], ['flavor', 'string'], ['notes', 'string'],
+    ['usage', 'list'], ['sources', 'list'], ['related', 'list'], ['categories', 'list'],
+    ['price', 'number'], ['icon', 'string'], ['shape', 'list'], ['body', 'markdown'],
+  ]);
   expect('mechanics', [['title', 'string'], ['nav_label', 'string'], ['body', 'markdown']]);
 });
 
@@ -519,22 +531,35 @@ test('D10 — backend.branch、backend.repo、site_url 指向本仓库:probably-
   assert.equal(value(config, 'site_url'), 'https://probably-documented.github.io/probably-stolen-mod-wiki/');
 });
 
-test('D10 — 物品下拉里,fixture 数据中有名字的物品,选项 label 就是它的名字', async () => {
+test('D10 — 物品下拉里,数据中有名字的物品,选项 label 就是它的名字', async () => {
   const items = collection(await readConfig(), 'items');
   const slugField = fieldsOf(items).find((field) => value(field, 'name') === 'slug');
   const labelOf = new Map(listItems(subBlock(slugField, 'options'))
     .map((option) => [unquote(value(option, 'value')), unquote(value(option, 'label'))]));
 
-  const named = FIXTURE_DATA.items.filter((item) => item.name !== null);
-  assert.ok(named.length >= 1, 'sanity: the fixture has named items');
+  const all = (await readDataMods()).flatMap((mod) => mod.items);
+  const named = all.filter((item) => typeof item.name === 'string' && item.name !== '');
+  assert.ok(named.length >= 1, 'sanity: the data has named items');
   for (const item of named) {
     assert.ok(labelOf.has(item.id), `${item.id} is in the dropdown`);
     assert.equal(labelOf.get(item.id), item.name, `${item.id}: labelled with its name`);
   }
   // …and an item with no name — a real case in the data — is listed by its id, never as "null"
-  for (const item of FIXTURE_DATA.items.filter((it) => it.name === null)) {
+  for (const item of all.filter((it) => typeof it.name !== 'string' || it.name === '')) {
     assert.equal(labelOf.get(item.id), item.id, `${item.id}: listed by its id`);
   }
+});
+
+test('对象列表字段:usage 与 sources 是 list,子字段各就各位', async () => {
+  const items = collection(await readConfig(), 'items');
+  const fieldOf = (name) => fieldsOf(items).find((field) => value(field, 'name') === name);
+  const subFields = (field) => listItems(subBlock(field, 'fields'))
+    .map((sub) => [unquote(value(sub, 'name')), value(sub, 'widget')]);
+
+  assert.equal(value(fieldOf('usage'), 'widget'), 'list');
+  assert.deepEqual(subFields(fieldOf('usage')), [['type', 'string'], ['text', 'string'], ['source', 'string']]);
+  assert.equal(value(fieldOf('sources'), 'widget'), 'list');
+  assert.deepEqual(subFields(fieldOf('sources')), [['source', 'string'], ['detail', 'string'], ['probability', 'string']]);
 });
 
 // ---------------------------------------------------------------------------

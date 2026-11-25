@@ -35,8 +35,9 @@ media_libraries:
 
 collections:
   # 物品的「详解」:每个文件对应一件物品,文件名就是物品 ID(只能从下拉列表里选)。
-  # content/items/*.md 的 frontmatter 里,除 slug 以外的键(现有 fixture 里的 title、
-  # fixture-fm-key、related)渲染器不读,所以不声明成字段;CMS 保存时会原样保留它们。
+  # frontmatter 里的手写字段(描述、风味、备注、用法、来源、相关物品、分类、价格、图标、
+  # 尺寸)覆盖 data/mods/*.json 里的同名字段;留空则用数据里的值。渲染器不读的未知键
+  # 由 CMS 原样保留。
   - name: items
     label: 物品详解
     description: 每个文件是一篇物品详解,显示在对应物品详情页的「详解」一节。一篇详解对应一件物品,由「物品」一栏决定。
@@ -57,22 +58,243 @@ collections:
         widget: select
         # 不进右侧的预览面板:预览里只留正文(两个集合里其它不是正文的字段同此)。
         preview: false
-        hint: '只能从列表里选。这个值就是页面的文件名:选了哪件物品,这篇详解就显示在那件物品的页面上。'
+        hint: '只能从列表里选(全部真实物品都在这里)。这个值就是页面的文件名:选了哪件物品,这篇详解就显示在那件物品的页面上。'
         options:
-          - label: 神奇乳汁
-            value: wondrous_milk
-          - label: 触手本体
-            value: tentacle_body
-          - label: 神奇乳汁桶
-            value: milk_barrel
-          - label: 浓郁乳汁
-            value: milk_rich
-          - label: 触手卵
-            value: brood_egg
-          - label: 掌上青楼
-            value: palm_brothel
-          - label: tear_merchant
-            value: tear_merchant
+          - label: '触手卵'
+            value: 'brood_egg'
+          - label: '营养卵'
+            value: 'brood_nutrient_egg'
+          - label: '触手幼体'
+            value: 'brood_larva'
+          - label: '孵化失败的触手幼苗'
+            value: 'brood_failed_seedling'
+          - label: '触巢精华'
+            value: 'brood_essence'
+          - label: '触手肉块（大）'
+            value: 'brood_tentacle_meat_large'
+          - label: '触手肉块（中）'
+            value: 'brood_tentacle_meat'
+          - label: '触手肉块（小）'
+            value: 'brood_tentacle_meat_small'
+          - label: '治安部执法员'
+            value: 'officer'
+          - label: '触手成体（旧）'
+            value: 'brood_adult'
+          - label: '白触手'
+            value: 'brood_white_tentacle'
+          - label: '红触手'
+            value: 'brood_tentacle_red'
+          - label: '绿触手'
+            value: 'brood_tentacle_green'
+          - label: '黄触手'
+            value: 'brood_tentacle_yellow'
+          - label: '蓝触手'
+            value: 'brood_tentacle_aqua'
+          - label: '紫触手'
+            value: 'brood_tentacle_purple'
+          - label: '触巢源晶'
+            value: 'brood_core_crystal'
+          - label: '孵卵巢'
+            value: 'brood_nest'
+          - label: '基础巢'
+            value: 'brood_base_nest'
+          - label: '水巢'
+            value: 'brood_water_nest'
+          - label: '共生巢'
+            value: 'brood_sym_nest'
+          - label: 'dish.takoyaki'
+            value: 'dish.takoyaki'
+          - label: 'dish.skewer'
+            value: 'dish.skewer'
+          - label: 'dish.cheeseSteak'
+            value: 'dish.cheeseSteak'
+          - label: 'dish.seafoodPasta'
+            value: 'dish.seafoodPasta'
+          - label: '母巢芬芳'
+            value: 'fragrance'
+          - label: 'ending'
+            value: 'ending'
+          - label: '珠淚哀歌族商人'
+            value: 'tearlaments_kitkallos'
+          - label: '水碎片水晶'
+            value: 'tearlaments_aquashard'
+          - label: '珠淚哀歌族·梅洛人魚'
+            value: 'tearlaments_merrli'
+          - label: '珠淚哀歌族·哈弗妮絲'
+            value: 'tearlaments_havnis'
+          - label: '珠淚哀歌族·塞壬人魚'
+            value: 'tearlaments_scheiren'
+          - label: '珠淚哀歌族·琪特卡洛斯'
+            value: 'tearlaments_kitkallos_merge'
+          - label: '触手本体'
+            value: 'tentacle_body'
+          - label: '少女'
+            value: 'maiden_lower'
+          - label: '神奇乳汁'
+            value: 'wondrous_milk'
+          - label: '触手精液'
+            value: 'tentacle_semen'
+          - label: '排卵诱发剂'
+            value: 'ovulation_shot'
+          - label: '触手苗床箱'
+            value: 'tentacle_box'
+          - label: '侵蚀性触手'
+            value: 'corrupt_tentacle'
+          - label: '触手本体 · 使用说明'
+            value: 'tentacle_manual'
+          - label: '闹钟'
+            value: 'alarm_clock'
+          - label: '触手闹钟'
+            value: 'tentacle_alarm'
+          - label: '井盖'
+            value: 'manhole_cover'
+          - label: '触手落穴陷阱'
+            value: 'tentacle_trap'
+          - label: '空针管'
+            value: 'empty_syringe'
+          - label: '触手3D打印机'
+            value: 'tentacle_printer'
+          - label: '触手档案'
+            value: 'tentacle_archive'
+          - label: '顾客档案'
+            value: 'customer_archive'
+          - label: 'network.profession'
+            value: 'network.profession'
+          - label: 'network.capacity'
+            value: 'network.capacity'
+          - label: '掌上青楼'
+            value: 'palm'
+          - label: '女仆装'
+            value: 'gear.maidDress'
+          - label: '猫耳发箍'
+            value: 'gear.catEars'
+          - label: '猫尾肛塞'
+            value: 'gear.catTailPlug'
+          - label: '蕾丝开襟睡袍'
+            value: 'gear.laceDress'
+          - label: '兔耳发饰'
+            value: 'gear.bunnyEars'
+          - label: '蕾丝腿环'
+            value: 'gear.laceGarter'
+          - label: '青楼营业账本'
+            value: 'ledger'
+          - label: '寐空 梦'
+            value: 'merchant'
+          - label: 'sofa.storage'
+            value: 'sofa.storage'
+          - label: 'lewd_meme_brothel.palm_brothel'
+            value: 'lewd_meme_brothel.palm_brothel'
+          - label: 'lewd_meme_brothel.ledger'
+            value: 'lewd_meme_brothel.ledger'
+          - label: 'lewd_meme_brothel.sofa_storage'
+            value: 'lewd_meme_brothel.sofa_storage'
+          - label: '触手本体 · 暗流交易说明'
+            value: 'tentacle_manual_remake'
+          - label: '治安部线人名片'
+            value: 'lewd_meme_phone_card'
+          - label: 'night_report_note_remake'
+            value: 'night_report_note_remake'
+          - label: '浓缩乳汁'
+            value: 'milk_rich'
+          - label: '清甜乳汁'
+            value: 'milk_diluted'
+          - label: '桶装触手精液'
+            value: 'barrel_semen'
+          - label: '桶装神奇乳汁'
+            value: 'barrel_milk_wondrous'
+          - label: '桶装浓缩乳汁'
+            value: 'barrel_milk_rich'
+          - label: '桶装清甜乳汁'
+            value: 'barrel_milk_diluted'
+          - label: '苗床名册'
+            value: 'maiden_ledger_item'
+      # 以下都是手写层:填了就覆盖数据里的同名字段,留空则用数据里的值。
+      - name: description
+        label: 描述
+        widget: string
+        required: false
+        preview: false
+        hint: '物品页简介;留空就用游戏数据里的。'
+      - name: flavor
+        label: 风味文字
+        widget: string
+        required: false
+        preview: false
+        hint: '风味文字;留空就用游戏数据里的。'
+      - name: notes
+        label: 备注
+        widget: string
+        required: false
+        preview: false
+        hint: '显示在物品页的提示框里;留空就不显示。'
+      - name: usage
+        label: 用法
+        widget: list
+        required: false
+        preview: false
+        hint: '每一条一行;留空就用游戏数据里的。'
+        fields:
+          - name: type
+            label: 类型
+            widget: string
+            required: false
+          - name: text
+            label: 文字
+            widget: string
+            required: false
+          - name: source
+            label: 来源
+            widget: string
+            required: false
+      - name: sources
+        label: 来源
+        widget: list
+        required: false
+        preview: false
+        hint: '每一条一行;留空就用游戏数据里的。'
+        fields:
+          - name: source
+            label: 来源
+            widget: string
+            required: false
+          - name: detail
+            label: 说明
+            widget: string
+            required: false
+          - name: probability
+            label: 概率
+            widget: string
+            required: false
+      - name: related
+        label: 相关物品
+        widget: list
+        required: false
+        preview: false
+        hint: '每行一个物品 ID;留空就用游戏数据里的。'
+      - name: categories
+        label: 分类
+        widget: list
+        required: false
+        preview: false
+        hint: '每行一个分类;留空就用游戏数据里的。'
+      - name: price
+        label: 价格
+        widget: number
+        required: false
+        preview: false
+        hint: '留空就用游戏数据里的价格。'
+      - name: icon
+        label: 图标路径
+        widget: string
+        required: false
+        preview: false
+        hint: '一般不用填:留空就用游戏里的贴图。'
+      - name: shape
+        label: 占格尺寸
+        widget: list
+        required: false
+        preview: false
+        hint: '宽、高两个数字,每行一个;留空就用游戏数据里的。'
       # 正文要放在字段的最后一个
       - name: body
         label: 详解正文
