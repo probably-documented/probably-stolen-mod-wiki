@@ -17,6 +17,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { mdToHtml } = require('../tools/build/markdown.js');
+const { firstParagraphExcerpt } = require('../tools/build/render.js');
 const pairs = require('./fixtures/rich-text-round-trip.json');
 
 /**
@@ -50,6 +51,8 @@ test('rich-text round trip: what the CMS writes back renders exactly like what w
   assert.ok(pairs.length > 100, `sanity: the fixture has ${pairs.length} pairs`);
   const differing = [];
   for (const { name, written, back } of pairs) {
+    // the index-page excerpt follows the same rule as the page itself
+    assert.equal(firstParagraphExcerpt(back, lookup), firstParagraphExcerpt(written, lookup), `${name} (excerpt)`);
     if (render(back) === render(written)) continue;
     differing.push(name);
     // …and in the few where it does not, the write-back is the correct side:

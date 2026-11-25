@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { renderSite } = require('../tools/build/render.js');
+const { renderSite, firstParagraphExcerpt } = require('../tools/build/render.js');
 
 const MODS = [
   { id: 'lewd_meme', name: '淫色深空:可能是触手', version: '1.9.2', author: 'tentacle', prerequisites: [], description: '家族主模组。苗床与触手本体。\n【1.9.2】修复苗床产出。', itemCount: 2 },
@@ -502,4 +502,19 @@ test('A6 — about 页的高亮与改动前一致:active 的是「机制说明�
   assert.ok(page.includes('<a href="../mechanics/barrel-system.html">桶装指南</a>'), 'the about entry is on its own page and is NOT highlighted');
   assert.match(page, /<h1 class="page-title">桶装系统<\/h1>/, 'it is still the mechanic page it always was');
   assert.ok(page.includes('<a href="../mechanics.html">机制说明</a> &gt; 桶装系统'), 'breadcrumb: 首页 &gt; 机制说明 &gt; 标题');
+});
+
+test('firstParagraphExcerpt: strips what the rich-text editor writes back, exactly like the text that was written', () => {
+  const lookup = (id) => (id === 'wondrous_milk' ? { id } : null);
+  const ex = (source) => firstParagraphExcerpt(source, lookup);
+  assert.equal(ex('_斜体_ 与 ~~删除线~~ 与 Lv6\\~10'), '斜体 与 删除线 与 Lv6~10');
+  assert.equal(ex('扣除一瓶 [[wondrous_milk]](按堆叠数量)'), '扣除一瓶 wondrous_milk(按堆叠数量)');
+  assert.equal(ex('扣除一瓶 [\\[wondrous_milk\\]](按堆叠数量)'), '扣除一瓶 wondrous_milk(按堆叠数量)');
+  assert.equal(ex('凝结出 [[wondrous_milk]](据 x)'), '凝结出 wondrous_milk(据 x)');
+  assert.equal(ex('凝结出 [[wondrous_milk]\\](据 x)'), '凝结出 wondrous_milk(据 x)');
+  // a link a contributor really made keeps its link text, known item or not in the brackets
+  assert.equal(ex('见 [\\[说明\\]](install-compat.html)'), '见 [说明]');
+  assert.equal(ex('见 [\\[拼错的id\\]](install-compat.html)'), '见 [拼错的id]');
+  // an escaped asterisk stays a literal asterisk: the editor escapes the ones it does not want as emphasis
+  assert.equal(ex('据 zh.csv ledger.\\* 与 report.page2.\\* 词条'), '据 zh.csv ledger.* 与 report.page2.* 词条');
 });

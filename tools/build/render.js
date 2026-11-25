@@ -16,7 +16,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const { mdToHtml } = require('./markdown.js');
+const { mdToHtml, restoreItemLinks } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
 const { mechanicsWithNavLabel } = require('./mechanics.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
@@ -69,25 +69,57 @@ function stripTitleBlock(source) {
   return { fm, body: lines.join('\n') };
 }
 
-/** 机制索引摘要:首个段落去 markdown 记号后截断。 */
-function firstParagraphExcerpt(source, max = 120) {
+/**
+ * 机制索引摘要:首个段落去 markdown 记号后截断。
+ *
+ * It follows the page's own rendering: a page the CMS's rich-text editor has
+ * rewritten must yield the excerpt it yielded before. So the item links that
+ * editor mis-stores are restored first (the renderer's own function — it needs
+ * the item table), and escaped punctuation is parked while the markup is
+ * stripped, or `\*` would be eaten by the emphasis rule.
+ * @param {string} source
+ * @param {(id: string) => object|null} lookup
+ * @param {number} [max]
+ * @returns {string}
+ */
+function firstParagraphExcerpt(source, lookup, max = 120) {
   const { body } = stripTitleBlock(source);
+  const lines = body.split('\n');
   const out = [];
-  for (const line of body.split('\n')) {
-    const t = line.trim();
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
     if (t === '') { if (out.length) break; continue; }
+    if (/^```/.test(t)) {
+      // A fenced block (a code block, an html passthrough block) is not a
+      // paragraph: skip it whole, up to the bare ``` that closes it.
+      const close = lines.findIndex((line, j) => j > i && line.trim() === '```');
+      if (close === -1) break;
+      i = close;
+      continue;
+    }
     if (/^#{1,6}\s/.test(t) || t.startsWith('|') || t.startsWith('>')) continue;
     out.push(t.replace(/^([-*+]|\d+[.)])\s+/, ''));
     if (out.join(' ').length >= max) break;
   }
-  let text = out.join(' ');
+  let text = restoreItemLinks(out.join(' '), lookup);
+  // A link whose text is a bracketed word keeps that word: `[\[x\]](url)` → `[x]`.
+  text = text.replace(/\[\\\[([^\[\]\\]+?)\\\]\]\([^)\s]+\)/g, '[$1]');
+  const literals = [];
+  text = text.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, (_, ch) => {
+    literals.push(ch);
+    return `\u0000${literals.length - 1}\u0000`;
+  });
   text = text
+    // `_emphasis_` runs before the item links lose their brackets — as it does
+    // in the page — so that `[[id]]_x_` is emphasis and `brood_essence` is not.
+    .replace(/(?<![\p{L}\p{N}])_(?!\s)(.+?)(?<!\s)_(?![\p{L}\p{N}])/gu, '$1')
     .replace(/\[\[([^\[\]]+?)\]\]/g, '$1')
     .replace(/\[([^\]]+)\]\([^)\s]+\)/g, '$1')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
     .replace(/`([^`]+)`/g, '$1');
-  return truncate(text, max);
+  return truncate(text.replace(/\u0000(\d+)\u0000/g, (_, i) => literals[Number(i)]), max);
 }
 
 /** 单段文本 → 内联 HTML(mdToHtml 单 <p> 剥壳;支持 [[id]]/加粗/链接)。 */
@@ -418,7 +450,7 @@ ${html}`,
 function renderMechanicsIndex(data, model) {
   const cards = (data.mechanics ?? []).map((m) => `<div class="mod-card">
 <h4><a href="mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
-<p>${esc(firstParagraphExcerpt(m.source ?? ''))}</p>
+<p>${esc(firstParagraphExcerpt(m.source ?? '', model.lookup))}</p>
 </div>`).join('\n');
   const cardsHtml = cards === ''
     ? '<p style="font-size:13px;color:var(--dk-muted)">机制条目待补充。</p>'
@@ -609,4 +641,4 @@ async function renderSite(data, options = {}) {
   return out;
 }
 
-module.exports = { renderSite };
+module.exports = { renderSite, firstParagraphExcerpt };
