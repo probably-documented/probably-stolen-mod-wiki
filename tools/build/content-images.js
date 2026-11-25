@@ -98,4 +98,48 @@ async function copyPageImages(contentDir, distDir) {
   return copied;
 }
 
-module.exports = { findUnsupportedImages, copyPageImages, BITMAP_EXT, PAGE_FOLDERS, IMAGES_DIR };
+/**
+ * 新目录结构（readContentLayout）：布局里每个图片文件夹下不是位图的文件，排序。预检用，
+ * 构建在动旧的 dist 之前跑它。
+ * @param {{ imageFolders: Array<{ imagesDir: string }> }} layout
+ * @returns {Promise<string[]>}
+ */
+async function findUnsupportedImagesIn(layout) {
+  const unsupported = [];
+  for (const { imagesDir } of layout.imageFolders) {
+    for (const file of await listFiles(imagesDir)) {
+      if (!BITMAP_EXT.has(path.extname(file).toLowerCase())) unsupported.push(file);
+    }
+  }
+  return unsupported.sort();
+}
+
+/**
+ * 新目录结构：把位图复制到它们所在文件夹的每一处 dests（相对 dist 的 posix 路径）。
+ * 一个 mod 的图片发两处：词条里引用的是 `../images/…`（页面在深度 1），mod 导航页里
+ * 引用的是 `images/…`（同在深度 1，但在它自己的目录下）。
+ * @param {{ imageFolders: Array<{ imagesDir: string, dests: string[] }> }} layout
+ * @param {string} distDir
+ * @returns {Promise<number>} 复制的次数
+ */
+async function copyLayoutImages(layout, distDir) {
+  let copied = 0;
+  for (const { imagesDir, dests } of layout.imageFolders) {
+    for (const file of await listFiles(imagesDir)) {
+      // 预检已经拦下非位图;这里再筛一次,调用顺序错了也不会把 SVG 发出去
+      if (!BITMAP_EXT.has(path.extname(file).toLowerCase())) continue;
+      for (const dest of dests) {
+        const to = path.join(distDir, ...dest.split('/'), path.relative(imagesDir, file));
+        await fs.mkdir(path.dirname(to), { recursive: true });
+        await fs.copyFile(file, to);
+        copied += 1;
+      }
+    }
+  }
+  return copied;
+}
+
+module.exports = {
+  findUnsupportedImages, copyPageImages, BITMAP_EXT, PAGE_FOLDERS, IMAGES_DIR,
+  findUnsupportedImagesIn, copyLayoutImages,
+};
