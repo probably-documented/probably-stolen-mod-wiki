@@ -460,3 +460,111 @@ test('review Important 2 — the same code span in the address of a link: plain 
     '<p><a href="https://example.com/" target="_blank" rel="noopener noreferrer">a</a></p>');
   assert.equal(mdToHtml('[a `b` c](`x.html`)', ctx.lookup, ctx.renderInline).html, '<p><a href="x.html">a <code>b</code> c</a></p>');
 });
+
+// ---------------------------------------------------------------------------
+// Rich text in the CMS (modwiki: docs/superpowers/specs/2026-11-25-online-wiki-rich-text-design.md)
+//
+// The CMS's rich-text editor rewrites a whole page in standard Markdown the
+// moment a contributor changes anything in it, so the renderer has to read
+// what that editor writes: backslash escapes, `_emphasis_`,
+// `~~strikethrough~~`, `\|` inside table cells — and the two shapes it
+// writes an item link in when what follows the link looks like link syntax.
+// Every rule is pinned two ways: on its own, and by "the text before the
+// editor and the text after it render exactly the same".
+// ---------------------------------------------------------------------------
+
+const milk = { id: 'wondrous_milk', name: '神奇乳汁' };
+const knowsMilk = (id) => (id === 'wondrous_milk' ? milk : null);
+
+/** Markdown → html; the item table holds wondrous_milk only. */
+const render = (md, ctx = makeCtx([milk])) => mdToHtml(md, ctx.lookup, ctx.renderInline).html;
+
+/** The same content, before the editor and after it: identical rendering, to the byte. */
+function assertSameRendering(written, back) {
+  const ctx = makeCtx([milk]);
+  assert.equal(mdToHtml(back, ctx.lookup, ctx.renderInline).html, render(written, ctx), back);
+}
+
+/** How html escaping leaves a punctuation character: & < > become entities, the rest is itself. */
+const entity = (ch) => ch.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;');
+
+test('restoreItemLinks: `[[id]\\]` goes back to `[[id]]` unconditionally; `[\\[id\\]](` only for an id the item table knows', () => {
+  const { restoreItemLinks } = require('../tools/build/markdown.js');
+  assert.equal(restoreItemLinks('a [[wondrous_milk]\\](据 x)', knowsMilk), 'a [[wondrous_milk]](据 x)');
+  // an id the table does not know is restored all the same: this shape is never written by hand
+  assert.equal(restoreItemLinks('a [[随便什么]\\]:', knowsMilk), 'a [[随便什么]]:');
+  assert.equal(restoreItemLinks('a [\\[wondrous_milk\\]](abc)', knowsMilk), 'a [[wondrous_milk]](abc)');
+  assert.equal(restoreItemLinks('a [\\[说明\\]](abc)', knowsMilk), 'a [\\[说明\\]](abc)');
+  assert.equal(restoreItemLinks('![\\[wondrous_milk\\]](x.png)', knowsMilk), '![[wondrous_milk]](x.png)');
+});
+
+test('item links the rich-text editor mis-stored render exactly like the text that was written', () => {
+  const pairs = [
+    ['扣除一瓶 [[wondrous_milk]](按堆叠数量)', '扣除一瓶 [\\[wondrous_milk\\]](按堆叠数量)'],
+    ['凝结出 [[wondrous_milk]](据 x)', '凝结出 [[wondrous_milk]\\](据 x)'],
+    ['[[wondrous_milk]]: 说明', '[[wondrous_milk]\\]: 说明'],
+    ['见 [[wondrous_milk]](a(b)c)', '见 [\\[wondrous_milk\\]](a\\(b\\)c)'],
+    // the id keeps the spaces it was written with
+    ['[[ wondrous_milk ]](据 x)', '[[ wondrous_milk ]\\](据 x)'],
+  ];
+  for (const [written, back] of pairs) assertSameRendering(written, back);
+  // …and what comes back is really the card, not the missing-item marker
+  assert.ok(render('凝结出 [[wondrous_milk]\\](据 x)').includes('data-item-id="wondrous_milk"'));
+});
+
+test('a link whose text is a bracketed word stays a link when the brackets hold no known item', () => {
+  assert.equal(render('见 [\\[说明\\]](install-compat.html)'), '<p>见 <a href="install-compat.html">[说明]</a></p>');
+  // the same link written with an item id for its text is taken for the item link the editor mis-stored
+  assert.ok(render('见 [\\[wondrous_milk\\]](install-compat.html)').includes('data-item-id="wondrous_milk"'));
+});
+
+test('code spans are left alone by the item-link restore', () => {
+  assert.equal(render('`[[a]\\](x)`'), '<p><code>[[a]\\](x)</code></p>');
+});
+
+test('backslash escapes: the punctuation is literal and takes no part in any syntax', () => {
+  assert.equal(render('Lv6\\~10'), '<p>Lv6~10</p>');
+  assert.equal(render('\\*不是斜体\\*'), '<p>*不是斜体*</p>');
+  assert.equal(render('\\_x\\_'), '<p>_x_</p>');
+  assert.equal(render('\\# 标题'), '<p># 标题</p>');
+  assert.equal(render('\\<script\\>'), '<p>&lt;script&gt;</p>');
+  // a backslash before anything that is not ASCII punctuation stays a backslash
+  assert.equal(render('C:\\Users\\x'), '<p>C:\\Users\\x</p>');
+  assert.equal(render('\\中 \\u'), '<p>\\中 \\u</p>');
+  // inside a code span nothing is unescaped
+  assert.equal(render('`a\\~b`'), '<p><code>a\\~b</code></p>');
+  for (const ch of '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~') {
+    assert.equal(render('\\' + ch), `<p>${entity(ch)}</p>`, JSON.stringify(ch));
+  }
+});
+
+test('inside the alt text and the title of an image, an escaped punctuation character is literal', () => {
+  assert.equal(render('![a \\* b](x.png "c \\~ d")'), '<p><img src="x.png" alt="a * b" title="c ~ d"></p>');
+});
+
+test('_underscores_ make emphasis where CommonMark allows it, and nowhere else', () => {
+  assert.equal(render('_斜体_'), '<p><em>斜体</em></p>');
+  assert.equal(render('**_粗斜体_**'), '<p><strong><em>粗斜体</em></strong></p>');
+  // an underscore between letters is part of the word: an item id stays itself
+  assert.equal(render('[[brood_essence]] 与 a_b_c'), '<p><span class="wikilink-missing">[[brood_essence]]</span> 与 a_b_c</p>');
+  assert.equal(render('中文_不触发_中文'), '<p>中文_不触发_中文</p>');
+  assert.equal(render('这是_行内_斜体'), '<p>这是_行内_斜体</p>');
+  assert.equal(render('_ a _'), '<p>_ a _</p>');
+});
+
+test('~~strikethrough~~; a single tilde is just a tilde', () => {
+  assert.equal(render('~~删除线~~'), '<p><del>删除线</del></p>');
+  assert.equal(render('a ~ b Lv6~10 +3~5'), '<p>a ~ b Lv6~10 +3~5</p>');
+  assert.equal(render('_斜体里的~~删除线~~_'), '<p><em>斜体里的<del>删除线</del></em></p>');
+});
+
+test('an escaped pipe in a table cell is a literal pipe, not a separator', () => {
+  const escaped = render(['| A \\| B | C |', '| --- | --- |', '| 1 | 2 |'].join('\n'));
+  assert.ok(escaped.includes('<th>A | B</th><th>C</th>'), escaped);
+  // an escaped backslash is content; the pipe right after it still separates
+  const slashed = render(['| a | b\\\\| |', '| --- | --- |', '| 1 | 2 |'].join('\n'));
+  assert.ok(slashed.includes('<th>a</th><th>b\\</th>'), slashed);
+  // a pipe at the very end of the row is content when it is escaped
+  const tail = render(['| a | b\\|', '| --- | --- |', '| 1 | 2 |'].join('\n'));
+  assert.ok(tail.includes('<th>a</th><th>b|</th>'), tail);
+});

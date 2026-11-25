@@ -8,11 +8,14 @@
 //     T6 never renders the card itself. When lookup misses, T6 emits
 //     `<span class="wikilink-missing">[[id]]</span>` and skips renderInline.
 //
-// Supported: ATX headings (slug ids + toc), GFM pipe tables with alignment,
-// ordered/unordered lists (2-space nesting), **bold**, *italic*, `code`,
-// [text](#anchor), ![alt](src "title") images (the address as written), and
-// paragraphs (single newline joins, blank line splits).
-// Everything else (e.g. blockquotes) survives as escaped text.
+// Supported: ATX headings (slug ids + toc), GFM pipe tables with alignment
+// (`\|` is a literal pipe inside a cell), ordered/unordered lists (2-space
+// nesting), **bold**, *italic*, _italic_, ~~strikethrough~~, `code`,
+// [text](#anchor), ![alt](src "title") images (the address as written),
+// backslash escapes, and paragraphs (single newline joins, blank line splits).
+// The item links the CMS's rich-text editor mis-stores are restored
+// (restoreItemLinks). Everything else (e.g. blockquotes) survives as escaped
+// text.
 //
 // ```html passthrough fences: an opening fence line of exactly ```html
 // (lowercase tag, trailing spaces allowed) starts a raw-html block. The body
@@ -39,6 +42,35 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * Restore the item links the CMS's rich-text editor mis-stored.
+ *
+ * When what follows `[[id]]` looks like link syntax, that editor reads the
+ * link as Markdown and writes it back in one of two shapes. Both are undone
+ * here, so the page renders as it did before the edit:
+ *   - `[[id]\]`     → `[[id]]`      the editor escaped the link's second
+ *                                    closing bracket. Nobody writes a
+ *                                    backslash there by hand: unconditional.
+ *   - `[\[id\]](…)` → `[[id]](…)`   the editor took the link for a link
+ *                                    whose text is `[id]`. Only when the item
+ *                                    table knows the id: a link a contributor
+ *                                    really made, with a bracketed word for
+ *                                    its text, is written the same way and
+ *                                    must stay a link.
+ *
+ * Call it after the code spans are set aside (a code span is never touched)
+ * and before the backslash escapes are (it needs them as written).
+ * @param {string} text
+ * @param {(id: string) => object|null} lookup
+ * @returns {string}
+ */
+function restoreItemLinks(text, lookup) {
+  return text
+    .replace(/\[\\\[((?:[^\[\]\\]|\\[^\[\]\\])*?)\\\]\]\(/g,
+      (match, id) => (lookup(id.trim()) ? `[[${id}]](` : match))
+    .replace(/\[\[([^\[\]\\]+?)\]\\\]/g, '[[$1]]');
+}
+
 // Slug rules: lowercase, whitespace -> '-', punctuation stripped (CJK kept),
 // duplicates get a -2 / -3 ... suffix. `usedCounts` tracks collisions.
 function makeSlug(title, usedCounts) {
@@ -57,12 +89,15 @@ function makeSlug(title, usedCounts) {
 
 // Inline renderer. Order matters:
 //   1. extract `code` spans into sentinels (their content gets no further parsing)
-//   2. escape HTML
-//   3. ![alt](src "title") images — parked behind a sentinel of their own
-//   4. [text](href) links
-//   5. **strong**, then *em*
-//   6. [[item id]] wikilinks (last, per the plan's state machine)
-//   7. restore code spans and images
+//   2. restore the item links the rich-text editor mis-stored (restoreItemLinks)
+//   3. backslash escapes → sentinels of their own: a literal character takes
+//      no part in any syntax below (`\_x\_` is not emphasis, `\*a\*` neither)
+//   4. escape HTML
+//   5. ![alt](src "title") images — parked behind a sentinel of their own
+//   6. [text](href) links
+//   7. **strong**, *em*, then _em_ and ~~strikethrough~~
+//   8. [[item id]] wikilinks (last, per the plan's state machine)
+//   9. restore code spans, escapes and images
 function renderInline(text, ctx) {
   const codes = []; // what was set aside, as HTML: put back at the very end
   const codeTexts = []; // the code spans as plain escaped text, for attribute values
@@ -73,6 +108,18 @@ function renderInline(text, ctx) {
   let out = text.replace(/`([^`]+)`/g, (_, code) => {
     codeTexts.push(escapeHtml(code));
     return park(`<code>${codeTexts[codeTexts.length - 1]}</code>`);
+  });
+
+  out = restoreItemLinks(out, ctx.lookup);
+
+  // A backslash before an ASCII punctuation character makes that character
+  // literal (CommonMark). The pair is parked like a code span, so the literal
+  // character cannot open or close anything below; in an attribute it comes
+  // back as plain text, like a code span does. A backslash before anything
+  // else (a letter, a digit, the end of the line) is an ordinary backslash.
+  out = out.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, (_, ch) => {
+    codeTexts.push(escapeHtml(ch));
+    return park(escapeHtml(ch));
   });
 
   out = escapeHtml(out);
@@ -113,6 +160,14 @@ function renderInline(text, ctx) {
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
+  // `_emphasis_` only where CommonMark allows it: the opening `_` must not
+  // follow a letter or digit, the closing one must not precede one (letters
+  // and digits are judged in Unicode, so an ideograph counts). An item id
+  // such as brood_essence keeps its underscore.
+  out = out.replace(/(?<![\p{L}\p{N}])_(?!\s)(.+?)(?<!\s)_(?![\p{L}\p{N}])/gu, '<em>$1</em>');
+  // `~~strikethrough~~` (GFM). A single tilde is an ordinary tilde: Lv6~10.
+  out = out.replace(/~~(.+?)~~/g, '<del>$1</del>');
+
   out = out.replace(/\[\[([^\[\]]+?)\]\]/g, (_, rawId) => {
     const item = ctx.lookup(rawId.trim());
     if (!item) return `<span class="wikilink-missing">[[${rawId}]]</span>`;
@@ -137,11 +192,34 @@ function joinParagraphLines(lines, ctx) {
   return `<p>${renderInline(text, ctx)}</p>`;
 }
 
+/**
+ * The cells of a table row, trimmed. A `\` makes the character after it
+ * literal, so `\|` is a pipe inside a cell and not a separator, and `\\|` is
+ * a literal backslash followed by a separator. The row's leading pipe is
+ * dropped, and so is the empty cell after a pipe that ends the row; a pipe
+ * at the very end of the row is cell content when it is escaped.
+ * @param {string} line
+ * @returns {string[]}
+ */
 function splitRow(line) {
-  let t = line.trim();
-  if (t.startsWith('|')) t = t.slice(1);
-  if (t.endsWith('|')) t = t.slice(0, -1);
-  return t.split('|').map((cell) => cell.trim());
+  const t = line.trim();
+  const cells = [];
+  let cell = '';
+  let i = t.startsWith('|') ? 1 : 0;
+  for (; i < t.length; i += 1) {
+    const ch = t[i];
+    if (ch === '\\' && i + 1 < t.length) {
+      cell += ch + t[i + 1];
+      i += 1;
+    } else if (ch === '|') {
+      cells.push(cell);
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+  if (cell !== '' || !t.endsWith('|') || cells.length === 0) cells.push(cell);
+  return cells.map((text) => text.trim());
 }
 
 function isDelimiterRow(line) {
@@ -324,4 +402,4 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
   return { html: blocks.join('\n'), toc };
 }
 
-module.exports = { mdToHtml };
+module.exports = { mdToHtml, restoreItemLinks };
