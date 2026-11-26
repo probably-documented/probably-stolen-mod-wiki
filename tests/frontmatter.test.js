@@ -285,6 +285,99 @@ test('对象块列表: 与单行 JSON 写法解析结果相同', () => {
   assert.deepEqual(block, json);
 });
 
+// ---------- 阶段 5:块标量(Sveltia CMS 把多行的字符串字段写成 | 或 >) ----------
+//
+// 实测(Sveltia CMS 0.271.0,Test 后端,2026-11-26):一个多行的富文本字段保存后是
+// `items_intro: |-` 加缩进两格的内容,空行保留;没填的写成 ''。YAML 库还会把超过
+// 80 列、带空格的句子折成 `>-`。在此之前解析器不认这种写法:值被读成一个竖线,
+// 后面的行连同 --- 都成了正文。任何一个允许多行的字段(比如 Mod 的简介)都踩得到。
+
+/** 实测保存出来的文件,逐字。 */
+const SAVED_BY_THE_CMS = [
+  '---',
+  'title: 淫色深空系列',
+  'order: null',
+  'mods:',
+  '  - lewd_meme',
+  'cards: true',
+  'items_intro: |-',
+  '  第一行：先看神奇乳汁，再看 wondrous_milk。',
+  '',
+  '  第二行：另起一段。',
+  '',
+  '  第三行，紧挨着第二行。第一行：先看神奇乳汁。',
+  '',
+  '  第二行：再看看别的，还有内嵌卡 wondrous_milk。',
+  '',
+  '  - 列表项一',
+  '  - 列表项二',
+  "mechanics_intro: ''",
+  '---',
+  '',
+  '以《淫色深空：可能是触手》为核心的模组系列，含暗流交易、巢穴扩展、掌上青楼、旧版互动和 tearlaments。',
+  '',
+].join('\n');
+
+test('块字面量 |:内容缩进、空行保留;块后面的键和正文都不受影响;块里看着像键的行是内容', () => {
+  const { fm, body } = splitFrontmatter([
+    '---', 'title: 甲', 'text: |', '  第一行', '', '  第二行', '  fake: 这不是键', 'next: 2', '---', '', '正文。', '',
+  ].join('\n'));
+  assert.equal(fm.title, '甲');
+  assert.equal(fm.text, '第一行\n\n第二行\nfake: 这不是键\n', 'clip: exactly one final line break');
+  assert.equal(fm.next, 2, 'the key after the block is read as a key');
+  assert.equal(body, '\n正文。\n', 'and the body is the body');
+});
+
+test('块字面量的结尾:| 留一个换行,|- 去掉,|+ 全留;空块是空串', () => {
+  const read = (head, tail = '') => parseFrontmatter(`---\ntext: ${head}\n  甲\n  乙\n${tail}next: 1\n---\n`);
+  assert.equal(read('|').text, '甲\n乙\n');
+  assert.equal(read('|-').text, '甲\n乙\n'.trimEnd());
+  assert.equal(read('|', '\n\n').text, '甲\n乙\n', 'clip drops the extra empty lines');
+  assert.equal(read('|+', '\n\n').text, '甲\n乙\n\n\n', 'keep keeps them');
+  assert.equal(parseFrontmatter('---\ntext: |\nnext: 1\n---\n').text, '', 'no content lines at all: the empty string');
+  assert.equal(parseFrontmatter('---\ntext: |-\n\n  甲\nnext: 1\n---\n').text, '甲', 'empty lines before the first line of content are not content');
+});
+
+test('折叠块 >:行与行之间是一个空格,空行是换行;>- 和 >+ 的结尾;缩进更深的行保留换行', () => {
+  assert.equal(parseFrontmatter("---\nsummary: >-\n  This is a long sentence that the YAML library folded at a space\n  because it was wider than eighty columns.\nnext: 1\n---\n").summary,
+    'This is a long sentence that the YAML library folded at a space because it was wider than eighty columns.');
+  assert.equal(parseFrontmatter('---\ntext: >\n  甲\n\n  乙\n  丙\nnext: 1\n---\n').text, '甲\n乙 丙\n');
+  assert.equal(parseFrontmatter("---\ntext: >+\n  甲\n\n\nnext: 1\n---\n").text, '甲\n\n\n');
+  assert.equal(parseFrontmatter("---\ntext: >-\n  甲\n    更深的一行\n  乙\nnext: 1\n---\n").text, '甲\n  更深的一行\n乙', 'a more-indented line keeps its line breaks, and only its extra indent');
+});
+
+test('CMS 实测的文件:多行的富文本是 |-,开关是 true,没填的是空串;读回原来的文字,正文照旧', () => {
+  const { fm, body } = splitFrontmatter(SAVED_BY_THE_CMS);
+  assert.equal(fm.title, '淫色深空系列');
+  assert.deepEqual(fm.mods, ['lewd_meme']);
+  assert.equal(fm.cards, true);
+  assert.equal(fm.mechanics_intro, '');
+  assert.equal(fm.items_intro, [
+    '第一行：先看神奇乳汁，再看 wondrous_milk。', '', '第二行：另起一段。', '', '第三行，紧挨着第二行。第一行：先看神奇乳汁。', '',
+    '第二行：再看看别的，还有内嵌卡 wondrous_milk。', '', '- 列表项一', '- 列表项二',
+  ].join('\n'));
+  assert.ok(body.includes('以《淫色深空：可能是触手》为核心的模组系列'), 'the body is the body');
+  assert.ok(!body.includes('items_intro') && !body.includes('第一行') && !body.includes('mechanics_intro'), 'nothing of the header leaked into it');
+});
+
+test('既有的多行字段同样读得回:Mod 的简介在编辑器里按过回车,保存后是折叠块;折叠块里的一个空行读回是一个换行', () => {
+  const fm = parseFrontmatter("---\ntitle: 甲\nsummary: >-\n  第一行的简介\n\n  第二行的简介\nauthor: '某人'\n---\n\n正文\n");
+  assert.equal(fm.summary, '第一行的简介\n第二行的简介', 'YAML folds one empty line into one line break');
+  assert.equal(fm.author, '某人', 'the key after it is still a key');
+  assert.equal(parseFrontmatter("---\ntitle: 甲\nsummary: |-\n  第一行的简介\n\n  第二行的简介\nauthor: '某人'\n---\n").summary, '第一行的简介\n\n第二行的简介',
+    'a literal block keeps the empty line as it is');
+});
+
+test('老文件不受影响:头部里没有块写法的,切分和读法同以前', () => {
+  // 无闭合方言:首个空行结束头部(以前就这样)
+  const old = splitFrontmatter('---\ntitle: 甲\n\n正文里的 --- 不算闭合\n---\n');
+  assert.deepEqual(old.fm, { title: '甲' });
+  assert.equal(old.body, '正文里的 --- 不算闭合\n---\n');
+  // 闭合方言里夹着空行、没有块写法:仍在首个空行结束(以前的宽容行为,不动)
+  const spaced = splitFrontmatter('---\ntitle: 甲\n\nsummary: 乙\n---\n正文');
+  assert.deepEqual(spaced.fm, { title: '甲' });
+});
+
 test('对象块列表: 值里的引号、转义与数字', () => {
   const { fm } = splitFrontmatter([
     '---', 'items:', "  - name: 'it''s'", '    count: 3', '    note: "a\\"b"', '---',

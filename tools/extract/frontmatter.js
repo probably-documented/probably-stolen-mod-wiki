@@ -118,6 +118,76 @@ const LIST_ITEM_INDENTED_RE = /^(\s+)-\s*(.*)$/;
 // (如 http://x、draft:AI)是 plain scalar,不得误判为对象项而静默丢弃。
 const KVISH_RE = /^[A-Za-z][\w-]*\s*:(\s|$)/;
 
+/** 块标量的头:`|`、`|-`、`|+`(字面,行与行之间是换行)或 `>`、`>-`、`>+`(折叠,行与行之间是空格)。 */
+const BLOCK_SCALAR_RE = /^([|>])([+-]?)$/;
+
+/**
+ * 折叠块(>)的内容行合成一个字符串:相邻两行之间是一个空格;空行是换行
+ * (几个空行就几个换行);缩进比块更深的两行之间保留换行(YAML 的 more-indented 行)。
+ * rows 是去掉块缩进之后的行,空行是空串。
+ */
+function foldBlockRows(rows) {
+  let out = '';
+  let newlines = 0;
+  let prevDeeper = false;
+  let started = false;
+  for (const row of rows) {
+    if (row === '') {
+      if (started) newlines += 1;
+      continue;
+    }
+    const deeper = /^[ \t]/.test(row);
+    if (!started) {
+      out = row;
+      started = true;
+    } else if (newlines > 0) {
+      out += `${'\n'.repeat(newlines)}${row}`;
+    } else if (deeper || prevDeeper) {
+      out += `\n${row}`;
+    } else {
+      out += ` ${row}`;
+    }
+    newlines = 0;
+    prevDeeper = deeper;
+  }
+  return out;
+}
+
+/**
+ * `lines[start]` 是 `key: |` 这样的一行。读它的内容:空行和有缩进的行;
+ * 遇到没有缩进的非空行(下一个键、闭合的 ---)就结束。块的缩进由第一个内容行定,
+ * 每行去掉这么多前导空格,多出来的保留;内容开始之前的空行不算内容。
+ * 结尾的空行按头上的记号处理:没有记号留一个换行(clip),`-` 去掉(strip),`+` 全留(keep)。
+ * @returns {{ value: string, next: number }} next 是块后面第一行的下标
+ */
+function readBlockScalar(lines, start) {
+  const [, style, chomping] = BLOCK_SCALAR_RE.exec(lines[start].match(KV_LINE_RE)[2].trim());
+  const rows = [];
+  let indent = -1;
+  let j = start + 1;
+  for (; j < lines.length; j += 1) {
+    const line = lines[j];
+    if (line.trim() === '') {
+      if (indent !== -1) rows.push('');
+      continue;
+    }
+    const spaces = line.match(/^[ \t]*/)[0].length;
+    if (spaces === 0) break; // 没有缩进:块结束
+    if (indent === -1) indent = spaces;
+    if (spaces < indent) break; // 缩进比块浅:块结束
+    rows.push(line.slice(indent));
+  }
+  let trailing = 0;
+  while (rows.length > 0 && rows[rows.length - 1] === '') {
+    rows.pop();
+    trailing += 1;
+  }
+  if (rows.length === 0) return { value: '', next: j };
+  const content = style === '|' ? rows.join('\n') : foldBlockRows(rows);
+  const kept = chomping === '-' ? '' : `\n${chomping === '+' ? '\n'.repeat(trailing) : ''}`;
+  return { value: `${content}${kept}`, next: j };
+}
+
 /**
  * frontmatter 行 → data(kv 之外的行跳过,空行不可能是 kv)。
  * `key:`(值空)后随缩进 `- item` 行时累积为列表(CMS 原生 YAML 多行列表):
@@ -131,6 +201,13 @@ function parseKvLines(lines) {
   while (i < lines.length) {
     const match = lines[i].match(KV_LINE_RE);
     if (match === null) { i += 1; continue; }
+    if (BLOCK_SCALAR_RE.test(match[2].trim())) {
+      // 多行的字符串字段:Sveltia CMS 把它写成块标量(阶段 5)
+      const block = readBlockScalar(lines, i);
+      data[match[1]] = block.value;
+      i = block.next;
+      continue;
+    }
     if (match[2].trim() === '') {
       // key: 值空 → 尝试收集后续列表行
       const items = [];
@@ -193,10 +270,20 @@ function splitFrontmatter(mdText) {
   }
   // 优先闭合方言:任何位置出现单独 `---` 都视为块结束(与旧 merge 语义
   // 一致,闭合块内允许空行);否则无闭合方言:首个空行结束 frontmatter。
+  // 块标量(key: | 这种)里的空行和缩进行是它的内容,不算「首个空行」:
+  // CMS 写出的多行字段里就有空行。
   let closeIdx = -1;
+  let inBlock = false;
   for (let i = 1; i < lines.length; i += 1) {
-    if (lines[i].trim() === '---') { closeIdx = i; break; }
-    if (lines[i].trim() === '') break;
+    const line = lines[i];
+    if (inBlock) {
+      if (line.trim() === '' || /^[ \t]/.test(line)) continue;
+      inBlock = false; // 没有缩进的非空行:块结束,这一行按普通行看
+    }
+    if (line.trim() === '---') { closeIdx = i; break; }
+    if (line.trim() === '') break;
+    const kv = line.match(KV_LINE_RE);
+    if (kv !== null && BLOCK_SCALAR_RE.test(kv[2].trim())) inBlock = true;
   }
   if (closeIdx >= 1) {
     return { fm: parseKvLines(lines.slice(1, closeIdx)), body: lines.slice(closeIdx + 1).join('\n') };
