@@ -3,12 +3,15 @@
 // Task 8: page renderers + inline data.js — assembles the whole static site
 // from Task 5's WIKI_DATA, Task 6's mdToHtml and Task 7's templates.
 //
-// renderSite(data, { layout = null }) -> Promise<Map<relPath, string>>
+// renderSite(data, { layout = null, nav }) -> Promise<Map<relPath, string>>
 //   relPath keys are posix-style ('item/<id>.html'); values are full HTML
-//   documents (or the data.js script). fs.mkdir/write is left to the Task 10
-//   build entry. layout is the content layout (tools/build/content-layout.js)
-//   and supplies the optional per-item 详解 body
-//   (content/mods/<modId>/items/<物品ID>.md); null skips the section entirely.
+//   documents or a data script (data.js, nav-search.js). fs.mkdir/write is
+//   left to the Task 10 build entry. layout is the content layout
+//   (tools/build/content-layout.js): it supplies the home page's and the
+//   section pages' bodies and the optional per-item 详解 body
+//   (content/mods/<modId>/items/<物品ID>.md); null skips all of it. nav is
+//   the home page's search model (buildNavSearch, tools/build/nav-search.js):
+//   which mods there are, in what order, and under which sections.
 //
 // Missing-value discipline (project rule): strictly-null checks everywhere —
 // empty string is a VALID value, price 0 is valid, only null/undefined (and
@@ -22,7 +25,7 @@ const { mechanicsWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
-  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem,
+  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionBlock, modBar,
 } = require('./templates.js');
 
 const MISSING = '<i class="missing">待补充</i>';
@@ -163,14 +166,6 @@ function buildSiteModel(data) {
   return { mods, modsById, items, lookup, aboutNav };
 }
 
-/** 热门物品(确定性规则):price 非 null 的物品按 price 降序、同价 id 升序,取前 10。 */
-function popularItems(items, limit = 10) {
-  return items
-    .filter((it) => it.price != null)
-    .sort((a, b) => (b.price - a.price) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .slice(0, limit);
-}
-
 /** 首页通知条:数据基线 = 各 mod 版本列表(mods 顺序)。 */
 function baselineNotice(data) {
   const parts = (data.mods ?? []).map((m) => `${m.id} ${m.version ?? ''}`.trim());
@@ -186,68 +181,57 @@ function validVersion(version) {
 // Pages
 // ---------------------------------------------------------------------------
 
-function renderIndex(data, model) {
-  const { mods, items } = model;
-  const modCards = mods.map((mod) => {
-    const prereq = (mod.prerequisites ?? []).length === 0
-      ? '无前置'
-      : `前置 ${esc(mod.prerequisites.join('、'))}`;
-    const version = validVersion(mod.version);
-    return `<div class="mod-card">
-<h4><a href="mods/${esc(mod.id)}.html">${mod.name == null ? MISSING : esc(mod.name)}</a><span class="ver">${esc(mod.id)}${version == null ? '' : ` · ${esc(version)}`}</span></h4>
-<p>${mod.description == null ? '' : esc(truncate(modOverview(mod.description), 90))}</p>
-<div class="meta">${esc(mod.itemCount ?? 0)} 件物品 · ${prereq}</div>
-</div>`;
-  }).join('\n');
+/** 离线包发布在 GitHub Releases:主页底部「离线包下载」指向那里。 */
+const RELEASES_URL = 'https://github.com/probably-documented/probably-stolen-mod-wiki/releases';
+/** 「不属于任何分区的 mod」那一块的 data-sec。 */
+const NO_SECTION = '__none';
 
-  const hotWall = popularItems(items).map((it) => itemCard(it, '')).join('\n');
+/** 一个分区在主页顺序下的 mod 条;NO_SECTION 时是不属于任何分区的 mod。 */
+function navBars(mods, slug, hrefOf) {
+  return mods
+    .filter((mod) => (slug === NO_SECTION ? mod.sections.length === 0 : mod.sections.includes(slug)))
+    .map((mod) => modBar(mod.name, hrefOf(mod.id), mod.id));
+}
 
-  const newsItems = (data.news ?? []).length > 0
-    ? (data.news ?? []).map((n) => {
-      const obj = typeof n === 'string' ? { date: '', text: n } : n;
-      const d = obj.date ?? obj.d ?? '';
-      const text = obj.text ?? obj.title ?? obj.content ?? '';
-      return `<li>${d === '' ? '' : `<span class="d">${esc(d)}</span>`}${esc(text)}</li>`;
-    }).join('\n')
-    : `<li>数据基线 ${esc(data.baseline?.date ?? '')}</li>`;
+/**
+ * 主站导航页(index.html),阶段 3。从上到下:搜索栏和「限定范围」;每个分区一个可折叠的方框,
+ * 框里是只放名字的 mod 条;不属于任何分区的 mod 单独一块;底部是 home.md 的正文和三个入口
+ * (离线包下载、关于本站、更新日志)。全站通知条保留。搜索在浏览器里做(assets-src/js/nav-home.js),
+ * 数据是构建写出的 nav-search.js。
+ * @param {object|null} content readContentLayout 的结果(home.md 在这里;没有就是没有介绍)
+ * @param {object} nav buildNavSearch 的结果({ mods, sections })
+ */
+async function renderHomePage(data, model, content, nav) {
+  const mods = nav.mods ?? [];
+  const sections = nav.sections ?? [];
+  const homeHref = (id) => `mods/${id}.html`;
+  const blocks = [
+    ...sections.map((section) => sectionBlock(section, navBars(mods, section.slug, homeHref), { relRoot: '', linked: true })),
+  ];
+  const loose = navBars(mods, NO_SECTION, homeHref);
+  if (loose.length > 0) {
+    blocks.push(sectionBlock({ title: '不属于任何分区的 mod', slug: NO_SECTION, intro: '' }, loose, { relRoot: '', linked: false }));
+  }
 
-  const quickLinks = (data.mechanics ?? []).slice(0, 3).map((m) =>
-    `<a class="item-card" href="mechanics/${esc(m.slug)}.html" style="width:88px"><span class="nm">${esc(m.title)}</span></a>`).join('\n');
+  let intro = '';
+  const raw = content?.home == null ? null : await readOptional(content.home);
+  if (raw != null) intro = mdToHtml(splitFrontmatter(raw).body, model.lookup, (it) => itemCard(it, '')).html;
 
-  const stats = `<table class="stat-table">
-<tr><td>物品条目</td><td>${esc(items.length)}</td></tr>
-<tr><td>机制/玩法页面</td><td>${esc((data.mechanics ?? []).length)}</td></tr>
-<tr><td>模组条目</td><td>${esc(mods.length)}</td></tr>
-<tr><td>数据基线日期</td><td>${esc(data.baseline?.date ?? '')}</td></tr>
-</table>`;
+  const entries = [
+    ['离线包下载', RELEASES_URL],
+    ...(model.aboutNav == null ? [] : [[model.aboutNav.label, model.aboutNav.href]]),
+    ['更新日志', 'changelog.html'],
+  ].map(([label, href]) => `<a href="${esc(href)}">${esc(label)}</a>`).join('');
 
-  const body = `<div class="home-cols">
-<div class="home-main">
-<h1 class="page-title">欢迎来到淫色深空 Wiki</h1>
-<p>本站收录 <b>lewd_meme 系模组家族</b> 的全部物品图鉴、机制原理与玩法指南。数据直接提取自模组安装文件(物品定义、本地化文本、贴图),与游戏内表现一致。</p>
-<h2 class="sec">模组家族</h2>
-<div class="mod-cards" id="mod-family">
-${modCards}
+  const body = `${homeSearchRow(sections)}
+${blocks.join('\n')}
+<div class="home-foot">
+${intro === '' ? '' : `<h2 class="sec">关于本站</h2>
+${intro}
+`}<p class="home-links">${entries}</p>
 </div>
-<h2 class="sec">热门物品</h2>
-<div class="item-grid">
-${hotWall}
-</div>
-<p style="font-size:12px"><a href="items.html">→ 查看全部物品图鉴</a> · 或使用<a href="search.html">物品检索器</a>按分类、来源、价格筛选</p>
-</div>
-<div class="home-side">
-<h2 class="sec" style="margin-top:4px">站点统计</h2>
-${stats}
-<h2 class="sec">最近更新</h2>
-<ul class="news-list">
-${newsItems}
-</ul>${quickLinks === '' ? '' : `
-<h2 class="sec">快捷入口</h2>
-<div class="item-grid" style="gap:8px">
-${quickLinks}
-</div>`}
-</div>
-</div>`;
+<script src="nav-search.js"></script>
+<script src="assets/js/nav-home.js"></script>`;
 
   return layout({
     title: '首页',
@@ -258,6 +242,38 @@ ${quickLinks}
     noticeHtml: baselineNotice(data),
     aboutNav: model.aboutNav,
   });
+}
+
+/**
+ * 分区导航页(sections/<slug>.html):标题、介绍正文(按 Markdown 渲染,物品内嵌卡可用)、
+ * 本分区的 mod 条,样式同主页。这一页只有它自己,所以方框不折叠,也不搜索。
+ * @param {object} section { slug, title, intro, order, file } — file 是分区文件,可以没有
+ * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
+ */
+async function renderSectionPage(data, model, section, mods) {
+  const relRoot = '../';
+  const raw = section.file == null ? null : await readOptional(section.file);
+  const { body } = splitFrontmatter(raw ?? '');
+  const { html } = mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot));
+
+  return layout({
+    title: section.title,
+    relRoot,
+    activeNav: 'home',
+    breadcrumb: [
+      { text: '首页', href: `${relRoot}index.html` },
+      { text: section.title },
+    ],
+    bodyHtml: `<h1 class="page-title">${esc(section.title)}</h1>
+${html}
+${sectionBlock(section, navBars(mods, section.slug, (id) => `${relRoot}mods/${id}.html`), { relRoot, linked: false, collapsible: false })}`,
+    aboutNav: model.aboutNav,
+  });
+}
+
+/** dist/nav-search.js:主页搜索的数据,一个赋值语句,和 data.js 一样。 */
+function renderNavSearchJs(nav) {
+  return `window.NAV_SEARCH = ${JSON.stringify(nav ?? {})};\n`;
 }
 
 function renderItems(data, model) {
@@ -615,11 +631,14 @@ async function readOptional(file) {
 }
 
 async function renderSite(data, options = {}) {
+  // nav is the home page's search model (tools/build/nav-search.js): without one the home page
+  // is still a home page, with nothing to list or to search.
   const layout = options.layout ?? null;
+  const nav = options.nav ?? { mods: [], sections: [] };
   const model = buildSiteModel(data);
   const out = new Map();
 
-  out.set('index.html', renderIndex(data, model));
+  out.set('index.html', await renderHomePage(data, model, layout, nav));
   out.set('items.html', renderItems(data, model));
   out.set('mechanics.html', renderMechanicsIndex(data, model));
   out.set('changelog.html', renderChangelog(data, model));
@@ -629,10 +648,23 @@ async function renderSite(data, options = {}) {
   for (const mod of model.mods) {
     out.set(`mods/${mod.id}.html`, renderModPage(data, model, mod));
   }
+  // A mod that has a folder in the content tree but no exported data yet (hand-written) is on
+  // the home page all the same, so it gets a page too — what renderModPage makes of a mod with
+  // a name only. Its full page is task 3's (renderModPage is redone there).
+  for (const mod of nav.mods ?? []) {
+    if (!model.modsById.has(mod.id)) out.set(`mods/${mod.id}.html`, renderModPage(data, model, { id: mod.id, name: mod.name }));
+  }
 
   for (const mech of data.mechanics ?? []) {
     out.set(`mechanics/${mech.slug}.html`, renderMechanicPage(data, model, mech));
   }
+
+  // One page per section, in the home page's order; its file is where the layout says it is.
+  for (const section of nav.sections ?? []) {
+    const file = (layout?.sections ?? []).find((page) => page.slug === section.slug)?.file ?? null;
+    out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? []));
+  }
+  out.set('nav-search.js', renderNavSearchJs(nav));
 
   // Every item entry of every mod, by the item it names. A file name that
   // differs from the id by case only names its item too (resolveItemId) —
@@ -660,4 +692,4 @@ async function renderSite(data, options = {}) {
   return out;
 }
 
-module.exports = { renderSite, firstParagraphExcerpt, modOverview };
+module.exports = { renderSite, renderNavSearchJs, firstParagraphExcerpt, modOverview };

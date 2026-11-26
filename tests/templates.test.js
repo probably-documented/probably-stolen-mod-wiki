@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, cssVars,
-  NAV_ITEMS, navLinks, aboutNavItem,
+  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionBlock, modBar,
 } = require('../tools/build/templates.js');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'assets-src', 'theme.css');
@@ -367,4 +367,50 @@ test('theme.css: 色板与 mockup 关键类逐字保留', () => {
   ]) {
     assert.ok(css.includes(selector), selector);
   }
+});
+
+// ---------- 阶段 3 Task 2:主页和分区页的三个模板 ----------
+
+test('homeSearchRow: 搜索栏、默认收起的「限定范围」和它的下拉面板(每个分区一个复选框、「清空」)、状态行和结果容器', () => {
+  const html = homeSearchRow([{ slug: 'a', title: '甲 <一>' }, { slug: 'b', title: '乙' }], { relRoot: '' });
+  assert.ok(html.includes('<div class="nav-search-row">'));
+  assert.ok(html.includes('<input type="search" id="nav-q"'), 'the search box');
+  assert.ok(html.includes('id="nav-scope-toggle" aria-expanded="false" aria-controls="nav-scope-panel">限定范围'), 'closed until asked for');
+  assert.ok(html.includes('<div class="scope-panel" id="nav-scope-panel" hidden>'));
+  assert.ok(html.includes('<input type="checkbox" value="a"/>甲 &lt;一&gt;</label>'), 'a box per section; names are escaped');
+  assert.ok(html.includes('<input type="checkbox" value="b"/>乙</label>'));
+  assert.ok(html.includes('id="nav-scope-clear">清空</button>'));
+  assert.ok(html.includes('<div class="nav-status" id="nav-status" hidden></div>'));
+  assert.ok(html.includes('<div class="nav-results" id="nav-results" hidden></div>'));
+  // 没有分区:面板里没有复选框,搜索照常
+  const bare = homeSearchRow([], { relRoot: '' });
+  assert.ok(bare.includes('id="nav-q"') && !bare.includes('type="checkbox"'));
+});
+
+test('sectionBlock: 标题(可折叠)、「进入分区」、计数、简介和 mod 条;linked 为假时没有「进入分区」', () => {
+  const bars = [modBar('甲 <一>', 'mods/a.html', 'a'), modBar('乙', 'mods/b.html', 'b')];
+  const html = sectionBlock({ title: '分区 <一>', slug: 'a', intro: '一句话简介。' }, bars, { relRoot: '', linked: true });
+  assert.ok(html.startsWith('<section class="sec-block" data-sec="a">'));
+  assert.ok(html.includes('<button type="button" class="sec-toggle" aria-expanded="true" aria-controls="bars-a">分区 &lt;一&gt;</button>'),
+    'the title folds the block; open to begin with');
+  assert.ok(html.includes('<a class="sec-link" href="sections/a.html">进入分区</a>'));
+  assert.ok(html.includes('<span class="sec-count">2 个模组</span>'), 'as many as there are bars');
+  assert.ok(html.includes('<div class="sec-intro">一句话简介。</div>'));
+  assert.ok(html.includes('<div class="mod-bars" id="bars-a">'));
+  assert.ok(html.includes('<a class="mod-bar" href="mods/a.html" data-mod="a" title="甲 &lt;一&gt;">甲 &lt;一&gt;</a>'), 'a bar holds the name, escaped, and nothing else');
+
+  const unlinked = sectionBlock({ title: '不属于任何分区的 mod', slug: '__none', intro: '' }, bars, { relRoot: '', linked: false });
+  assert.ok(unlinked.includes('data-sec="__none"'));
+  assert.ok(!unlinked.includes('sec-link'));
+  assert.ok(!unlinked.includes('sec-intro'), 'no intro: no line for it');
+
+  // 分区页:条指向上一级的 mods/,方框不折叠(那一页只有它,没有脚本)
+  const page = sectionBlock({ title: '甲', slug: 'a', intro: '' }, [modBar('甲', '../mods/a.html', 'a')], { relRoot: '../', linked: false, collapsible: false });
+  assert.ok(page.includes('<span class="sec-title">甲</span>'), 'the title is plain text when the block cannot fold');
+  assert.ok(!page.includes('sec-toggle') && !page.includes('<button'));
+  assert.equal((page.match(/<span class="sec-count">/g) || []).length, 1, 'the count is there all the same');
+});
+
+test('modBar: 链接、data-mod 和转义过的名字', () => {
+  assert.equal(modBar('a & b', 'mods/x.html', 'x'), '<a class="mod-bar" href="mods/x.html" data-mod="x" title="a &amp; b">a &amp; b</a>');
 });

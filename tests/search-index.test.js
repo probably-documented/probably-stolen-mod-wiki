@@ -321,7 +321,7 @@ const RENDER_FIXTURE = {
 };
 
 test('renderSite: data.js 的 search 字段为完整索引(替换占位 [])', async () => {
-  const out = await renderSite(structuredClone(RENDER_FIXTURE), { contentDir: null });
+  const out = await renderSite(structuredClone(RENDER_FIXTURE), { layout: null });
   const src = out.get('data.js');
   assert.ok(src.startsWith('window.WIKI_DATA = '));
   assert.ok(src.includes('"search"'), 'search 字段存在');

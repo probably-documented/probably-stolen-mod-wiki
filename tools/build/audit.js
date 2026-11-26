@@ -129,9 +129,14 @@ const path = require('node:path');
  *   data.js, assets/js/search.js    render.js renderSearch → search.html
  *   assets/js/item-filter.js        render.js renderItems → items.html
  *                                    (a file since task 6b A8)
+ *   nav-search.js, assets/js/nav-home.js
+ *                                    render.js renderHomePage → index.html
+ *                                    (stage 3, task 2: the home page search)
  * templates.js emits no <script> at all. Exact values, as written.
  */
-const ALLOWED_SCRIPT_SRC = Object.freeze(['assets/js/item-filter.js', 'assets/js/search.js', 'data.js']);
+const ALLOWED_SCRIPT_SRC = Object.freeze([
+  'assets/js/item-filter.js', 'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+]);
 
 /**
  * Every code the audit can report, in the order of the rules above. Exported
@@ -258,6 +263,7 @@ const ALLOWED_TAGS = Object.freeze(new Set([
   'div', // templates.js layout, infobox, itemCard; render.js
   'section', // render.js renderItems
   'form', 'input', 'button', // templates.js searchForm: the two search forms of every page
+  'label', // templates.js homeSearchRow: the boxes of the scope panel (stage 3, task 2)
 ].flat()));
 
 /**

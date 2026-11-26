@@ -51,6 +51,7 @@ const { loadWikiData } = require('./wiki-data.js');
 const { mergeSupplements } = require('./supplements.js');
 const { resolveItemId } = require('./item-ids.js');
 const { lintContent, formatContentIssues } = require('./content-lint.js');
+const { readRedirects, buildNavSearch } = require('./nav-search.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
 const { findUnsupportedImagesIn, copyLayoutImages } = require('./content-images.js');
@@ -102,6 +103,7 @@ const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
 const ASSET_MAP = Object.freeze([
   ['theme.css', 'css/theme.css'],
   ['search.js', 'assets/js/search.js'],
+  ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2)
   ['item-filter.js', 'assets/js/item-filter.js'],
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'],
   ['bwiki/bg.png', 'assets/bwiki/bg.png'],
@@ -640,6 +642,9 @@ async function buildSkeleton({
       modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
     });
     payload.mechanics = await mergeMechanicsContent(payload.mechanics, layout);
+    //    The home page's search model: the mods in their global order, the
+    //    sections, and what each mod's redirects.yaml adds to the search.
+    const nav = await buildNavSearch({ data: payload, layout, redirects: await readRedirects(layout) });
 
     //    The top-nav about entry is declared by a page (frontmatter
     //    `nav_label`, task 5b A). Exactly one page may declare it: two would
@@ -658,7 +663,7 @@ async function buildSkeleton({
     }
 
     // 2. Render — before rm, so a failed build keeps the previous dist.
-    const rendered = await renderSite(payload, { layout });
+    const rendered = await renderSite(payload, { layout, nav });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
     //    Retries (RETRY): on Windows the rm of a directory that was just

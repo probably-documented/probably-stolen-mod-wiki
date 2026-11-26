@@ -15,7 +15,9 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { parseRedirectsYaml, readRedirects, buildNavSearch, renderNavSearchJs } = require('../tools/build/nav-search.js');
+const { parseRedirectsYaml, readRedirects, buildNavSearch } = require('../tools/build/nav-search.js');
+// The script is written by the renderer, next to data.js: render.js is where every file of the site comes from.
+const { renderNavSearchJs } = require('../tools/build/render.js');
 const { readContentLayout } = require('../tools/build/content-layout.js');
 
 async function tmpDir(t) {

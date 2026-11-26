@@ -3,8 +3,8 @@
 // 主页搜索的数据（阶段 3 Task 1）。
 //
 // 主页把每个 mod 放在它所属的分区下面，可以按名称、ID、简介和 redirects.yaml 里的别名、关键词搜索。
-// 这里把三个来源合成一个模型（{ mods, sections }），构建把它写成一个很小的脚本 nav-search.js，
-// 搜索在浏览器里做，不发请求：站点上和离线包里是同一套。
+// 这里把三个来源合成一个模型（{ mods, sections }）；构建把它交给 render.js，由它写成一个很小的
+// 脚本 nav-search.js。搜索在浏览器里做，不发请求：站点上和离线包里是同一套。
 //
 //   mods      全局顺序：有导出数据的照数据的顺序，没有数据的排在后面、按标题。
 //             名称三级回退：数据里的 name → 导航页文件的 title → 目录名。
@@ -149,9 +149,4 @@ async function buildNavSearch({ data, layout, redirects, readFile = defaultReadF
   return { mods, sections: sections.map(({ mods: _listed, ...section }) => section) };
 }
 
-/** dist/nav-search.js：一个赋值语句，和 data.js 一样。 */
-function renderNavSearchJs(model) {
-  return `window.NAV_SEARCH = ${JSON.stringify(model)};\n`;
-}
-
-module.exports = { parseRedirectsYaml, readRedirects, buildNavSearch, renderNavSearchJs };
+module.exports = { parseRedirectsYaml, readRedirects, buildNavSearch };

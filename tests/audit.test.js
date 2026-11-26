@@ -384,12 +384,14 @@ test('A4 — a data block ends at its </script>; what follows is read as markup 
   assert.deepEqual(brief(violations), [`${HTML}:1 [script-inline]`]);
 });
 
-test('A4 — <script src>: only the three scripts the first-party templates load are allowed, everything else is a violation (script-src)', async (t) => {
+test('A4 — <script src>: only the scripts the first-party templates load are allowed, everything else is a violation (script-src)', async (t) => {
   const violations = await auditOf(t, {
     [HTML]: page(
       '<script src="data.js"></script>',
       '<script src="assets/js/search.js"></script>',
       '<script src="assets/js/item-filter.js"></script>',
+      '<script src="nav-search.js"></script>',
+      '<script src="assets/js/nav-home.js"></script>',
       '<script src="evil.js"></script>',
       '<script src="./data.js"></script>',
       '<script src="assets/js/other.js"></script>',
@@ -400,18 +402,20 @@ test('A4 — <script src>: only the three scripts the first-party templates load
     ),
   });
   assert.deepEqual(brief(violations), [
-    `${HTML}:4 [script-src]`,
-    `${HTML}:5 [script-src]`, // the list holds exact values
     `${HTML}:6 [script-src]`,
-    `${HTML}:7 [script-src]`,
-    `${HTML}:8 [external-url]`, // an outside URL is the external resource it is
-    `${HTML}:9 [protocol-relative-url]`,
-    `${HTML}:10 [root-relative-url]`,
+    `${HTML}:7 [script-src]`, // the list holds exact values
+    `${HTML}:8 [script-src]`,
+    `${HTML}:9 [script-src]`,
+    `${HTML}:10 [external-url]`, // an outside URL is the external resource it is
+    `${HTML}:11 [protocol-relative-url]`,
+    `${HTML}:12 [root-relative-url]`,
   ]);
 });
 
 test('A4 — the allowed <script src> list is exactly what the first-party templates write', () => {
-  assert.deepEqual([...auditModule.ALLOWED_SCRIPT_SRC], ['assets/js/item-filter.js', 'assets/js/search.js', 'data.js']);
+  assert.deepEqual([...auditModule.ALLOWED_SCRIPT_SRC], [
+    'assets/js/item-filter.js', 'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+  ]);
 });
 
 test('A4 — an inline event attribute on<name>= is a violation (inline-event-handler): quoted or not, any case, spaces around =, after a slash, without a value', async (t) => {
@@ -2038,7 +2042,7 @@ test('ruling AE 2 — the head-only tags are exactly title, meta, link and style
 /** The common typographic tags of the ruling, as it lists them. */
 const TYPOGRAPHIC_TAGS = 'a abbr b bdi bdo blockquote br caption code dd del details dfn dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q rp rt ruby s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var wbr'.split(' ');
 /** What the first-party build emits beyond that list (counted on the built site). */
-const STRUCTURAL_TAGS = ['body', 'button', 'div', 'form', 'head', 'html', 'input', 'section'];
+const STRUCTURAL_TAGS = ['body', 'button', 'div', 'form', 'head', 'html', 'input', 'label', 'section'];
 
 test('ruling AE 1 — the allow-list is exactly the typographic tags of the ruling plus the structural tags the first-party build emits; the head-only tags and the two of their own rules are not on it', () => {
   assert.deepEqual([...auditModule.ALLOWED_TAGS].sort(), [...TYPOGRAPHIC_TAGS, ...STRUCTURAL_TAGS].sort(), 'as a set: the order is the source\'s own');
@@ -2054,8 +2058,8 @@ test('ruling AE 1 — a tag that is not on the allow-list is refused wherever it
     'svg', 'math', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'portal',
     // media, and what belongs to it
     'video', 'audio', 'source', 'picture', 'track', 'canvas', 'map', 'area',
-    // form controls and structural elements that are not on the list
-    'select', 'option', 'optgroup', 'textarea', 'label', 'fieldset', 'legend', 'datalist', 'output', 'progress', 'meter', 'dialog',
+    // form controls and structural elements that are not on the list (label is on it: the home page's scope panel uses it)
+    'select', 'option', 'optgroup', 'textarea', 'fieldset', 'legend', 'datalist', 'output', 'progress', 'meter', 'dialog',
     'main', 'nav', 'header', 'footer', 'article', 'aside', 'address', 'hgroup', 'col', 'colgroup',
     // content that is not markup to a browser; obsolete elements
     'template', 'noscript', 'noembed', 'noframes', 'slot', 'marquee', 'center', 'font', 'big', 'strike', 'tt', 'acronym',

@@ -269,6 +269,74 @@ ${body}
 </table>`;
 }
 
+// ---------------------------------------------------------------------------
+// The home page and the section pages (stage 3). Ported from the approved
+// prototype (.superpowers/spike-nav-2026-11-26/proto-home/build.js in modwiki);
+// theme.css carries their styles.
+// ---------------------------------------------------------------------------
+
+/**
+ * The first row of the home page's body: the search bar on the left, the
+ * 「限定范围」 button beside it — closed until asked for — and its panel with
+ * one box per section and a 「清空」; then the line that says what was found
+ * and the box that lists it. assets-src/js/nav-home.js drives all of it by
+ * these ids.
+ * @param {Array<{ slug: string, title: string }>} sections
+ */
+function homeSearchRow(sections) {
+  const boxes = sections.map((s) => `<label><input type="checkbox" value="${esc(s.slug)}"/>${esc(s.title)}</label>`).join('\n');
+  return `<div class="nav-search-row">
+<form class="nav-search" id="nav-search" role="search">
+<input type="search" id="nav-q" placeholder="搜索模组:名称、ID、简介,或别名和关键词" autocomplete="off"/>
+<button type="submit">搜索</button>
+</form>
+<div class="nav-scope" id="nav-scope">
+<button type="button" class="scope-toggle" id="nav-scope-toggle" aria-expanded="false" aria-controls="nav-scope-panel">限定范围<span class="scope-badge" id="nav-scope-badge" hidden></span></button>
+<div class="scope-panel" id="nav-scope-panel" hidden>
+<div class="scope-panel-head"><span class="scope-hint">(都不勾选就是全部)</span><button type="button" class="scope-clear" id="nav-scope-clear">清空</button></div>
+<div class="scope-list">
+${boxes}
+</div>
+</div>
+</div>
+</div>
+<div class="nav-status" id="nav-status" hidden></div>
+<div class="nav-results" id="nav-results" hidden></div>`;
+}
+
+/** A mod's bar on the home page: the name, and where it leads. */
+function modBar(name, href, id) {
+  return `<a class="mod-bar" href="${esc(href)}" data-mod="${esc(id)}" title="${esc(name)}">${esc(name)}</a>`;
+}
+
+/**
+ * A section as a box: its title (which folds the box), 「进入分区」, how many
+ * mods it holds, its intro, and the bars.
+ * @param {{ title: string, slug: string, intro?: string }} section
+ * @param {string[]} bars as modBar makes them
+ * @param {{ relRoot?: string, linked?: boolean, collapsible?: boolean }} [options]
+ *   linked false: no 「进入分区」 (the block of the mods in no section, and a
+ *   section page, which is that section); collapsible false: the title is
+ *   plain text, the box cannot fold (a section page: nothing there folds it)
+ */
+function sectionBlock({ title, slug, intro = '' }, bars, { relRoot = '', linked = true, collapsible = true } = {}) {
+  const heading = collapsible
+    ? `<button type="button" class="sec-toggle" aria-expanded="true" aria-controls="bars-${esc(slug)}">${esc(title)}</button>`
+    : `<span class="sec-title">${esc(title)}</span>`;
+  const link = linked ? `<a class="sec-link" href="${esc(relRoot)}sections/${esc(slug)}.html">进入分区</a>` : '';
+  return `<section class="sec-block" data-sec="${esc(slug)}">
+<div class="sec-head">
+${heading}
+${link}
+<span class="sec-count">${bars.length} 个模组</span>
+</div>
+${intro === '' ? '' : `<div class="sec-intro">${esc(intro)}</div>`}
+<div class="mod-bars" id="bars-${esc(slug)}">
+${bars.join('\n')}
+</div>
+</section>`;
+}
+
 module.exports = {
   layout,
   infobox,
@@ -279,4 +347,7 @@ module.exports = {
   NAV_ITEMS,
   navLinks,
   aboutNavItem,
+  homeSearchRow,
+  sectionBlock,
+  modBar,
 };

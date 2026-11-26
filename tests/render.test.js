@@ -110,10 +110,10 @@ async function buildFixture(options = {}) {
 
 // ---------- 路由完整性 ----------
 
-test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + data.js)', async () => {
+test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + data.js、nav-search.js)', async () => {
   const out = await buildFixture({ layout: null });
   for (const rel of [
-    'index.html', 'items.html', 'mechanics.html', 'changelog.html', 'search.html', 'data.js',
+    'index.html', 'items.html', 'mechanics.html', 'changelog.html', 'search.html', 'data.js', 'nav-search.js',
     ...MODS.map((m) => `mods/${m.id}.html`),
     ...ITEMS.map((it) => `item/${it.id}.html`),
     ...MECHANICS.map((m) => `mechanics/${m.slug}.html`),
@@ -122,7 +122,7 @@ test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + d
     assert.equal(typeof out.get(rel), 'string');
   }
   assert.ok(!out.has('mods/install-compat.html'), 'install-compat 占位页已删除(final review)');
-  assert.equal(out.size, 6 + 6 + 7 + 2); // 骨架 5 + data.js + mods + items + mechanics
+  assert.equal(out.size, 6 + 6 + 7 + 2 + 1); // 骨架 5 + data.js + nav-search.js + mods + items + mechanics
 });
 
 // ---------- ① 物品页 ----------
@@ -169,7 +169,7 @@ test('item 页:name=null 时标题与卡片回退显示 id,不输出字面 null(
   assert.ok(!html.includes('>null<'));
   // 全站任何页面不出现字面 null 卡片
   for (const [rel, page] of out) {
-    if (rel === 'data.js') continue;
+    if (rel === 'data.js' || rel === 'nav-search.js') continue;
     assert.ok(!page.includes('>null<'), `${rel} 出现 >null<`);
     assert.ok(!page.includes('alt="null"'), `${rel} 出现 alt="null"`);
   }
@@ -327,44 +327,149 @@ test('data.js:可 require 加载、单行、精简字段、search 索引接线(T
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-// ---------- ④ index.html ----------
+// ---------- ④ index.html(主页)与分区页 ----------
 
-test('index.html:六张模组卡、锚点、热门物品、统计、基线通知、无内部路径', async () => {
-  const out = await buildFixture({ layout: null });
+/** The home page's search model (tools/build/nav-search.js makes the real one). */
+const NAV = {
+  mods: MODS.map((mod, i) => ({
+    id: mod.id, name: mod.name, summary: `${mod.id} 的简介`, aliases: i === 1 ? ['黑市'] : [], keywords: [],
+    sections: i === 0 ? ['lewd-meme-series'] : (i === 1 ? ['lewd-meme-series', 'tear'] : []),
+  })),
+  sections: [
+    { slug: 'lewd-meme-series', title: '淫色深空系列', intro: '以《淫色深空》为核心的系列。', order: null },
+    { slug: 'tear', title: '珠泪哀歌', intro: '', order: 2 },
+  ],
+};
+
+/** A content tree with the home page and two section pages, and the layout over it. */
+async function homeTree(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'render-home-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
+  const put = (rel, text) => {
+    const file = path.join(root, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    return file;
+  };
+  return {
+    home: put('home.md', '---\ntitle: 首页\n---\n\n这里是 **Probably Stolen** 的模组百科。\n'),
+    sections: [
+      { slug: 'lewd-meme-series', file: put('sections/lewd-meme-series.md', '---\ntitle: 淫色深空系列\nmods:\n  - lewd_meme\n---\n\n以《淫色深空》为核心的系列。\n') },
+      { slug: 'tear', file: put('sections/tear.md', '---\ntitle: 珠泪哀歌\norder: 2\nmods:\n  - lewd_meme_remake\n---\n') },
+    ],
+    site: [], mods: [], strayFiles: [], legacyDirs: [], imageFolders: [],
+  };
+}
+
+test('主页:正文首行是搜索栏和「限定范围」;每个分区一个可折叠的方框,mod 条只放名字;不属于任何分区的 mod 单独一块', async (t) => {
+  const layout = await homeTree(t);
+  const html = (await renderSite(structuredClone(FIXTURE), { layout, nav: NAV })).get('index.html');
+
+  // The search bar opens the body; the scope panel lists a box per section and starts closed.
+  const body = html.slice(html.indexOf('<div class="content-box">'));
+  assert.ok(body.includes('<div class="nav-search-row">\n<form class="nav-search"'), 'the search row is the first thing in the body');
+  assert.ok(html.includes('id="nav-q"'));
+  assert.ok(html.includes('id="nav-scope-toggle" aria-expanded="false"'));
+  assert.ok(html.includes('限定范围'));
+  assert.ok(html.includes('<div class="scope-panel" id="nav-scope-panel" hidden>'), 'closed until asked for');
+  for (const section of NAV.sections) {
+    assert.ok(html.includes(`<input type="checkbox" value="${section.slug}"/>${section.title}</label>`), `${section.slug}: a box in the scope panel`);
+  }
+  assert.ok(html.includes('id="nav-scope-clear"'), 'a way to clear the boxes');
+  assert.ok(html.includes('<div class="nav-status" id="nav-status" hidden></div>'));
+  assert.ok(html.includes('<div class="nav-results" id="nav-results" hidden></div>'));
+
+  // One block per section, then one for the mods in no section.
+  const blocks = [...html.matchAll(/<section class="sec-block" data-sec="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(blocks, ['lewd-meme-series', 'tear', '__none']);
+  const series = html.slice(html.indexOf('data-sec="lewd-meme-series"'), html.indexOf('data-sec="tear"'));
+  assert.ok(series.includes('<button type="button" class="sec-toggle" aria-expanded="true" aria-controls="bars-lewd-meme-series">淫色深空系列</button>'),
+    'the title folds the block; open to begin with');
+  assert.ok(series.includes('<a class="sec-link" href="sections/lewd-meme-series.html">进入分区</a>'));
+  assert.ok(series.includes('2 个模组'));
+  assert.ok(series.includes('以《淫色深空》为核心的系列。'), 'the intro');
+  const bars = [...series.matchAll(/<a class="mod-bar" href="mods\/([^"]+)\.html" data-mod="([^"]+)" title="([^"]*)">([^<]*)<\/a>/g)]
+    .map((m) => [m[1], m[2], m[3], m[4]]);
+  assert.deepEqual(bars, [
+    ['lewd_meme', 'lewd_meme', MODS[0].name, MODS[0].name],
+    ['lewd_meme_remake', 'lewd_meme_remake', MODS[1].name, MODS[1].name],
+  ], 'bars hold the name only, in the order of the home page');
+  assert.ok(!/<img|信用点|data-category/.test(series), 'nothing of an item card is in a bar');
+  const none = html.slice(html.indexOf('data-sec="__none"'));
+  assert.ok(none.includes('不属于任何分区的 mod'));
+  assert.ok(!none.includes('sec-link'), 'the block of the unsectioned mods leads nowhere');
+  assert.equal((none.match(/class="mod-bar"/g) || []).length, 4, 'the other four mods');
+
+  // A mod in two sections shows up in both.
+  assert.equal((html.match(/data-mod="lewd_meme_remake"/g) || []).length, 2);
+});
+
+test('主页:底部是 home.md 的正文和三个入口;保留全站通知条;两个脚本,数据在前', async (t) => {
+  const layout = await homeTree(t);
+  const out = await renderSite(fixtureWithNavLabel('barrel-system', '关于本站'), { layout, nav: NAV });
   const html = out.get('index.html');
-  assert.ok(html.includes('id="mod-family"'), '模组家族锚点容器');
-  assert.equal((html.match(/class="mod-card"/g) || []).length, 6, '六张模组卡');
-  assert.ok(html.includes('href="mods/lewd_meme.html"'));
-  assert.ok(html.includes('lewd_meme · 1.9.2'));
-  assert.ok(html.includes('无前置'));
-  assert.ok(html.includes('前置 lewd_meme'));
-  // 热门物品:price 降序、id 升序决胜,前 10(price null 除外)
-  assert.ok(html.indexOf('浓郁乳汁') < html.indexOf('神奇乳汁'), '300 排在 180 前');
-  assert.ok(!html.includes('href="item/tear_merchant.html"'), 'price null 不进热门墙');
-  // 站点统计
-  assert.ok(html.includes('站点统计'));
-  assert.ok(html.includes(`${ITEMS.length}`));
-  assert.ok(html.includes('2026-11-18'));
-  // 最近更新(news)
-  assert.ok(html.includes('疲劳与估值机制页重写'));
-  // 通知条:数据基线 + 各 mod 版本
-  assert.ok(html.includes('class="top-news"'));
+
+  const foot = html.slice(html.indexOf('<div class="home-foot">'));
+  assert.ok(foot.indexOf('<strong>Probably Stolen</strong> 的模组百科') < foot.indexOf('class="home-links"'), "home.md's body, rendered, comes before the entries");
+  assert.ok(foot.includes('href="https://github.com/probably-documented/probably-stolen-mod-wiki/releases"'), '离线包下载');
+  assert.ok(foot.includes('href="mechanics/barrel-system.html"'), '关于本站: the page that declares itself');
+  assert.ok(foot.includes('href="changelog.html"'), '更新日志');
+
+  assert.ok(html.includes('<div class="crumb">首页</div>'), 'the breadcrumb is 首页 and nothing else');
+  assert.ok(html.includes('class="top-news"'), 'the site-wide notice bar stays');
   assert.ok(html.includes('当前数据基线:'));
-  assert.ok(html.includes('lewd_meme 1.9.2'));
-  assert.ok(html.includes('dui_mian_lan_qiu_ji_tearl 7'));
+  for (const gone of ['id="mod-family"', 'class="mod-card"', '热门物品', '站点统计', '最近更新', '快捷入口']) {
+    assert.ok(!html.includes(gone), `the old home page's ${gone} is gone`);
+  }
+
+  assert.ok(html.includes('<script src="nav-search.js"></script>'));
+  assert.ok(html.includes('<script src="assets/js/nav-home.js"></script>'));
+  assert.ok(html.indexOf('<script src="nav-search.js">') < html.indexOf('<script src="assets/js/nav-home.js">'), 'the data loads before the script that reads it');
+  assert.ok(!html.includes('data.js'), 'the home page does not need the item data');
+  assert.equal((html.match(/<script\b/g) || []).length, 2, 'and loads nothing else');
+  const code = out.get('nav-search.js');
+  assert.ok(code.startsWith('window.NAV_SEARCH = '));
+  assert.deepEqual(JSON.parse(code.slice('window.NAV_SEARCH = '.length).replace(/;\s*$/, '')), NAV, 'nav-search.js carries the model as it was given');
   // 无 config/api 内部路径泄漏
-  for (const secret of ['modsDir', 'apiPatchesDir', 'decompileBase', 'decompileDir', 'contentDir', 'http://', 'https://wiki.biligame.com/probablystolen/index.php']) {
+  for (const secret of ['modsDir', 'apiPatchesDir', 'decompileBase', 'decompileDir', 'contentDir', 'https://wiki.biligame.com/probablystolen/index.php']) {
     assert.ok(!html.includes(secret), secret);
   }
 });
 
-test('index.html: news 为空时最近更新显示数据基线日期', async () => {
-  const data = structuredClone(FIXTURE);
-  data.news = [];
-  const out = await renderSite(data, { layout: null });
-  const html = out.get('index.html');
-  assert.ok(html.includes('最近更新'));
-  assert.ok(html.includes('数据基线 2026-11-18'));
+test('主页:没有内容树、没有搜索数据时,搜索栏和三个入口仍在,没有分区块', async () => {
+  const html = (await buildFixture({ layout: null })).get('index.html');
+  assert.ok(html.includes('id="nav-q"'));
+  assert.equal((html.match(/class="sec-block"/g) || []).length, 0, 'no sections, no blocks — not even the one for the unsectioned mods');
+  const foot = html.slice(html.indexOf('<div class="home-foot">'));
+  assert.ok(!foot.includes('<strong>'), 'no home.md: nothing to introduce');
+  assert.ok(foot.includes('离线包下载') && foot.includes('更新日志'));
+  assert.ok(!foot.includes('>关于本站<'), 'no page declares the about entry: no such entry here');
+});
+
+test('分区页:标题、介绍正文(物品内嵌卡可用)、本分区的 mod 条;面包屑是「首页、分区名」;不搜索', async (t) => {
+  const layout = await homeTree(t);
+  fs.writeFileSync(layout.sections[0].file, '---\ntitle: 淫色深空系列\nmods:\n  - lewd_meme\n---\n\n以《淫色深空》为核心的系列,先看 [[wondrous_milk]]。\n');
+  const out = await renderSite(structuredClone(FIXTURE), { layout, nav: NAV });
+
+  for (const section of NAV.sections) assert.ok(out.has(`sections/${section.slug}.html`), `sections/${section.slug}.html`);
+  assert.ok(!out.has('sections/nope.html'));
+  const html = out.get('sections/lewd-meme-series.html');
+  assert.ok(html.includes('<title>淫色深空系列 · '), 'the section is the page title');
+  assert.ok(html.includes('<h1 class="page-title">淫色深空系列</h1>'));
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 淫色深空系列</div>'));
+  assert.ok(html.includes('以《淫色深空》为核心的系列,先看 '), 'the intro is rendered as Markdown');
+  assert.ok(html.includes('href="../item/wondrous_milk.html"'), '[[id]] in a section page is an item card');
+  assert.deepEqual([...html.matchAll(/<a class="mod-bar" href="\.\.\/mods\/([^"]+)\.html"/g)].map((m) => m[1]), ['lewd_meme', 'lewd_meme_remake'],
+    'the bars of this section only, in the order of the home page');
+  assert.equal((html.match(/class="sec-block"/g) || []).length, 1, 'one block here: the section itself');
+  assert.ok(!html.includes('sec-link'), '…which needs no 「进入分区」');
+  assert.ok(!html.includes('sec-toggle'), '…and does not fold');
+  assert.ok(html.includes('href="../css/theme.css"'));
+  assert.ok(!html.includes('nav-home.js') && !html.includes('nav-search.js'), 'a section page does not search');
+  assert.equal((html.match(/<script\b/g) || []).length, 0);
+  // 一个分区里一个 mod 都没有:照常渲染,提示是空的
+  const tear = out.get('sections/tear.html');
+  assert.equal((tear.match(/class="mod-bar"/g) || []).length, 1);
 });
 
 // ---------- ⑤ 机制页 ----------
@@ -400,7 +505,7 @@ test('mechanics.html 索引页(Ruling 6):全部机制卡 + 摘要', async () => 
 test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)', async () => {
   const out = await buildFixture({ layout: null });
   for (const [rel, html] of out) {
-    if (rel === 'data.js') continue;
+    if (rel === 'data.js' || rel === 'nav-search.js') continue;
     assert.ok(html.includes('class="crumb"'), `${rel} 缺面包屑`);
     assert.ok(/<a href="[^"]*index\.html"/.test(html), `${rel} 缺返回首页链接`);
     assert.ok(html.includes('href="' + (rel.includes('/') ? '../' : '') + 'css/theme.css'), rel);
@@ -457,7 +562,7 @@ test('关于本站:占位页已删,全站无占位文案', async () => {
   const out = await buildFixture({ layout: null });
   assert.ok(!out.has('mods/install-compat.html'), '占位页必须删除');
   for (const [rel, html] of out) {
-    if (rel === 'data.js') continue;
+    if (rel === 'data.js' || rel === 'nav-search.js') continue;
     assert.ok(!html.includes('本页为占位骨架'), `${rel} 残留占位文案`);
   }
 });
@@ -486,7 +591,7 @@ function navAnchors(html, spot) {
 test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLabel、href = mechanics/<slug>.html、只在 menu-row、位于更新日志之后、全站每页都有', async () => {
   const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { layout: null });
   for (const [rel, html] of out) {
-    if (rel === 'data.js') continue;
+    if (rel === 'data.js' || rel === 'nav-search.js') continue;
     const prefix = rel.includes('/') ? '../' : '';
     const menuRow = navAnchors(html, 'menu-row');
     assert.deepEqual(menuRow.map(([text]) => text), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '桶装指南'],
@@ -500,9 +605,9 @@ test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLa
 
 test('A2 — 没有任何页面带 navLabel → 顶部导航没有 about 项;其余页面照常渲染', async () => {
   const out = await renderSite(fixtureWithNavLabel('barrel-system'), { layout: null });
-  assert.equal(out.size, 6 + 6 + 7 + 2, 'every route is still rendered');
+  assert.equal(out.size, 6 + 6 + 7 + 2 + 1, 'every route is still rendered'); // + nav-search.js
   for (const [rel, html] of out) {
-    if (rel === 'data.js') continue;
+    if (rel === 'data.js' || rel === 'nav-search.js') continue;
     const labels = ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志'];
     assert.deepEqual(navAnchors(html, 'menu-row').map(([text]) => text), labels, `${rel}: menu-row`);
     assert.deepEqual(navAnchors(html, 'ps-site__links').map(([text]) => text), [...labels, '物品检索器'], `${rel}: ps-site__links`);

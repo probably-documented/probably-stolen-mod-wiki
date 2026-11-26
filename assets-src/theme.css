@@ -82,7 +82,75 @@ code{background:var(--dk-edge); border:1px solid var(--dk-line); padding:0 5px; 
 .ps-site__links a:hover{background:var(--dk-rust); color:#fff; text-decoration:none}
 .ps-site__search{display:flex; align-items:center; flex:0 1 240px; min-width:180px; height:34px; margin:9px 0 9px auto; border:2px solid var(--dk-metal); background:var(--dk-edge); box-shadow:0 0 0 1px var(--dk-edge)}
 .ps-site__search input{flex:1; background:transparent; border:0; outline:0; color:var(--dk-text); padding:0 10px}
-.ps-site__search button{background:transparent; border:0; color:var(--dk-metal); padding:0 12px; cursor:pointer}
+.ps-site__search button{flex:0 0 auto; white-space:nowrap; background:transparent; border:0; color:var(--dk-metal); padding:0 12px; cursor:pointer}
+
+/* ---------- 阶段 3:主页和分区页(移植自定稿的原型)。配色全部取自上面的 --dk-* 变量 ---------- */
+/* 正文首行:搜索栏靠左,右边是分区勾选 */
+.nav-search-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin:2px 0 14px}
+.nav-search{display:flex;flex:1 1 380px;max-width:640px;height:40px;border:2px solid var(--dk-metal);background:var(--dk-edge)}
+.nav-search input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--dk-text);padding:0 12px;font-size:14px;font-family:inherit}
+.nav-search button{background:var(--dk-rust);color:#fff;border:0;padding:0 18px;cursor:pointer;font-size:14px;font-family:inherit}
+.nav-search button:hover{background:var(--dk-accent)}
+.nav-scope{position:relative;flex:0 0 auto}
+.scope-toggle{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;background:var(--dk-bg);border:2px solid var(--dk-metal);color:var(--dk-text);font:inherit;font-size:14px;cursor:pointer}
+.scope-toggle:hover{border-color:var(--dk-accent);color:var(--dk-accent-2)}
+.scope-toggle::after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--dk-metal);transition:transform .15s}
+.scope-toggle[aria-expanded="true"]::after{transform:rotate(180deg)}
+.nav-scope.has-selection .scope-toggle{border-color:var(--dk-rust);color:var(--dk-accent-2)}
+.scope-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dk-rust);color:#fff;font-size:11px;line-height:18px;text-align:center}
+/* 下拉面板:分区再多也在面板里滚动,不把正文往下推 */
+.scope-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:5;width:min(520px,90vw);max-height:280px;overflow-y:auto;background:var(--dk-page);border:1px solid var(--dk-line);box-shadow:0 6px 18px rgba(0,0,0,.45);padding:10px 12px}
+.scope-panel[hidden]{display:none}
+.scope-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.scope-hint{font-size:12px;color:var(--dk-faint)}
+.scope-clear{background:none;border:1px solid var(--dk-line);color:var(--dk-muted);font:inherit;font-size:12px;padding:2px 10px;cursor:pointer}
+.scope-clear:hover{border-color:var(--dk-accent);color:var(--dk-accent-2)}
+.scope-list{display:flex;flex-wrap:wrap;gap:6px 8px}
+.nav-scope label{display:inline-flex;align-items:center;gap:6px;background:var(--dk-bg);border:1px solid var(--dk-line);padding:4px 10px;cursor:pointer;user-select:none;line-height:1.5;font-size:12px;color:var(--dk-text)}
+.nav-scope label:hover{border-color:var(--dk-accent)}
+.nav-scope input{margin:0;accent-color:var(--dk-rust)}
+
+/* 搜索状态和结果 */
+.nav-status{font-size:12px;color:var(--dk-muted);margin:-4px 0 12px}
+.nav-status a{color:var(--dk-accent)}
+.nav-results{margin:0 0 16px;border:1px solid var(--dk-line);background:var(--dk-bg)}
+.nav-result{display:block;padding:9px 14px;border-top:1px solid var(--dk-edge);color:var(--dk-text)}
+.nav-result:first-child{border-top:0}
+.nav-result:hover{background:var(--dk-panel);text-decoration:none}
+.nav-result .r-name{font-weight:800;font-size:14px}
+.nav-result .r-id{margin-left:8px;font-size:11px}
+.nav-result .r-why{margin-left:8px;font-size:11px;color:var(--dk-accent-2);border:1px solid var(--dk-accent);padding:0 6px}
+.nav-result .r-sec{margin-left:8px;font-size:11px;color:var(--dk-metal)}
+.nav-result .r-sum{font-size:12px;color:var(--dk-muted);margin-top:2px}
+
+/* 分区:可折叠的方框,高度随模组数量增长,到 6 条封顶后框内滚动 */
+.sec-block{border:1px solid var(--dk-line);background:rgba(67,57,67,.35);margin:0 0 16px}
+.sec-head{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--dk-panel);border-bottom:1px solid var(--dk-line)}
+.sec-toggle{display:flex;align-items:center;gap:8px;background:none;border:0;padding:0;color:var(--dk-text);font:inherit;font-size:15px;font-weight:800;cursor:pointer}
+.sec-toggle::before{content:"";width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:7px solid var(--dk-accent);transition:transform .15s}
+.sec-block.is-collapsed .sec-toggle::before{transform:rotate(-90deg)}
+.sec-toggle:hover{color:var(--dk-accent-2)}
+.sec-title{color:var(--dk-text);font-size:15px;font-weight:800}
+.sec-link{font-size:12px;color:var(--dk-accent)}
+.sec-count{margin-left:auto;font-size:12px;color:var(--dk-faint)}
+.sec-intro{padding:8px 14px 0;font-size:12px;color:var(--dk-muted)}
+.sec-block.is-collapsed .sec-intro,.sec-block.is-collapsed .mod-bars{display:none}
+
+/* 模组条:只放名字,多列排布 */
+.mod-bars{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:12px 14px;max-height:268px;overflow-y:auto}
+.mod-bar{display:block;min-height:38px;line-height:36px;padding:0 12px;background:var(--dk-bg);border:1px solid var(--dk-line);color:var(--dk-text);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mod-bar:hover{border-color:var(--dk-accent);color:var(--dk-accent-2);text-decoration:none}
+.mod-bar.is-dim{opacity:.35}
+.mod-bar.is-hit{border-color:var(--dk-accent-2);box-shadow:inset 3px 0 0 var(--dk-accent)}
+.mod-bar.is-alias{background:rgba(185,124,87,.28);border-color:var(--dk-rust)}
+.sec-block.is-out{opacity:.45}
+
+/* 主页底部:可编辑的介绍和入口 */
+.home-foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--dk-line)}
+.home-foot p{font-size:13.5px;color:var(--dk-muted)}
+.home-links{display:flex;flex-wrap:wrap;gap:10px}
+.home-links a{display:inline-flex;align-items:center;min-height:36px;padding:0 16px;background:var(--dk-bg);border:1px solid var(--dk-line);color:var(--dk-text)}
+.home-links a:hover{border-color:var(--dk-accent);color:var(--dk-accent-2);text-decoration:none}
 
 /* ===== 全站通知条 ===== */
 .top-news{display:flex; align-items:center; gap:10px; background:var(--dk-edge); border:1px solid var(--dk-line); border-top:0; padding:8px 16px; font-size:12px; color:var(--dk-muted)}

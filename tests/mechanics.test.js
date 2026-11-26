@@ -263,7 +263,7 @@ test('D1 — 对每一种 navLabel 形态,页面上有没有「关于本站」�
       assert.ok(!lastLink.includes(`mechanics/${slug}.html`), `navLabel ${JSON.stringify(shape)}: no about entry, got ${lastLink}`);
     }
     for (const [rel, html] of out) {
-      if (rel === 'data.js') continue;
+      if (rel === 'data.js' || rel === 'nav-search.js') continue;
       assert.equal(html.split('class="menu-row"')[1].split('</div>')[0].includes(`mechanics/${slug}.html"`), declared,
         `${rel}: same answer on every page`);
     }
