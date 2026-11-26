@@ -1,10 +1,25 @@
 # yaml-language-server: $schema=https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json
 
-# 在线编辑器(Sveltia CMS)的配置。入口是 /admin/;本文件和 index.html 放在同一目录,
+# 在线编辑器(Sveltia CMS 0.271.0)的配置。入口是 /admin/;本文件和 index.html 放在同一目录,
 # 构建时会一起复制到 dist/admin/,改完要重新构建才会生效。
 #
-# label 是贡献者在编辑器里看到的字段名,hint 是字段下方的说明,都请用中文写。
-# 以 # 开头的整行是注释,不影响配置。
+# 内容按 mod 分目录:
+#   content/home.md                   主站导航页(只有这一个文件)
+#   content/sections/<文件名>.md      分区导航页
+#   content/mods/<Mod ID>/_index.md   Mod 导航页;同一个目录下还有它的
+#     mechanics/<文件名>.md           机制词条
+#     items/<物品 ID>.md              物品词条
+#     redirects.yaml                  搜索用的别名和关键词(可以有,也可以没有)
+#     images/                         这个 mod 的页面用的图片
+#   content/site/<文件名>.md          不属于任何 mod 的站点页面
+#   templates/                        正文模板,在仓库根目录,只读
+#
+# 下面用到的每一项配置都在 0.271.0 上试过。没试过的键不要往这里加:配置校验不过时整个编辑器
+# 进不去,报错只出现在浏览器控制台里。改完本文件要刷新编辑器页面才生效(只改地址不会重新读取)。
+#
+# label 是贡献者在编辑器里看到的字段名,hint 是字段下方的说明,都请用中文写,不用 emoji。
+# 以 # 开头的整行是注释,不影响配置。写法保持「一行一个键、两个空格缩进、不用方括号和花括号的
+# 简写、字符串不加双引号」:tests/admin-config.test.js 按这个形状读这个文件。
 
 backend:
   name: github
@@ -18,14 +33,14 @@ backend:
 
 site_url: https://probably-documented.github.io/probably-stolen-mod-wiki/
 
-# Sveltia 0.271.0 实测:保存条目时文件名会被小写化,这一项也拦不住。
-# 物品 ID 里有大写字母(gear.maidDress 等 8 个);构建端按「大小写不敏感的唯一匹配」
-# 把这类文件归到真实 id(见 tools/build/item-ids.js),这一项留作 CMS 修复后的开关。
+# 文件名保留大小写。没有这一项,保存时文件名和路径模板里的目录名(包括 {{fields.mod}} 那一段)
+# 都会被转成小写:gear.maidDress 会存成 gear.maiddress,claude.lewdMemeBrood 目录下会多出一个
+# 全小写的新目录。改完这一项要把编辑器页面整个刷新一次才生效。
 slug:
   lowercase: false
 
 # 顶层的 media_folder 只是让 CMS 配置通过校验的占位:Sveltia CMS 0.271.0 在没有配置任何云端媒体库时
-# 要求必须有它。页面的图片不放在这里(构建也不读取这个目录),而是放在每个页面自己旁边的 images/
+# 要求必须有它。页面的图片不放在这里(构建也不读取这个目录),而是放在各自内容旁边的 images/
 # 文件夹里,见下面各个 collection 的 media_folder。
 media_folder: assets/uploads
 
@@ -40,180 +55,317 @@ media_libraries:
     max_file_size: 5242880
 
 collections:
-  # 物品的「详解」:每个文件对应一件物品,文件名就是物品 ID(只能从下拉列表里选)。
-  # frontmatter 里的手写字段(描述、风味、备注、用法、来源、相关物品、分类、价格、图标、
-  # 尺寸)覆盖 data/mods/*.json 里的同名字段;留空则用数据里的值。渲染器不读的未知键
-  # 由 CMS 原样保留。
-  - name: items
-    label: 物品详解
-    description: 每个文件是一篇物品详解,显示在对应物品详情页的「详解」一节。一篇详解对应一件物品,由「物品」一栏决定。
-    folder: content/items
+  # ---------- 主站导航页:只有 content/home.md 这一个文件 ----------
+  - name: home
+    label: 主站导航页
+    icon: home
+    description: 站点的首页。
+    # 图片存在 content/images/(页面在站点根目录,正文里写 images/文件名)。只支持位图,不支持 SVG。
+    media_folder: images
+    public_folder: images
+    files:
+      - name: home
+        label: 主站导航页
+        file: content/home.md
+        fields:
+          - name: title
+            label: 标题
+            widget: string
+            preview: false
+          - name: body
+            label: 正文
+            widget: markdown
+            modes:
+              - rich_text
+              - raw
+            editor_components:
+              - image
+              - table
+              - code-block
+            captioned_images: false
+            hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
+
+  # ---------- 分区:content/sections/<文件名>.md ----------
+  # 一个分区包含哪些 mod,只记在分区文件里;Mod 那边没有「所属分区」一栏。
+  - name: sections
+    label: 分区
+    icon: dashboard
+    description: 把几个 mod 归成一组的导航页,会出现在首页的分区栏里。
+    folder: content/sections
     create: true
     delete: true
-    # 文件名就是「物品」一栏选中的物品 ID
-    slug: '{{fields.slug}}'
-    # 列表里显示的标题就是文件名(物品 ID)
-    summary: '{{slug}}'
-    # 插入的图片存放在 content/items/images/,正文里按相对路径引用(images/文件名);构建会把它们
-    # 发布到物品页旁边。只支持位图(png、jpg、gif、webp 等),不支持 SVG。
+    summary: '{{title}}'
+    # 文件名可以在右侧的「别名」面板里改;留空就由标题生成。
+    slug:
+      template: '{{slug}}'
+      editable: true
+      hint: '分区的文件名,也是它在网站上的地址。建议用小写英文加短横线,例如 lewd-meme-series;留空就由标题自动生成(中文标题会得到中文文件名)。'
+      pattern:
+        - '^[A-Za-z0-9._\-\u4e00-\u9fff]+$'
+        - '只能用英文、数字、短横线、下划线、点和中文,不能有空格、斜杠和其它符号。'
+    # 图片存在 content/sections/images/,正文里按相对路径引用(images/文件名)。只支持位图,不支持 SVG。
     media_folder: images
     public_folder: images
     fields:
-      - name: slug
-        label: 物品
-        widget: select
-        # 不进右侧的预览面板:预览里只留正文(两个集合里其它不是正文的字段同此)。
+      - name: title
+        label: 标题
+        widget: string
         preview: false
-        hint: '只能从列表里选(全部真实物品都在这里)。这个值就是页面的文件名:选了哪件物品,这篇详解就显示在那件物品的页面上。'
-        options:
-          - label: '触手本体'
-            value: 'tentacle_body'
-          - label: '少女'
-            value: 'maiden_lower'
-          - label: '神奇乳汁'
-            value: 'wondrous_milk'
-          - label: '触手精液'
-            value: 'tentacle_semen'
-          - label: '排卵诱发剂'
-            value: 'ovulation_shot'
-          - label: '触手苗床箱'
-            value: 'tentacle_box'
-          - label: '侵蚀性触手'
-            value: 'corrupt_tentacle'
-          - label: '触手本体 · 使用说明'
-            value: 'tentacle_manual'
-          - label: '闹钟'
-            value: 'alarm_clock'
-          - label: '触手闹钟'
-            value: 'tentacle_alarm'
-          - label: '井盖'
-            value: 'manhole_cover'
-          - label: '触手落穴陷阱'
-            value: 'tentacle_trap'
-          - label: '空针管'
-            value: 'empty_syringe'
-          - label: '触手3D打印机'
-            value: 'tentacle_printer'
-          - label: '触手档案'
-            value: 'tentacle_archive'
-          - label: '顾客档案'
-            value: 'customer_archive'
-          - label: '触手本体 · 暗流交易说明'
-            value: 'tentacle_manual_remake'
-          - label: '治安部线人名片'
-            value: 'lewd_meme_phone_card'
-          - label: 'night_report_note_remake'
-            value: 'night_report_note_remake'
-          - label: '浓缩乳汁'
-            value: 'milk_rich'
-          - label: '清甜乳汁'
-            value: 'milk_diluted'
-          - label: '桶装触手精液'
-            value: 'barrel_semen'
-          - label: '桶装神奇乳汁'
-            value: 'barrel_milk_wondrous'
-          - label: '桶装浓缩乳汁'
-            value: 'barrel_milk_rich'
-          - label: '桶装清甜乳汁'
-            value: 'barrel_milk_diluted'
-          - label: '苗床名册'
-            value: 'maiden_ledger_item'
-          - label: '触手卵'
-            value: 'brood_egg'
-          - label: '营养卵'
-            value: 'brood_nutrient_egg'
-          - label: '触手幼体'
-            value: 'brood_larva'
-          - label: '孵化失败的触手幼苗'
-            value: 'brood_failed_seedling'
-          - label: '触巢精华'
-            value: 'brood_essence'
-          - label: '触手肉块（大）'
-            value: 'brood_tentacle_meat_large'
-          - label: '触手肉块（中）'
-            value: 'brood_tentacle_meat'
-          - label: '触手肉块（小）'
-            value: 'brood_tentacle_meat_small'
-          - label: '治安部执法员'
-            value: 'officer'
-          - label: '触手成体（旧）'
-            value: 'brood_adult'
-          - label: '白触手'
-            value: 'brood_white_tentacle'
-          - label: '红触手'
-            value: 'brood_tentacle_red'
-          - label: '绿触手'
-            value: 'brood_tentacle_green'
-          - label: '黄触手'
-            value: 'brood_tentacle_yellow'
-          - label: '蓝触手'
-            value: 'brood_tentacle_aqua'
-          - label: '紫触手'
-            value: 'brood_tentacle_purple'
-          - label: '触巢源晶'
-            value: 'brood_core_crystal'
-          - label: '孵卵巢'
-            value: 'brood_nest'
-          - label: '基础巢'
-            value: 'brood_base_nest'
-          - label: '水巢'
-            value: 'brood_water_nest'
-          - label: '共生巢'
-            value: 'brood_sym_nest'
-          - label: 'dish.takoyaki'
-            value: 'dish.takoyaki'
-          - label: 'dish.skewer'
-            value: 'dish.skewer'
-          - label: 'dish.cheeseSteak'
-            value: 'dish.cheeseSteak'
-          - label: 'dish.seafoodPasta'
-            value: 'dish.seafoodPasta'
-          - label: '母巢芬芳'
-            value: 'fragrance'
-          - label: 'ending'
-            value: 'ending'
-          - label: 'network.profession'
-            value: 'network.profession'
-          - label: 'network.capacity'
-            value: 'network.capacity'
-          - label: '掌上青楼'
-            value: 'palm'
-          - label: '女仆装'
-            value: 'gear.maidDress'
-          - label: '猫耳发箍'
-            value: 'gear.catEars'
-          - label: '猫尾肛塞'
-            value: 'gear.catTailPlug'
-          - label: '蕾丝开襟睡袍'
-            value: 'gear.laceDress'
-          - label: '兔耳发饰'
-            value: 'gear.bunnyEars'
-          - label: '蕾丝腿环'
-            value: 'gear.laceGarter'
-          - label: '青楼营业账本'
-            value: 'ledger'
-          - label: '寐空 梦'
-            value: 'merchant'
-          - label: 'sofa.storage'
-            value: 'sofa.storage'
-          - label: 'lewd_meme_brothel.palm_brothel'
-            value: 'lewd_meme_brothel.palm_brothel'
-          - label: 'lewd_meme_brothel.ledger'
-            value: 'lewd_meme_brothel.ledger'
-          - label: 'lewd_meme_brothel.sofa_storage'
-            value: 'lewd_meme_brothel.sofa_storage'
-          - label: '珠淚哀歌族商人'
-            value: 'tearlaments_kitkallos'
-          - label: '水碎片水晶'
-            value: 'tearlaments_aquashard'
-          - label: '珠淚哀歌族·梅洛人魚'
-            value: 'tearlaments_merrli'
-          - label: '珠淚哀歌族·哈弗妮絲'
-            value: 'tearlaments_havnis'
-          - label: '珠淚哀歌族·塞壬人魚'
-            value: 'tearlaments_scheiren'
-          - label: '珠淚哀歌族·琪特卡洛斯'
-            value: 'tearlaments_kitkallos_merge'
+        hint: '分区的名字,显示在首页的分区栏里。'
+      - name: order
+        label: 排序
+        widget: number
+        required: false
+        preview: false
+        hint: '决定首页上分区的先后,数字小的排在前面;不填排在最后。'
+      - name: mods
+        label: 包含的 mod
+        widget: relation
+        collection: mods
+        value_field: '{{slug}}'
+        search_fields:
+          - '{{slug}}'
+          - title
+        display_fields:
+          - title
+        multiple: true
+        required: false
+        preview: false
+        hint: '这个分区包含哪些 mod,只在这里选。一个 mod 可以同时属于几个分区;不属于任何分区的 mod 在首页单独列出。'
+      # 正文要放在字段的最后一个
+      - name: body
+        label: 介绍正文
+        widget: markdown
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
+        hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
+
+  # ---------- 侧栏分隔线 ----------
+
+  - divider: true
+
+  # ---------- Mod:content/mods/<Mod ID>/_index.md ----------
+  # 别名就是 Mod 的目录名,也就是 Mod ID。depth 为 2:新建页和编辑页都没有「父文件夹」可选,
+  # 所以不会把一个 Mod 建到另一个 Mod 的目录里。
+  - name: mods
+    label: Mod
+    label_singular: Mod
+    icon: extension
+    description: 每个 mod 一个目录:Mod 导航页,以及它的机制词条、物品词条和重定向。
+    folder: content/mods
+    create: true
+    delete: true
+    nested:
+      depth: 2
+      subfolders: true
+    meta:
+      path:
+        index_file: _index
+    path: '{{slug}}/_index'
+    summary: '{{title}}'
+    slug:
+      template: '{{slug}}'
+      editable: true
+      hint: '这一项就是 Mod 的目录名,也就是 Mod ID。建议直接用 manifest.xml 里的 ID,例如 lewd_meme_remake;留空则由标题自动生成。目录下有了词条之后不要再改它:在「别名」面板里改了,只有 Mod 页和图片会移走,词条会留在旧目录里。'
+      pattern:
+        - '^[A-Za-z0-9._\-\u4e00-\u9fff]+$'
+        - '只能用英文、数字、短横线、下划线、点和中文,不能有空格、斜杠和其它符号。'
+    # 图片存在 content/mods/<Mod ID>/images/,正文里按相对路径引用(images/文件名)。只支持位图,不支持 SVG。
+    media_folder: images
+    public_folder: images
+    fields:
+      - name: title
+        label: 标题
+        widget: string
+        preview: false
+        hint: 'Mod 的名字,显示在导航里。'
+      # 这一项不存内容:它的「设置文件名」按钮打开右侧的「别名」面板。
+      - name: filename_hint
+        label: 文件名
+        widget: filename-hint
+        required: false
+        preview: false
+      - name: summary
+        label: 简介
+        widget: text
+        required: false
+        preview: false
+        hint: '一两句话的简介,显示在首页和 Mod 页上;留空就用数据里的简介。'
+      - name: author
+        label: 作者
+        widget: string
+        required: false
+        preview: false
+        hint: '留空就用数据里的作者。'
+      - name: version
+        label: 版本
+        widget: string
+        required: false
+        preview: false
+        hint: '一般不用填:留空就显示数据里的版本号,数据更新时自动跟着变。'
+      - name: prerequisites
+        label: 前置 mod
+        widget: list
+        required: false
+        preview: false
+        hint: '每行一个前置 mod 的 ID,例如 lewd_meme;留空就用数据里的前置关系。'
+      # 正文默认必填:不设 required 的话,只填标题建不出 Mod。
+      - name: body
+        label: 正文
+        widget: markdown
+        required: false
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
+        hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
+
+  # ---------- 侧栏分隔线 ----------
+
+  - divider: true
+
+  # ---------- 机制词条:content/mods/<Mod ID>/mechanics/<文件名>.md ----------
+  # 每个文件是一个机制说明页面,会出现在站点的「机制说明」索引里。
+  # 保存之后改「所属 mod」,文件不会跟着移动(随后构建会拦下并说明怎么办)。
+  - name: mechanics
+    label: 机制词条
+    icon: menu_book
+    description: 每个 mod 的机制说明和玩法指南,每个文件一页。
+    folder: content/mods
+    create: true
+    delete: true
+    path: '{{fields.mod}}/mechanics/{{slug}}'
+    summary: '{{title}}'
+    # 文件名可以在右侧的「别名」面板里改;留空就由标题生成。
+    slug:
+      template: '{{slug}}'
+      editable: true
+      hint: '机制页的文件名,也是它在网站上的地址。规范要求用小写英文加短横线,例如 barrel-system;留空就由标题自动生成(中文标题会得到中文文件名)。'
+      pattern:
+        - '^[A-Za-z0-9._\-\u4e00-\u9fff]+$'
+        - '只能用英文、数字、短横线、下划线、点和中文,不能有空格、斜杠和其它符号。'
+    # 列表按「所属 mod」分组,一进来就是分组视图,各组默认折叠。
+    view_groups:
+      groups:
+        - name: by-mod
+          label: 按 mod
+          field: mod
+          collapsed: true
+      default: by-mod
+    # 词条在 <Mod ID>/mechanics/ 下,往上两级是 images。media_folder 里不能写 {{fields.mod}},
+    # 所以是字面量往上走两级。正文里写 ../images/文件名。只支持位图,不支持 SVG。
+    media_folder: '../../images'
+    public_folder: ../images
+    fields:
+      - name: title
+        label: 标题
+        widget: string
+        preview: false
+        hint: '页面的标题,会显示在「机制说明」索引里。'
+      # 这一项不存内容:它的「设置文件名」按钮打开右侧的「别名」面板。
+      - name: filename_hint
+        label: 文件名
+        widget: filename-hint
+        required: false
+        preview: false
+      - name: mod
+        label: 所属 mod
+        widget: relation
+        collection: mods
+        value_field: '{{slug}}'
+        search_fields:
+          - '{{slug}}'
+          - title
+        display_fields:
+          - title
+        preview: false
+        hint: '决定这一篇放进哪个 Mod 的目录下。保存后不要再改:文件不会跟着移动,网站会因此停止更新。确实要换 Mod,请新建一篇,把内容搬过去。'
+      - name: nav_label
+        label: 顶部导航上的名字
+        widget: string
+        preview: false
+        required: false
+        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航——目前是「关于本站」那一页。'
+      # 这一项不存内容:正文上方多一个「从模板开始」按钮。
+      - name: template_starter
+        label: 模板
+        widget: template-starter
+        required: false
+        preview: false
+        applies_to: mechanics
+      # 正文要放在字段的最后一个
+      - name: body
+        label: 正文
+        widget: markdown
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
+        hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
+
+  # ---------- 物品词条:content/mods/<Mod ID>/items/<物品 ID>.md ----------
+  # 一个文件对应一件物品,文件名就是物品 ID。下面手写的字段(描述、风味、备注、用法、来源、
+  # 相关物品、分类、价格、图标、尺寸)覆盖 data/mods/*.json 里的同名字段;留空则用数据里的值。
+  - name: items
+    label: 物品词条
+    icon: shopping_bag
+    description: 每个 mod 的物品词条:手写的字段和「详解」正文,显示在物品详情页上。
+    folder: content/mods
+    create: true
+    delete: true
+    path: '{{fields.mod}}/items/{{slug}}'
+    # 文件名就是「物品 ID」一栏的值。
+    slug: '{{fields.item_id}}'
+    summary: '{{slug}}'
+    # 列表按「所属 mod」分组,一进来就是分组视图,各组默认折叠。
+    view_groups:
+      groups:
+        - name: by-mod
+          label: 按 mod
+          field: mod
+          collapsed: true
+      default: by-mod
+    # 词条在 <Mod ID>/items/ 下,往上两级是 images(同机制词条)。正文里写 ../images/文件名。
+    media_folder: '../../images'
+    public_folder: ../images
+    fields:
+      - name: item_id
+        label: 物品 ID
+        widget: item-id
+        preview: false
+        hint: '这一篇写的是哪件物品。有导出数据的物品,点「从本 mod 已导出的物品里选」;数据里还没有的新物品就自己起一个 ID。它就是文件名,保存后不要再改。'
+      - name: mod
+        label: 所属 mod
+        widget: relation
+        collection: mods
+        value_field: '{{slug}}'
+        search_fields:
+          - '{{slug}}'
+          - title
+        display_fields:
+          - title
+        preview: false
+        hint: '这件物品属于哪个 Mod。先选这一项,「物品 ID」才能列出它的物品。保存后不要再改:文件不会跟着移动。'
+      - name: title
+        label: 标题
+        widget: string
+        required: false
+        preview: false
+        hint: '物品页的大标题;留空就用游戏数据里的名字。'
       # 以下都是手写层:填了就覆盖数据里的同名字段,留空则用数据里的值。
       - name: description
         label: 描述
@@ -301,37 +453,92 @@ collections:
         required: false
         preview: false
         hint: '宽、高两个数字,每行一个;留空就用游戏数据里的。'
+      # 这一项不存内容:正文上方多一个「从模板开始」按钮。
+      - name: template_starter
+        label: 模板
+        widget: template-starter
+        required: false
+        preview: false
+        applies_to: items
       # 正文要放在字段的最后一个
       - name: body
         label: 详解正文
         widget: markdown
-        # 物品的正文是补充:现有 65 篇详解的正文都是空的,新建一篇也可以先不写。
+        # 物品的正文是补充:新建一篇也可以先不写。
         required: false
-        # 打开时是所见即所得的富文本编辑器;第一项是打开时的模式。
         modes:
           - rich_text
           - raw
-        # 编辑器组件。写出这一项就只启用列出的组件:image 和 table 必须都写(只写 table 会把
-        # 图片挤掉);code-block 也要写,否则默认启用的代码块会被关掉。
         editor_components:
           - image
           - table
           - code-block
-        # 关闭「带说明文字的图片」:它会写成 HTML 的 <figure>,站点不支持。
         captioned_images: false
-        # 代码块的语言列表是编辑器内置的,去不掉 HTML。语言选了 HTML 的代码块,站点按 html 直通块
-        # 处理:内容直接生效,不是显示源码。hint 里提醒贡献者,展示源码选 XML 或纯文本。
         hint: '显示在物品详情页的「详解」一节。编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
 
-  # 机制说明:每个文件是一个页面,会出现在站点的「机制说明」索引里。
-  - name: mechanics
-    label: 机制说明
-    description: 每个文件是一个机制说明页面,会出现在站点的「机制说明」索引里。
-    folder: content/mechanics
+  # ---------- 重定向:content/mods/<Mod ID>/redirects.yaml ----------
+  # 纯 YAML 文件,写搜索用的别名和关键词。注意:同一个 Mod 再新建一份不会报错,而是整份覆盖原来那份。
+  - name: redirects
+    label: 重定向
+    icon: alt_route
+    description: 让首页搜索认得别的叫法:每个 mod 最多一份,列出它的别名和关键词。
+    folder: content/mods
     create: true
     delete: true
-    # 插入的图片存放在 content/mechanics/images/,正文里按相对路径引用(images/文件名);构建会把
-    # 它们发布到机制页旁边。只支持位图(png、jpg、gif、webp 等),不支持 SVG。
+    format: yaml
+    extension: yaml
+    # 固定的别名:这个集合没有标题字段,不写的话每个新条目会得到一个随机别名。
+    slug: redirects
+    path: '{{fields.mod}}/redirects'
+    summary: 'redirects · {{fields.mod}}'
+    fields:
+      - name: mod
+        label: 所属 mod
+        widget: relation
+        collection: mods
+        value_field: '{{slug}}'
+        search_fields:
+          - '{{slug}}'
+          - title
+        display_fields:
+          - title
+        preview: false
+        hint: '这份重定向属于哪个 Mod。一个 Mod 只建一份:再建一份会把原来那份整份盖掉,要改就打开原来那份。'
+      - name: aliases
+        label: 别名
+        widget: list
+        required: false
+        preview: false
+        hint: '这个 mod 的其它叫法,每行一个。在首页搜索里输入别名,这个 mod 排在最前面。'
+      - name: keywords
+        label: 关键词
+        widget: list
+        required: false
+        preview: false
+        hint: '和这个 mod 有关的词,每行一个,作用同别名。'
+
+  # ---------- 侧栏分隔线 ----------
+
+  - divider: true
+
+  # ---------- 站点页面:content/site/<文件名>.md ----------
+  - name: site
+    label: 站点页面
+    icon: article
+    description: 不属于任何 mod 的页面,例如「关于本站」。
+    folder: content/site
+    create: true
+    delete: true
+    summary: '{{title}}'
+    # 文件名可以在右侧的「别名」面板里改;留空就由标题生成。
+    slug:
+      template: '{{slug}}'
+      editable: true
+      hint: '页面的文件名,也是它在网站上的地址。建议用小写英文加短横线,例如 about;留空就由标题自动生成(中文标题会得到中文文件名)。'
+      pattern:
+        - '^[A-Za-z0-9._\-\u4e00-\u9fff]+$'
+        - '只能用英文、数字、短横线、下划线、点和中文,不能有空格、斜杠和其它符号。'
+    # 图片存在 content/site/images/,正文里按相对路径引用(images/文件名)。只支持位图,不支持 SVG。
     media_folder: images
     public_folder: images
     fields:
@@ -339,29 +546,100 @@ collections:
         label: 标题
         widget: string
         preview: false
-        hint: '页面的标题,会显示在「机制说明」索引里。文件名由它自动生成。'
+        hint: '页面的标题。'
       - name: nav_label
         label: 顶部导航上的名字
         widget: string
         preview: false
         required: false
-        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航——目前是「关于本站」那一页。'
+        hint: '留空。填了的页面会出现在顶部导航,显示的就是这里填的名字;全站最多一页填写。'
       # 正文要放在字段的最后一个
       - name: body
         label: 正文
         widget: markdown
-        # 打开时是所见即所得的富文本编辑器;第一项是打开时的模式。
         modes:
           - rich_text
           - raw
-        # 编辑器组件。写出这一项就只启用列出的组件:image 和 table 必须都写(只写 table 会把
-        # 图片挤掉);code-block 也要写,否则默认启用的代码块会被关掉。
         editor_components:
           - image
           - table
           - code-block
-        # 关闭「带说明文字的图片」:它会写成 HTML 的 <figure>,站点不支持。
         captioned_images: false
-        # 代码块的语言列表是编辑器内置的,去不掉 HTML。语言选了 HTML 的代码块,站点按 html 直通块
-        # 处理:内容直接生效,不是显示源码。hint 里提醒贡献者,展示源码选 XML 或纯文本。
+        hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'
+
+  # ---------- 模板库:仓库根目录的 templates/,只读 ----------
+  # 模板存在仓库里,只能看;要增删改,通过 PR 改 templates/ 目录。
+  - name: templates
+    label: 模板库
+    icon: library_books
+    description: '新建词条时可以套用的正文模板。只能查看,不能在编辑器里修改;要增删改模板,请通过 PR 修改仓库里的 templates/ 目录。'
+    folder: templates
+    readonly: true
+    create: false
+    delete: false
+    duplicate: false
+    summary: '{{title}}'
+    # 「分组」菜单里按分类各有一项。
+    view_groups:
+      groups:
+        - name: mechanic
+          label: 机制页
+          field: category
+          eq: mechanic
+        - name: item
+          label: 物品词条
+          field: category
+          eq: item
+        - name: nav
+          label: 导航页
+          field: category
+          eq: nav
+    fields:
+      - name: title
+        label: 标题
+        widget: string
+        preview: false
+      - name: category
+        label: 分类
+        widget: select
+        preview: false
+        # 这里恰好是 tools/build/cms-assets.js 里 TEMPLATE_CATEGORIES 列出的分类,顺序也相同。
+        options:
+          - label: 机制页
+            value: mechanic
+          - label: 物品词条
+            value: item
+          - label: 导航页
+            value: nav
+      - name: applies_to
+        label: 适用类型
+        widget: select
+        multiple: true
+        preview: false
+        hint: '这个模板适用于哪些页面。新建词条时,「从模板开始」默认只显示适用于当前页面的模板。'
+        options:
+          - label: 机制词条
+            value: mechanics
+          - label: 物品词条
+            value: items
+          - label: Mod 导航页
+            value: mods
+          - label: 分区导航页
+            value: sections
+      - name: description
+        label: 说明
+        widget: text
+        preview: false
+      # 正文要放在字段的最后一个
+      - name: body
+        label: 模板正文
+        widget: markdown
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
         hint: '编辑框里显示的就是保存后的样子;要直接改 Markdown 原文,点工具栏最右边的「以 Markdown 编辑」。[[物品ID]] 会嵌成物品卡片(编辑框里显示为文字)。物品链接后面紧跟半角括号或冒号时,编辑框里会显示成一个链接,保存后仍是物品卡片。图片请单独占一行,不要贴在表格的行尾;表格旁的圆形按钮里有「删除表格」。要展示 HTML 或 XML 的源码,代码块的语言选 XML 或纯文本,不要选 HTML:选了 HTML,内容会直接生效,不是显示源码。可以贴外部链接,在新标签页打开。图片只支持 png、jpg、gif、webp 等位图,不支持 SVG。'

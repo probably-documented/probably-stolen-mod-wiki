@@ -9,8 +9,14 @@
     <style>
       [data-field-type][data-key-path] > h4 { display: none !important; }
     </style>
+    <!-- 必须在加载 CMS 之前设好:设了它,CMS 不会自己启动,等下一个脚本注册完本站的自定义控件后再启动。
+         admin.js 由构建写在 dist/admin/ 里(源码在仓库的 tools/cms/),页面只会取到本站的文件。 -->
+    <script>
+      window.CMS_MANUAL_INIT = true;
+    </script>
   </head>
   <body>
     <script src="./vendor/sveltia-cms.js"></script>
+    <script src="./admin.js"></script>
   </body>
 </html>
