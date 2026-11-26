@@ -389,9 +389,9 @@ test('A4 — <script src>: only the scripts the first-party templates load are a
     [HTML]: page(
       '<script src="data.js"></script>',
       '<script src="assets/js/search.js"></script>',
-      '<script src="assets/js/item-filter.js"></script>',
       '<script src="nav-search.js"></script>',
       '<script src="assets/js/nav-home.js"></script>',
+      '<script src="assets/js/item-filter.js"></script>', // a script the site used to ship (until stage 3): no longer on the list
       '<script src="evil.js"></script>',
       '<script src="./data.js"></script>',
       '<script src="assets/js/other.js"></script>',
@@ -402,6 +402,7 @@ test('A4 — <script src>: only the scripts the first-party templates load are a
     ),
   });
   assert.deepEqual(brief(violations), [
+    `${HTML}:5 [script-src]`,
     `${HTML}:6 [script-src]`,
     `${HTML}:7 [script-src]`, // the list holds exact values
     `${HTML}:8 [script-src]`,
@@ -414,7 +415,7 @@ test('A4 — <script src>: only the scripts the first-party templates load are a
 
 test('A4 — the allowed <script src> list is exactly what the first-party templates write', () => {
   assert.deepEqual([...auditModule.ALLOWED_SCRIPT_SRC], [
-    'assets/js/item-filter.js', 'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+    'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
   ]);
 });
 
@@ -2030,7 +2031,7 @@ test('ruling AE 2 — the head-only tags are exactly title, meta, link and style
 //   templates.js layout    html head body div small span br a img form
 //                          input button
 //   templates.js infobox   table caption tr td th
-//   render.js items.html   section
+//   templates.js sectionBlock  section (the home page and the section pages)
 //   markdown.js            h1–h6 p ul ol li table thead tbody tr th td code
 //                          strong em a img span
 // (a, b, i, br, caption, code, h1–h4, li, ol, p, small, span, table, tbody,

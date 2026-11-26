@@ -1,7 +1,6 @@
 ---
 title: 安装与兼容性
 mod: lewd_meme
-nav_label: 关于本站
 ---
 
 # 安装与兼容性

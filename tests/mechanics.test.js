@@ -6,6 +6,9 @@
 // orchestration. slug = file name, title = frontmatter title > first ATX h1 >
 // slug, same slug replaces, new slugs append — and the pages of every mod
 // come out in ONE file-name order: never grouped by mod.
+//
+// And, since stage 3 (task 5): which site page declares the top nav's about
+// entry (sitePagesWithNavLabel). A mechanic page can no longer declare it.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,9 +16,8 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { mergeMechanicsContent, mechanicTitle, mechanicsWithNavLabel } = require('../tools/build/mechanics.js');
+const { mergeMechanicsContent, mechanicTitle, sitePagesWithNavLabel } = require('../tools/build/mechanics.js');
 const { readContentLayout } = require('../tools/build/content-layout.js');
-const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_CONTENT = path.join(__dirname, '..', 'tests', 'fixtures', 'content');
 /** The mod directory the fixture content's pages live in. */
@@ -61,7 +63,8 @@ async function layoutWith(t, label, mods) {
 }
 
 /** One merged entry, as the build uses it: no matter in which order the keys were set. */
-const entry = ({ slug, title, source, navLabel, mod }) => ({ slug, title, source, navLabel, mod });
+const entry = ({ slug, title, source, mod }) => ({ slug, title, source, mod });
+const KEYS = ['mod', 'slug', 'source', 'title'];
 
 // ---------- mechanicTitle ----------
 
@@ -77,38 +80,33 @@ test('mechanicTitle: frontmatter title > first ATX h1 > slug', () => {
 
 // ---------- mergeMechanicsContent ----------
 
-test('mergeMechanicsContent (D2): a null layout / a layout without mods → the base entries as they came, each with navLabel null and mod null', async () => {
+test('mergeMechanicsContent (D2): a null layout / a layout without mods → the base entries as they came, each with mod null', async () => {
   const base = BASE();
-  const expected = base.map((m) => entry({ ...m, navLabel: null, mod: null }));
+  const expected = base.map((m) => entry({ ...m, mod: null }));
 
   for (const [what, layout] of [['a null layout', null], ['a layout without mods', EMPTY_LAYOUT]]) {
     const merged = await mergeMechanicsContent(base, layout);
-    assert.deepEqual(merged, expected, `${what}: the base entries, each with navLabel: null and mod: null`);
+    assert.deepEqual(merged, expected, `${what}: the base entries, each with mod: null`);
     assert.deepEqual(merged.map((m) => m.slug), base.map((m) => m.slug), `${what}: same order`);
-    for (const m of merged) {
-      assert.ok(Object.hasOwn(m, 'navLabel') && Object.hasOwn(m, 'mod'), `${what}: ${m.slug} has the navLabel and mod keys`);
-      assert.equal(m.navLabel, null);
-      assert.equal(m.mod, null);
-    }
+    for (const m of merged) assert.equal(m.mod, null);
   }
-  assert.ok(base.every((m) => !Object.hasOwn(m, 'navLabel') && !Object.hasOwn(m, 'mod')), 'the input is left as it was');
+  assert.ok(base.every((m) => !Object.hasOwn(m, 'mod')), 'the input is left as it was');
 });
 
-test('mergeMechanicsContent (D2): whatever the layout holds, every entry of the result has the same keys', async (t) => {
+test('mergeMechanicsContent (D2): whatever the layout holds, every entry of the result has the same four keys', async (t) => {
   const base = BASE();
   const keysOf = (merged) => merged.map((m) => Object.keys(m).sort());
-  const sameKeys = [['mod', 'navLabel', 'slug', 'source', 'title']];
 
-  // nothing merged: base entries keep what they came with, plus navLabel and mod
-  assert.deepEqual(keysOf(await mergeMechanicsContent(base, null)), [sameKeys[0], sameKeys[0]]);
-  // a base entry that declares a label comes back with it normalised
-  const declaring = [{ ...base[0], navLabel: '  顶部入口  ' }, base[1]];
-  assert.deepEqual((await mergeMechanicsContent(declaring, null)).map((m) => m.navLabel), ['顶部入口', null]);
+  // nothing merged: base entries keep what they came with, plus mod
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, null)), [KEYS, KEYS]);
   // merged: a replaced entry and an appended one have the same shape as the untouched base entries
   const layout = await layoutWith(t, 'shape', {
     [FIXTURE_MOD]: { 'barrel-system.md': '---\ntitle: 替换\n---\n\n正文', 'z-new.md': '正文' },
   });
-  assert.deepEqual(keysOf(await mergeMechanicsContent(base, layout)), [sameKeys[0], sameKeys[0], sameKeys[0]]);
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, layout)), [KEYS, KEYS, KEYS]);
+  // …and a base entry that arrives with a stray navLabel does not keep it: a mechanic page cannot declare the about entry
+  const stray = await mergeMechanicsContent(BASE().map((m) => ({ ...m, navLabel: '关于本站' })), null);
+  assert.deepEqual(keysOf(stray), [KEYS, KEYS], 'the stray key is dropped, not passed on');
   // and no mechanics at all is an empty list, not an error
   assert.deepEqual(await mergeMechanicsContent([], null), []);
   assert.deepEqual(await mergeMechanicsContent(null, null), []);
@@ -128,7 +126,7 @@ test('every page carries mod = the mod directory it is in; the pages of all mods
     [['aaa', 'zeta'], ['bbb', 'alpha'], ['mmm', 'zeta'], ['zzz', 'alpha']],
     'one file-name order across mods: mods/zeta/mechanics/aaa.md comes before mods/alpha/mechanics/zzz.md',
   );
-  for (const m of merged) assert.deepEqual(Object.keys(m).sort(), ['mod', 'navLabel', 'slug', 'source', 'title'], `${m.slug}: exactly these five keys`);
+  for (const m of merged) assert.deepEqual(Object.keys(m).sort(), KEYS, `${m.slug}: exactly these four keys`);
 });
 
 test('mergeMechanicsContent: slug = file name, source = the file as written; with base entries, same slug replaces in place and new pages append in file-name order across mods', async (t) => {
@@ -159,9 +157,19 @@ test('mergeMechanicsContent: slug = file name, source = the file as written; wit
   const replaced = merged.find((m) => m.slug === 'barrel-system');
   assert.equal(replaced.source, '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', 'source is the file as written — the front matter need not say mod:');
   assert.equal(merged.find((m) => m.slug === 'night-settlement').source, BASE()[0].source, 'an untouched base entry keeps its source');
-  assert.deepEqual(entry(replaced), {
-    slug: 'barrel-system', title: '手写替换标题', navLabel: null, mod: 'alpha', source: replaced.source,
-  }, 'a page carries exactly slug, title, source, navLabel and mod');
+  assert.deepEqual(entry(replaced), { slug: 'barrel-system', title: '手写替换标题', mod: 'alpha', source: replaced.source },
+    'a page carries exactly slug, title, source and mod');
+});
+
+test("a mechanic page can no longer declare the top nav's about entry: a nav_label in its front matter is not read", async (t) => {
+  const layout = await layoutWith(t, 'no-nav-label', {
+    [FIXTURE_MOD]: { 'one.md': '---\ntitle: 一\nnav_label: 关于本站\n---\n\n正文' },
+  });
+
+  const merged = await mergeMechanicsContent([], layout);
+
+  assert.deepEqual(merged, [{ slug: 'one', title: '一', source: '---\ntitle: 一\nnav_label: 关于本站\n---\n\n正文', mod: FIXTURE_MOD }],
+    'the page, with no navLabel of its own: the front matter is still in `source`, as written');
 });
 
 test("the repo's fixture page mods/lewd_meme/mechanics/install-compat.md merges as the page it is, under lewd_meme", async () => {
@@ -170,102 +178,72 @@ test("the repo's fixture page mods/lewd_meme/mechanics/install-compat.md merges 
   assert.deepEqual(merged.map((m) => [m.slug, m.mod]), [['night-settlement', null], ['barrel-system', null], ['install-compat', FIXTURE_MOD]],
     'the base entries, then the fixture page — the one page of the one mod in the fixture content');
   assert.deepEqual(entry(merged.find((m) => m.slug === 'install-compat')),
-    { slug: 'install-compat', title: '安装与兼容性', source: raw, navLabel: '关于本站', mod: FIXTURE_MOD });
+    { slug: 'install-compat', title: '安装与兼容性', source: raw, mod: FIXTURE_MOD });
+  assert.ok(!/^nav_label:/m.test(raw), 'the fixture page declares no nav_label: it is lewd_meme\'s install page, nothing more');
 });
 
-// ---------- Task 5b A — nav_label ----------
-
-test('navLabel: frontmatter `nav_label` → the label (trimmed); empty, blank, missing or not a string → null', async (t) => {
-  const layout = await layoutWith(t, 'nav-label', {
-    [FIXTURE_MOD]: {
-      'set.md': '---\ntitle: A\nnav_label: 关于本站\n---\n\n正文',
-      'padded.md': '---\nnav_label:   关于本站  \n---\n\n正文',
-      'quoted.md': '---\nnav_label: "关于本站"\n---\n\n正文',
-      'single-quoted.md': "---\nnav_label: '关于本站'\n---\n\n正文",
-      'empty.md': '---\nnav_label: ""\n---\n\n正文',
-      'bare.md': '---\nnav_label:\n---\n\n正文', // a key without a value parses to ''
-      'blank.md': '---\nnav_label: "   "\n---\n\n正文',
-      'number.md': '---\nnav_label: 123\n---\n\n正文', // the YAML subset parses numbers → not a string
-      'boolean.md': '---\nnav_label: true\n---\n\n正文',
-      'list.md': '---\nnav_label:\n  - 关于本站\n---\n\n正文', // a block list → not a string
-      'none.md': '---\ntitle: 没有 nav_label\n---\n\n正文',
-    },
-  });
-
-  const merged = await mergeMechanicsContent(BASE(), layout);
-  const navLabelOf = Object.fromEntries(merged.map((m) => [m.slug, m.navLabel]));
-
-  assert.deepEqual(navLabelOf, {
-    'night-settlement': null, // base entries: nothing declared
-    'barrel-system': null,
-    set: '关于本站', padded: '关于本站', quoted: '关于本站', 'single-quoted': '关于本站',
-    empty: null, bare: null, blank: null, number: null, boolean: null, list: null, none: null,
-  });
-  for (const m of merged) {
-    assert.ok(m.navLabel === null || (typeof m.navLabel === 'string' && m.navLabel.trim() !== '' && m.navLabel === m.navLabel.trim()),
-      `${m.slug}: navLabel is null or a trimmed non-empty string, got ${JSON.stringify(m.navLabel)}`);
-  }
-});
-
-test('mechanicsWithNavLabel: the entries that declare a nav label, in order', async (t) => {
-  const none = [{ slug: 'a', title: 'A', source: 's', navLabel: null }, { slug: 'b', title: 'B', source: 's' }];
-  assert.deepEqual(mechanicsWithNavLabel(none), [], 'nothing declared → empty');
-  assert.deepEqual(mechanicsWithNavLabel(null), [], 'no mechanics at all → empty');
-  const two = [
-    { slug: 'a', title: 'A', source: 's', navLabel: '关于本站' },
-    { slug: 'b', title: 'B', source: 's', navLabel: null },
-    { slug: 'c', title: 'C', source: 's', navLabel: '另一个' },
-  ];
-  assert.deepEqual(mechanicsWithNavLabel(two).map((m) => m.slug), ['a', 'c'], 'order kept');
-});
-
-// ---------- Task 6b D1 — "is navLabel set?" has ONE implementation ----------
+// ---------- 阶段 3 Task 5 — 「关于本站」由站点页面声明 ----------
 //
-// There were two: normalizeNavLabel in mechanics.js and, in render.js, its own
-// `typeof m.navLabel === 'string' && m.navLabel.trim() !== ''`. Equal today —
-// and free to drift the day one of them changes. render.js now asks
-// mechanics.js. (tests/render.test.js may not change for D1, so this lives
-// here, next to the function that is now the only one.)
+// content/site/<文件名>.md 的 frontmatter `nav_label` 让这一页成为顶栏的「关于本站」入口。
+// 全站至多一页(多了由构建入口报错)。这里只管「哪些页面声明了」。
 
-test('D1 — render.js 复用 mechanics.js 的导出:它自己不再判定 navLabel 是否已设置', async () => {
-  const render = await fs.readFile(path.join(__dirname, '..', 'tools', 'build', 'render.js'), 'utf8');
-  assert.match(render, /require\(['"]\.\/mechanics\.js['"]\)/, 'render.js takes the answer from mechanics.js');
-  assert.match(render, /mechanicsWithNavLabel\(/, '…from the exported mechanicsWithNavLabel');
-  // The second implementation, gone: a test of the navLabel field written in render.js itself.
-  assert.doesNotMatch(render, /typeof\s+[\w.]*navLabel\s*[!=]==?\s*['"]string['"]/,
-    'render.js no longer tests navLabel itself');
+/** A layout whose site/ holds the given pages, written to disk. */
+async function siteTree(t, files) {
+  const root = await tmpDir(t, 'site');
+  const dir = path.join(root, 'site');
+  await fs.mkdir(dir);
+  for (const [name, text] of Object.entries(files)) await fs.writeFile(path.join(dir, name), text);
+  return { ...EMPTY_LAYOUT, site: (await readContentLayout(root)).site };
+}
+
+test('sitePagesWithNavLabel: the site pages whose nav_label is set — trimmed — in file-name order; blank, missing or not a string counts as not set', async (t) => {
+  const layout = await siteTree(t, {
+    'about.md': '---\ntitle: 关于本站\nnav_label: 关于本站\n---\n\n正文',
+    'help.md': '---\ntitle: 帮助\nnav_label:   帮助我们  \n---\n\n正文',
+    'padded.md': '---\nnav_label: "关于本站"\n---\n',
+    'single-quoted.md': "---\nnav_label: '关于本站'\n---\n",
+    'empty.md': '---\nnav_label: ""\n---\n',
+    'bare.md': '---\nnav_label:\n---\n', // a key without a value parses to ''
+    'blank.md': '---\nnav_label: "   "\n---\n',
+    'number.md': '---\nnav_label: 123\n---\n', // the YAML subset parses numbers → not a string
+    'boolean.md': '---\nnav_label: true\n---\n',
+    'list.md': '---\nnav_label:\n  - 关于本站\n---\n', // a block list → not a string
+    'none.md': '---\ntitle: 没有 nav_label\n---\n',
+  });
+  const dir = layout.site[0].file.slice(0, -'about.md'.length);
+
+  const pages = await sitePagesWithNavLabel(layout);
+
+  assert.deepEqual(pages, [
+    { slug: 'about', navLabel: '关于本站', file: `${dir}about.md` },
+    { slug: 'help', navLabel: '帮助我们', file: `${dir}help.md` },
+    { slug: 'padded', navLabel: '关于本站', file: `${dir}padded.md` },
+    { slug: 'single-quoted', navLabel: '关于本站', file: `${dir}single-quoted.md` },
+  ], 'every page that declares, in file-name order, with its file so that a report can name it');
 });
 
-test('D1 — 对每一种 navLabel 形态,页面上有没有「关于本站」入口都与 mechanicsWithNavLabel 的答案一致', async () => {
-  const { renderSite } = require('../tools/build/render.js');
-  const shapes = [
-    [undefined, false], [null, false], ['', false], ['   ', false], ['\t\n', false],
-    ['桶装指南', true], ['  桶装指南  ', true], ['关于本站', true],
-    [123, false], [true, false], [['关于本站'], false], [{}, false],
-  ];
-  for (const [shape, declared] of shapes) {
-    const data = structuredClone(FIXTURE_DATA);
-    data.mechanics = data.mechanics.map((m, i) => ({ ...m, navLabel: i === 0 ? shape : null }));
-    const slug = data.mechanics[0].slug;
+test('sitePagesWithNavLabel: no site pages, or no layout at all → nothing declares', async () => {
+  assert.deepEqual(await sitePagesWithNavLabel({ site: [] }), []);
+  assert.deepEqual(await sitePagesWithNavLabel(null), []);
+});
 
-    // The one implementation's answer…
-    const answer = mechanicsWithNavLabel(data.mechanics);
-    assert.equal(answer.length, declared ? 1 : 0, `navLabel ${JSON.stringify(shape)}: mechanicsWithNavLabel`);
-    // …and what the page shows: the about entry is the LAST link of the menu-row.
-    const out = await renderSite(data, { layout: null });
-    const menuRow = out.get('index.html').split('class="menu-row"')[1].split('</div>')[0];
-    const lastLink = (menuRow.match(/<a [^>]*>.*?<\/a>/g) ?? []).at(-1);
-    if (declared) {
-      assert.equal(lastLink, `<a href="mechanics/${slug}.html">${String(shape).trim()}</a>`,
-        `navLabel ${JSON.stringify(shape)}: the about entry, with the label trimmed`);
-    } else {
-      assert.notEqual(lastLink, undefined);
-      assert.ok(!lastLink.includes(`mechanics/${slug}.html`), `navLabel ${JSON.stringify(shape)}: no about entry, got ${lastLink}`);
-    }
-    for (const [rel, html] of out) {
-      if (rel === 'data.js' || rel === 'nav-search.js') continue;
-      assert.equal(html.split('class="menu-row"')[1].split('</div>')[0].includes(`mechanics/${slug}.html"`), declared,
-        `${rel}: same answer on every page`);
-    }
+test('sitePagesWithNavLabel: a listed page whose file is gone by the time it is read declares nothing — and does not throw', async (t) => {
+  const layout = await siteTree(t, { 'about.md': '---\ntitle: 关于本站\nnav_label: 关于本站\n---\n\n正文' });
+  const dir = layout.site[0].file.slice(0, -'about.md'.length);
+  layout.site.push({ slug: 'gone', file: `${dir}gone.md` }); // deleted between the layout being read and this
+
+  assert.deepEqual(await sitePagesWithNavLabel(layout), [{ slug: 'about', navLabel: '关于本站', file: `${dir}about.md` }],
+    'the page that is there declares; the one that is not is skipped');
+});
+
+test("the repo's own content declares 关于本站 exactly once: content/site/about.md", async () => {
+  const pages = await sitePagesWithNavLabel(await readContentLayout(path.join(__dirname, '..', 'content')));
+  assert.deepEqual(pages.map((p) => p.slug), ['about']);
+  assert.equal(pages[0].navLabel, '关于本站');
+  // …and no mechanic page does any more
+  const layout = await readContentLayout(path.join(__dirname, '..', 'content'));
+  for (const page of layout.mods.flatMap((mod) => mod.mechanics)) {
+    const raw = await fs.readFile(page.file, 'utf8');
+    assert.ok(!/^nav_label:/m.test(raw.slice(0, raw.indexOf('\n---', 3))), `${page.file}: a mechanic page must not declare nav_label`);
   }
 });

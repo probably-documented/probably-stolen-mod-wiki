@@ -59,7 +59,7 @@ const { readContentLayout } = require('./content-layout.js');
 const { writeCmsAssets } = require('./cms-assets.js');
 const { findWideTableRows, formatWideTableRows } = require('./wide-tables.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
-const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
+const { mergeMechanicsContent, sitePagesWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
@@ -93,18 +93,16 @@ const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
 /**
  * Repo-shipped static assets → dist path. Each dest is exactly the path the
  * rendered pages or theme.css reference (templates.js layout, render.js
- * search.html + items.html, theme.css @font-face + body background): dist
+ * search.html + index.html, theme.css @font-face + body background): dist
  * must ship every file it points at (rulings A + B). Every entry is required
  * — the pages reference it, so a missing one is a dangling reference, never a
- * graceful degradation. item-filter.js is the chip filter of items.html: it
- * used to be an inline <script> there until task 6b A8 moved it into a file
- * (the audit now refuses executable inline scripts, audit.js A4).
+ * graceful degradation. The scripts are files because the audit refuses
+ * executable inline scripts (audit.js A4).
  */
 const ASSET_MAP = Object.freeze([
   ['theme.css', 'css/theme.css'],
   ['search.js', 'assets/js/search.js'],
   ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2)
-  ['item-filter.js', 'assets/js/item-filter.js'],
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'],
   ['bwiki/bg.png', 'assets/bwiki/bg.png'],
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'],
@@ -381,7 +379,7 @@ const AUDIT_ADVICE = Object.freeze({
   },
   'root-relative-url': {
     problem: '有一个地址以 / 开头(这叫「根相对路径」)。这种地址在本站的网址下会指到错误的位置,离线打开时直接失效。',
-    fix: '改成相对于当前页面的路径,例如 [物品图鉴](../items.html) 或 ../assets/图片名.png。',
+    fix: '改成相对于当前页面的路径,例如 [更新日志](../changelog.html) 或 ../assets/图片名.png。',
   },
   'data-url': {
     problem: '这个标签里有一个以 data: 开头的地址——把一段数据(甚至一整段网页或矢量图)直接写在页面里。'
@@ -599,7 +597,7 @@ async function injectAdmin(adminSource, distDir) {
  *   isAllowedDistDir), when adminDir lies inside distDir or is not a directory (all three refused before anything
  *   is removed), when the content lint (content-lint.js) finds anything, when
  *   an asset source is missing, when more than one
- *   mechanics page declares a top-nav label (`nav_label`), when a table row
+ *   site page declares a top-nav label (`nav_label`), when a table row
  *   of an edited page has more cells than its header (wide-tables.js), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on a site-audit
@@ -691,9 +689,11 @@ async function buildSkeleton({
     //    empty value never overwrites the data.
     await addHandwrittenItems(payload, layout);
     const uploadedIcons = await mergeSupplements(payload, layout, warn);
-    // The category chips follow the merged items, as the offline build's
-    // facets do: a category a contributor adds in the CMS shows up in the
-    // filter without waiting for a data re-export.
+    // The facets follow the merged items, as the offline build's do: the
+    // categories of the data are those of the items as they are published —
+    // a category a contributor adds in the CMS needs no data re-export. (The
+    // site itself searches by each item's own `categories`; nothing on the
+    // pages reads facets since the all-site 物品图鉴 gave way, stage 3.)
     payload.facets = { categories: [...new Set(payload.items.flatMap((it) => it.categories ?? []))].sort() };
     // An uploaded icon lives in its mod's images/ folder, not in the game's
     // texture tree that dropMissingIcons probes: those icons are parked while
@@ -709,18 +709,17 @@ async function buildSkeleton({
     //    sections, and what each mod's redirects.yaml adds to the search.
     const nav = await buildNavSearch({ data: payload, layout, redirects: await readRedirects(layout) });
 
-    //    The top-nav about entry is declared by a page (frontmatter
-    //    `nav_label`, task 5b A). Exactly one page may declare it: two would
-    //    be two 关于本站 entries. Known right now, before rm dist.
-    const aboutPages = mechanicsWithNavLabel(payload.mechanics);
+    //    The top-nav about entry is declared by a site page (frontmatter
+    //    `nav_label`, stage 3 task 5). Exactly one page may declare it: two
+    //    would be two 关于本站 entries. Known right now, before rm dist.
+    const aboutPages = await sitePagesWithNavLabel(layout);
     if (aboutPages.length > 1) {
       // Heading, the pages, then the hint as the last line — the shape of
       // every contributor-facing report.
-      const fileOf = (slug) => layout.mods.flatMap((mod) => mod.mechanics).find((page) => page.slug === slug)?.file;
-      const files = aboutPages.map((m) => `  ${fileOf(m.slug) === undefined ? `${m.slug}(数据文件里的条目,没有对应的文件)` : toPosix(fileOf(m.slug))}(nav_label: ${m.navLabel})`);
+      const files = aboutPages.map((page) => `  ${toPosix(page.file)}(nav_label: ${page.navLabel})`);
       throw new BuildError(
-        `[nav] FAIL — ${aboutPages.length} 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口`
-        + `(${aboutPages.map((m) => m.slug).join('、')})。\n`
+        `[nav] FAIL — ${aboutPages.length} 个站点页面都设置了 nav_label,顶部导航只能有一个这样的入口`
+        + `(${aboutPages.map((page) => page.slug).join('、')})。\n`
         + files.join('\n')
         + '\n提示:请只保留其中一个页面的 nav_label;其余文件请打开,把开头 frontmatter 里的 `nav_label` 这一行删掉。');
     }

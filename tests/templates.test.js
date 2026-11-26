@@ -35,11 +35,11 @@ const ITEM = {
 
 test('layout: 骨架关键类、页脚署名、标题', () => {
   const html = layout({
-    title: '物品图鉴',
+    title: '更新日志',
     relRoot: '',
-    activeNav: 'items',
-    breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '物品图鉴' }],
-    bodyHtml: '<h1 class="page-title">物品图鉴</h1>',
+    activeNav: 'changelog',
+    breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '更新日志' }],
+    bodyHtml: '<h1 class="page-title">更新日志</h1>',
   });
   assert.ok(html.startsWith('<!DOCTYPE html>'));
   assert.ok(html.includes('class="wiki-header"'));
@@ -47,7 +47,7 @@ test('layout: 骨架关键类、页脚署名、标题', () => {
   assert.ok(html.includes('class="content-box"'));
   assert.ok(html.includes('class="wiki-footer"'));
   assert.ok(html.includes('CC BY-NC-SA'));
-  assert.ok(html.includes('<title>物品图鉴 · 淫色深空 Wiki</title>'));
+  assert.ok(html.includes('<title>更新日志 · probably-documented</title>'), 'the site name is probably-documented (stage 3)');
   // 根页资源路径无前缀
   assert.ok(html.includes('href="css/theme.css"'));
   assert.ok(html.includes('src="assets/bwiki/emblem.jpg"'));
@@ -57,13 +57,13 @@ test('layout: relRoot="../" 时全部资源路径带前缀', () => {
   const html = layout({
     title: '神奇乳汁',
     relRoot: '../',
-    activeNav: 'items',
+    activeNav: 'changelog',
     breadcrumb: [{ text: '首页', href: '../index.html' }, { text: '神奇乳汁' }],
     bodyHtml: 'x',
   });
   assert.ok(html.includes('href="../css/theme.css"'));
   assert.ok(html.includes('href="../index.html"'));
-  assert.ok(html.includes('href="../items.html"'));
+  assert.ok(html.includes('href="../changelog.html"'));
   assert.ok(html.includes('src="../assets/bwiki/emblem.jpg"'));
   assert.ok(html.includes('action="../search.html"'));
 });
@@ -79,13 +79,30 @@ test('layout: 无外链资源引用(白名单仅页脚 biligame 文字链)', () 
   }
 });
 
-test('layout: 六个菜单项 + activeNav 高亮当前项', () => {
-  const html = layout({ title: 'x', relRoot: '', activeNav: 'items', breadcrumb: [], bodyHtml: '' });
-  for (const label of ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志']) {
+test('layout: 顶栏三项 + activeNav 高亮当前项', () => {
+  const html = layout({ title: 'x', relRoot: '', activeNav: 'changelog', breadcrumb: [], bodyHtml: '' });
+  for (const label of ['首页', '更新日志', '物品检索器']) {
     assert.ok(html.includes(`>${label}</a>`), label);
   }
-  assert.ok(html.includes('href="items.html" class="active"'));
+  assert.ok(html.includes('href="changelog.html" class="active"'));
   assert.ok(!html.includes('href="index.html" class="active"'));
+});
+
+test('文案(阶段 3): 站名、副标题、公告、页脚、两个搜索框的占位;旧站名和「离线」字样都不再出现', () => {
+  const html = layout({ title: 'x', relRoot: '', activeNav: null, breadcrumb: [], bodyHtml: '' });
+  assert.ok(html.includes('<div class="wiki-logo-text">probably-documented<small>PROBABLY STOLEN MOD WIKI</small></div>'));
+  assert.ok(html.includes('<span class="ps-site__name">probably-documented</span>'));
+  assert.ok(html.includes('<span class="ps-site__subname">Probably Stolen 模组百科</span>'));
+  assert.ok(html.includes('<div class="ps-site__notice">本站是 Probably Stolen 模组的非官方百科,内容由贡献者在线维护。<br/>数据提取自模组安装文件,与游戏内表现一致;转载请注明来源。</div>'));
+  assert.deepEqual((html.match(/placeholder="([^"]*)"/g) || []).map((m) => m.slice('placeholder="'.length, -1)), ['搜索物品、词条…', '搜索物品、词条…'],
+    'both search boxes carry the new placeholder');
+  const footer = html.split('class="wiki-footer"')[1].split('</div>')[0];
+  assert.ok(footer.includes('数据提取自模组安装文件') && footer.includes('内容由贡献者在线维护'), footer);
+  assert.ok(footer.includes('href="https://wiki.biligame.com/probablystolen"'), 'the BWIKI credit stays (CC BY-NC-SA 4.0)');
+  assert.ok(footer.includes('CC BY-NC-SA 4.0'));
+  for (const gone of ['淫色深空 Wiki', 'LEWD MEME', '离线版', '离线便携版', 'lewd_meme 系模组家族', '搜索本 Wiki', '搜索物品、机制…']) {
+    assert.ok(!html.includes(gone), `${gone} is gone`);
+  }
 });
 
 test('layout: 面包屑中间项带链接、最后一项纯文本', () => {
@@ -248,50 +265,54 @@ function navOf(html, spot) {
   return html.split(`class="${spot}"`)[1].split('</div>')[0].match(/<a [^>]*>.*?<\/a>/g) ?? [];
 }
 
-test('layout: 无 aboutNav 时两处导航都没有“关于本站”;ps-site__links 以“物品检索器”结尾,占位互斥', () => {
+test('layout: 无 aboutNav 时两处导航都是三项,没有“关于本站”;从顶栏去掉的四项不在', () => {
   const html = layout({ title: 'x', relRoot: '', activeNav: null, breadcrumb: [], bodyHtml: '' });
   const menuRow = navOf(html, 'menu-row');
   const siteLinks = navOf(html, 'ps-site__links');
-  for (const label of ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志']) {
-    assert.ok(menuRow.some((a) => a.endsWith(`>${label}</a>`)), `menu-row: ${label}`);
-    assert.ok(siteLinks.some((a) => a.endsWith(`>${label}</a>`)), `ps-site__links: ${label}`);
-  }
-  // Task 5b A2: the about entry is DECLARED by a page (nav_label); with no
-  // page declaring it the top nav simply has none.
+  const texts = (links) => links.map((a) => a.replace(/<a [^>]*>|<\/a>/g, ''));
+  assert.deepEqual(texts(menuRow), ['首页', '更新日志', '物品检索器'], 'menu-row: three entries');
+  assert.deepEqual(texts(siteLinks), ['首页', '更新日志', '物品检索器'], 'ps-site__links: the same three');
+  // The about entry is DECLARED by a page (nav_label on a site page); with no page declaring it the top nav has none.
   assert.ok(!html.includes('关于本站'));
   assert.ok(!html.includes('mechanics/install-compat.html'));
-  assert.deepEqual(menuRow.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志'], 'menu-row ends with 更新日志');
-  assert.deepEqual(siteLinks.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '物品检索器'], 'ps-site__links ends with 物品检索器');
+  // The four entries the new navigation took off the top bar: each lives on in the mod's own page.
+  for (const gone of ['玩法指南', '模组介绍', '物品图鉴', '机制说明']) {
+    assert.ok(!html.includes(`>${gone}</a>`), `${gone} is no longer on the top bar`);
+  }
+  for (const href of ['items.html', 'mechanics.html', 'index.html#mod-family']) {
+    assert.ok(!html.includes(`href="${href}"`), `${href}: the two all-site pages are gone`);
+  }
   assert.ok(siteLinks.some((a) => a.includes('href="search.html"')));
   assert.ok(!html.includes('href="#"'));
 });
 
-test('layout: aboutNav → menu-row 得到“关于本站”一项,位置在更新日志之后;ps-site__links 不含;relRoot 前缀', () => {
-  const about = aboutNavItem('关于本站', 'install-compat');
+test('layout: aboutNav → 两处导航的末尾都是“关于本站”,指向站点页面;relRoot 前缀', () => {
+  const about = aboutNavItem('关于本站', 'about');
   const html = layout({ title: 'x', relRoot: '', activeNav: null, breadcrumb: [], bodyHtml: '', aboutNav: about });
-  const menuRow = navOf(html, 'menu-row');
-  assert.deepEqual(menuRow.map((a) => a.replace(/<a [^>]*>|<\/a>/g, '')), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '关于本站'],
-    'menu-row: 关于本站 comes right after 更新日志, as the last item');
-  assert.ok(menuRow.at(-1).includes('href="mechanics/install-compat.html"'), `about href, got ${menuRow.at(-1)}`);
-  assert.ok(!navOf(html, 'ps-site__links').some((a) => a.includes('关于本站')), 'onlyIn: menu-row');
+  const texts = (links) => links.map((a) => a.replace(/<a [^>]*>|<\/a>/g, ''));
+  assert.deepEqual(texts(navOf(html, 'menu-row')), ['首页', '更新日志', '物品检索器', '关于本站'], 'menu-row: 关于本站 is the last item');
+  assert.deepEqual(texts(navOf(html, 'ps-site__links')), ['首页', '更新日志', '物品检索器', '关于本站'], 'ps-site__links: the same, as in the approved prototype');
+  assert.ok(navOf(html, 'menu-row').at(-1).includes('href="site/about.html"'), 'the about href: a site page');
 
   const deep = layout({ title: 'x', relRoot: '../', activeNav: null, breadcrumb: [], bodyHtml: '', aboutNav: about });
-  assert.ok(navOf(deep, 'menu-row').at(-1).includes('href="../mechanics/install-compat.html"'), 'sub pages: the relRoot prefix');
+  assert.ok(navOf(deep, 'menu-row').at(-1).includes('href="../site/about.html"'), 'sub pages: the relRoot prefix');
+  assert.ok(navOf(deep, 'ps-site__links').at(-1).includes('href="../site/about.html"'));
 });
 
-// ---------- Task 5b A — the about entry is declared by a page ----------
+// ---------- the about entry is declared by a site page (stage 3, task 5) ----------
 
-test('NAV_ITEMS: 没有 about 项,也没有任何一项指向具体内容页', () => {
-  assert.deepEqual(NAV_ITEMS.map((it) => it.key), ['home', 'items', 'mechanics', 'guides', 'mods', 'changelog', 'searchtools']);
+test('NAV_ITEMS: three structural entries — 首页, 更新日志, 物品检索器 — and none points at a content page or at a page that is no more', () => {
+  assert.deepEqual(NAV_ITEMS.map((it) => it.key), ['home', 'changelog', 'searchtools']);
   for (const it of NAV_ITEMS) {
-    assert.ok(!/^mechanics\/[^/]+\.html$/.test(it.href), `${it.key}: ${it.href} points at a content page`);
-    assert.ok(['home', 'items', 'mechanics', 'guides', 'mods', 'changelog', 'searchtools'].includes(it.key));
+    assert.ok(!/^(mechanics|site)\/[^/]+\.html$/.test(it.href), `${it.key}: ${it.href} points at a content page`);
+    assert.ok(it.onlyIn === undefined, `${it.key}: every entry shows in both spots`);
+    assert.ok(!['items.html', 'mechanics.html'].includes(it.href), `${it.key}: ${it.href}`);
   }
 });
 
-test('aboutNavItem: { key: about, label, href: mechanics/<slug>.html, onlyIn: menu-row }', () => {
-  assert.deepEqual(aboutNavItem('关于本站', 'install-compat'), {
-    key: 'about', label: '关于本站', href: 'mechanics/install-compat.html', onlyIn: 'menu-row',
+test('aboutNavItem: { key: about, label, href: site/<slug>.html } — in both spots, like the structural entries', () => {
+  assert.deepEqual(aboutNavItem('关于本站', 'about'), {
+    key: 'about', label: '关于本站', href: 'site/about.html',
   });
 });
 
@@ -299,17 +320,17 @@ test('navLinks / aboutNavItem: label 与 href 来自页面数据,一律转义', 
   const about = aboutNavItem('<b>关于 & 本站"', 'a&b');
   assert.equal(about.label, '<b>关于 & 本站"', 'the label is kept as data; escaping happens at render');
   const html = navLinks('', null, 'menu-row', about);
-  assert.ok(html.includes('<a href="mechanics/a&amp;b.html">&lt;b&gt;关于 &amp; 本站&quot;</a>'), html);
+  assert.ok(html.includes('<a href="site/a&amp;b.html">&lt;b&gt;关于 &amp; 本站&quot;</a>'), html);
   // …and the hard-coded entries still render exactly as before
   assert.ok(html.includes('<a href="index.html">首页</a>'));
-  assert.ok(html.includes('<a href="mechanics.html">机制说明</a>'));
-  assert.ok(html.includes('<a href="index.html#mod-family">模组介绍</a>'));
+  assert.ok(html.includes('<a href="changelog.html">更新日志</a>'));
+  assert.ok(html.includes('<a href="search.html">物品检索器</a>'));
 });
 
 test('navLinks: activeNav 只高亮 key 相同的那一项(about 项的 key 是 about)', () => {
-  const about = aboutNavItem('关于本站', 'install-compat');
+  const about = aboutNavItem('关于本站', 'about');
   const html = navLinks('', 'about', 'menu-row', about);
-  assert.ok(html.includes('<a href="mechanics/install-compat.html" class="active">关于本站</a>'));
+  assert.ok(html.includes('<a href="site/about.html" class="active">关于本站</a>'));
   assert.equal((html.match(/class="active"/g) || []).length, 1);
   // without an about entry nothing can be highlighted under that key
   assert.ok(!navLinks('', 'about', 'menu-row').includes('class="active"'));
@@ -362,10 +383,15 @@ test('theme.css: 色板与 mockup 关键类逐字保留', () => {
     '.ps-site__search', '.top-news', '.crumb', '.content-box', 'h1.page-title',
     'h2.sec', 'h3.sub', '.toc', '.ps-infobox', '.info-image', '.info-flavor',
     '.item-grid', '.item-card', '.item-inline', 'table.wiki-table', '.formula',
-    '.notice-box', '.home-cols', '.mod-cards', '.mod-card', '.stat-table',
-    '.news-list', '.wiki-footer', '.updated',
+    '.notice-box', '.mod-cards', '.mod-card', '.wiki-footer', '.updated',
+    // the home page and the section pages since stage 3
+    '.nav-search-row', '.nav-search', '.nav-scope', '.nav-results', '.sec-block', '.mod-bars', '.mod-bar', '.home-foot', '.home-links',
   ]) {
     assert.ok(css.includes(selector), selector);
+  }
+  // …while the old home page's layout (two columns, a stat table, a news list) left with the page itself (stage 3)
+  for (const dead of ['.home-cols', '.home-main', '.home-side', '.stat-table', '.news-list']) {
+    assert.ok(!css.includes(dead), `${dead}: nothing renders it any more`);
   }
 });
 

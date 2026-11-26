@@ -119,7 +119,7 @@ const COLLECTIONS = Object.freeze({
     ['version', 'string'], ['prerequisites', 'list'], ['body', 'markdown'],
   ],
   mechanics: [
-    ['title', 'string'], ['filename_hint', 'filename-hint'], ['mod', 'relation'], ['nav_label', 'string'],
+    ['title', 'string'], ['filename_hint', 'filename-hint'], ['mod', 'relation'],
     ['template_starter', 'template-starter'], ['body', 'markdown'],
   ],
   items: [
@@ -462,7 +462,7 @@ test('site — content/site/<别名>.md, the pages that belong to no mod', async
   const site = collection(await readConfig(), 'site');
   assert.equal(value(site, 'folder'), 'content/site');
   assert.equal(unquote(value(aliasOf(site), 'editable')), 'true');
-  assert.equal(value(field(site, 'nav_label'), 'required'), 'false', 'like a mechanic page, a site page may stay off the top nav');
+  assert.equal(value(field(site, 'nav_label'), 'required'), 'false', 'a site page may stay off the top nav');
 });
 
 test('templates — the repository\'s templates/, read-only: no creating, deleting or duplicating', async () => {
@@ -622,7 +622,7 @@ test('every collection and field a contributor sees has a Chinese label; the fie
   // must stay empty on all but a page or two, and the one that decides where
   // an entry is filed: each needs a word of explanation.
   for (const [collName, fieldName] of [
-    ['sections', 'mods'], ['mods', 'summary'], ['mechanics', 'mod'], ['mechanics', 'nav_label'], ['site', 'nav_label'],
+    ['sections', 'mods'], ['mods', 'summary'], ['mechanics', 'mod'], ['site', 'nav_label'],
     ['items', 'item_id'], ['items', 'mod'], ['templates', 'applies_to'],
   ]) {
     const f = field(collection(config, collName), fieldName);
@@ -734,10 +734,16 @@ test('正文要不要必填:Mod 导航页和物品词条可以为空,其余的�
   }
 });
 
-test('nav_label 不是必填项:required 为 false', async () => {
+test('「关于本站」由站点页面声明(stage 3): site 有 nav_label(非必填),机制词条没有这个字段', async () => {
   const config = await readConfig();
-  for (const name of ['mechanics', 'site']) {
-    assert.equal(value(field(collection(config, name), 'nav_label'), 'required'), 'false', `${name}: a contributor is told to leave it empty on every page but one`);
+  assert.equal(value(field(collection(config, 'site'), 'nav_label'), 'required'), 'false', 'site: a contributor is told to leave it empty on every page but one');
+  assert.ok(hasChinese(unquote(value(field(collection(config, 'site'), 'nav_label'), 'hint'))), 'site.nav_label has a hint in Chinese');
+  // A mechanic page can no longer put itself on the top bar: since stage 3 the four entries it used to ride
+  // (玩法指南, 机制说明…) live on in each mod's own page, and 关于本站 is a site page's to declare.
+  assert.equal(field(collection(config, 'mechanics'), 'nav_label'), undefined, 'mechanics has no nav_label field');
+  assert.equal(field(collection(config, 'items'), 'nav_label'), undefined);
+  for (const name of ['home', 'sections', 'mods', 'items', 'redirects', 'templates']) {
+    assert.equal(field(collection(config, name), 'nav_label'), undefined, `${name} has no nav_label field either`);
   }
 });
 

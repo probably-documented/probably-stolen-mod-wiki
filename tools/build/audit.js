@@ -127,15 +127,13 @@ const path = require('node:path');
  * The only `src` a <script> may carry (A4): the scripts the first-party
  * templates load, from what templates.js / render.js actually write.
  *   data.js, assets/js/search.js    render.js renderSearch → search.html
- *   assets/js/item-filter.js        render.js renderItems → items.html
- *                                    (a file since task 6b A8)
  *   nav-search.js, assets/js/nav-home.js
  *                                    render.js renderHomePage → index.html
  *                                    (stage 3, task 2: the home page search)
  * templates.js emits no <script> at all. Exact values, as written.
  */
 const ALLOWED_SCRIPT_SRC = Object.freeze([
-  'assets/js/item-filter.js', 'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+  'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
 ]);
 
 /**

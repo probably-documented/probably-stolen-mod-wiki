@@ -12,24 +12,25 @@
 //   layout({title, relRoot, activeNav, breadcrumb, bodyHtml, noticeHtml, aboutNav}) -> string
 //     (noticeHtml optional: renders the mockup's top-news bar between the
 //      ps-site banner and the content box; omit for no bar. aboutNav
-//      optional: the top-nav about entry a page declares — aboutNavItem —
-//      omit for no 关于本站 entry, task 5b A)
+//      optional: the top-nav about entry a site page declares — aboutNavItem —
+//      omit for no 关于本站 entry)
 //   infobox(item, relRoot = '../')        -> string  (detail pages are depth 1)
 //   itemCard(item, relRoot = '')          -> string
 //   itemInline(item, relRoot = '')        -> string
 //   renderWikiTable(headers, rows)        -> string  (cells are trusted HTML)
 //   cssVars                                — Global Constraints palette
-//   NAV_ITEMS                              — shared nav (relRoot-prefixed at render)
+//   NAV_ITEMS                              — the structural entries of the top nav
 //   navLinks(relRoot, activeNav, placement, aboutNav) -> string
-//   aboutNavItem(label, slug)              — the nav entry a page declares
+//   aboutNavItem(label, slug)              — the nav entry a site page declares
+//   homeSearchRow, sectionBlock, modBar    — the home page and the section pages
 //
 // Discipline: strictly-null checks for "missing" fields. Empty string is a
 // VALID value (project rule) and must never render as 待补充. price 0 is valid.
 
-const SITE_NAME = '淫色深空 Wiki';
-const SITE_LOGO_SMALL = 'LEWD MEME FAMILY';
-const SITE_SUBNAME = 'LEWD MEME MOD FAMILY · 离线版';
-const SITE_NOTICE = '本 wiki 为 lewd_meme 系模组的非官方离线资料站,随模组版本更新重新打包生成。<br/>内容基于模组源码与数据文件整理,转载请注明来源。';
+const SITE_NAME = 'probably-documented';
+const SITE_LOGO_SMALL = 'PROBABLY STOLEN MOD WIKI';
+const SITE_SUBNAME = 'Probably Stolen 模组百科';
+const SITE_NOTICE = '本站是 Probably Stolen 模组的非官方百科,内容由贡献者在线维护。<br/>数据提取自模组安装文件,与游戏内表现一致;转载请注明来源。';
 const BWIKI_CREDIT_URL = 'https://wiki.biligame.com/probablystolen';
 const MISSING = '<i class="missing">待补充</i>';
 
@@ -49,29 +50,23 @@ const cssVars = Object.freeze({
   rust: '#b97c57',
 });
 
-// Top nav. Items appear in both the wiki-header menu-row and the ps-site
-// banner's ps-site__links unless onlyIn restricts them (mirrors the mockup:
-// menu-row ends with 关于本站, ps-site__links ends with 物品检索器). hrefs
-// are relative to the site root, always rendered with the relRoot prefix.
-// Every entry here is an auto-generated structural page. The 关于本站 entry
-// is NOT in this list: it points at a content page, so the page itself
-// declares it (frontmatter `nav_label` → aboutNavItem → layout's aboutNav,
-// task 5b A). Delete that page and the entry is gone; nothing here changes.
-// Placeholders wired by Task 8 (controller Ruling 6): 玩法指南 rides the
-// mechanics index, and the search tools entry points at the client-side
-// search page.
+// Top nav (stage 3): 首页, 更新日志 and 物品检索器, structural pages all, in both
+// the wiki-header menu-row and the ps-site banner's ps-site__links. hrefs are
+// relative to the site root, always rendered with the relRoot prefix.
+// The 关于本站 entry is NOT in this list: a site page declares it with its
+// front matter `nav_label` (sitePagesWithNavLabel in mechanics.js →
+// aboutNavItem → layout's aboutNav), and it is then the last entry of both
+// spots. Delete that page and the entry is gone; nothing here changes.
+// The four entries of the old bar — 玩法指南, 模组介绍, 物品图鉴, 机制说明 —
+// are gone from it: each lives on in the mod's own navigation page.
 const NAV_ITEMS = Object.freeze([
   { key: 'home', label: '首页', href: 'index.html' },
-  { key: 'items', label: '物品图鉴', href: 'items.html' },
-  { key: 'mechanics', label: '机制说明', href: 'mechanics.html' },
-  { key: 'guides', label: '玩法指南', href: 'mechanics.html' },
-  { key: 'mods', label: '模组介绍', href: 'index.html#mod-family' },
   { key: 'changelog', label: '更新日志', href: 'changelog.html' },
-  { key: 'searchtools', label: '物品检索器', href: 'search.html', onlyIn: 'site-links' },
+  { key: 'searchtools', label: '物品检索器', href: 'search.html' },
 ].map(Object.freeze));
 
-/** Where the about entry sits in the nav order: right after 更新日志. */
-const ABOUT_SLOT = NAV_ITEMS.findIndex((it) => it.key === 'changelog') + 1;
+/** Where the about entry sits in the nav order: last, as in the approved prototype. */
+const ABOUT_SLOT = NAV_ITEMS.length;
 
 function esc(text) {
   return String(text)
@@ -93,23 +88,23 @@ function itemHref(item, relRoot) {
   return `${relRoot}item/${item.id}.html`;
 }
 
-// The top-nav about entry a mechanic page provides through its frontmatter
-// `nav_label` (task 5b A1): shown in the wiki-header menu-row only, right
-// after 更新日志, linking at that page. `label` is page data and `slug` a
-// file name — both are escaped where they are rendered (navLinks).
+// The top-nav about entry a site page provides through its frontmatter
+// `nav_label` (stage 3, task 5): the last entry of both spots, linking at
+// that page (content/site/<slug>.md → site/<slug>.html). `label` is page data
+// and `slug` a file name — both are escaped where they are rendered (navLinks).
 function aboutNavItem(label, slug) {
-  return { key: 'about', label, href: `mechanics/${slug}.html`, onlyIn: 'menu-row' };
+  return { key: 'about', label, href: `site/${slug}.html` };
 }
 
-/** The nav in order, with the declared about entry (if any) in its slot. */
+/** The nav in order, with the declared about entry (if any) last. */
 function navItems(aboutNav) {
   if (aboutNav == null) return NAV_ITEMS;
   return [...NAV_ITEMS.slice(0, ABOUT_SLOT), aboutNav, ...NAV_ITEMS.slice(ABOUT_SLOT)];
 }
 
 // placement: 'menu-row' | 'site-links'; items flagged onlyIn render in one
-// spot only, everything else shows in both. aboutNav (task 5b A): the entry
-// declared by a page (aboutNavItem), or null/omitted when no page declares one.
+// spot only, everything else shows in both. aboutNav: the entry declared by
+// a site page (aboutNavItem), or null/omitted when no page declares one.
 function navLinks(relRoot, activeNav, placement, aboutNav = null) {
   return navItems(aboutNav)
     .filter((it) => !it.onlyIn || it.onlyIn === placement)
@@ -139,7 +134,7 @@ function searchForm(relRoot, cls, placeholder) {
     + '</form>';
 }
 
-// aboutNav (task 5b A): the top-nav about entry declared by a page
+// aboutNav: the top-nav about entry declared by a site page
 // (templates.aboutNavItem), or null/omitted when no page declares one.
 function layout({ title, relRoot = '', activeNav = null, breadcrumb = null, bodyHtml = '', noticeHtml = null, aboutNav = null }) {
   // top-news 全站通知条(数据基线等),仅首页等显式传入时渲染
@@ -157,7 +152,7 @@ function layout({ title, relRoot = '', activeNav = null, breadcrumb = null, body
 <div class="wiki-header">
 <div class="wiki-logo-text">${SITE_NAME}<small>${SITE_LOGO_SMALL}</small></div>
 <div class="menu-row">${navLinks(relRoot, activeNav, 'menu-row', aboutNav)}</div>
-${searchForm(relRoot, 'header-search', '搜索物品、机制…')}
+${searchForm(relRoot, 'header-search', '搜索物品、词条…')}
 </div>
 <div class="ps-site">
 <div class="ps-site__mast">
@@ -172,7 +167,7 @@ ${searchForm(relRoot, 'header-search', '搜索物品、机制…')}
 </div>
 <div class="ps-site__nav">
 <div class="ps-site__links">${navLinks(relRoot, activeNav, 'site-links', aboutNav)}</div>
-${searchForm(relRoot, 'ps-site__search', '搜索本 Wiki')}
+${searchForm(relRoot, 'ps-site__search', '搜索物品、词条…')}
 </div>
 </div>
 ${notice}
@@ -181,7 +176,7 @@ ${breadcrumbHtml(breadcrumb)}
 ${bodyHtml}
 </div>
 <div class="wiki-footer">
-离线便携版 · 数据提取自模组安装文件 · 风格与素材复用自 <a href="${BWIKI_CREDIT_URL}" target="_blank" rel="noopener noreferrer">深空当铺 BWIKI</a>(CC BY-NC-SA 4.0)· 仅限个人学习交流
+数据提取自模组安装文件 · 内容由贡献者在线维护 · 风格与素材复用自 <a href="${BWIKI_CREDIT_URL}" target="_blank" rel="noopener noreferrer">深空当铺 BWIKI</a>(CC BY-NC-SA 4.0)· 仅限个人学习交流
 </div>
 </div>
 </body>

@@ -21,7 +21,7 @@ const fs = require('node:fs/promises');
 
 const { mdToHtml, restoreItemLinks } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
-const { mechanicsWithNavLabel } = require('./mechanics.js');
+const { sitePagesWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
@@ -140,7 +140,7 @@ function multiLine(text) {
 // Site model helpers
 // ---------------------------------------------------------------------------
 
-function buildSiteModel(data, nav = null) {
+function buildSiteModel(data, nav = null, about = null) {
   const mods = data.mods ?? [];
   const modsById = new Map(mods.map((m) => [m.id, m]));
   // A hand-written mod's name lives in its page file; the search model (nav) carries it.
@@ -158,13 +158,10 @@ function buildSiteModel(data, nav = null) {
     for (const alias of it.aliases ?? []) if (!byId.has(alias)) byId.set(alias, it);
   }
   const lookup = (id) => byId.get(id) ?? null;
-  // 顶部导航的「关于本站」由页面自己声明:机制页的 navLabel(mergeMechanicsContent
-  // 读自 content/mods/<modId>/mechanics/<slug>.md 的 frontmatter `nav_label`,task 5b A)。
-  // 「navLabel 是否已设置」只问 mechanics.js 一处(mechanicsWithNavLabel,
-  // task 6b D1):这里不再自己判定。没有页面声明 → null → 导航没有这一项;
-  // 构建入口保证最多一页带它。
-  const [aboutPage] = mechanicsWithNavLabel(data.mechanics ?? []);
-  const aboutNav = aboutPage == null ? null : aboutNavItem(aboutPage.navLabel.trim(), aboutPage.slug);
+  // 顶部导航的「关于本站」由站点页面自己声明:content/site/<文件名>.md 的 frontmatter
+  // `nav_label`(mechanics.js 的 sitePagesWithNavLabel 读出来,阶段 3 Task 5)。
+  // 没有页面声明 → null → 导航没有这一项;构建入口保证最多一页声明。
+  const aboutNav = about == null ? null : aboutNavItem(about.navLabel, about.slug);
   return { mods, modsById, items, lookup, aboutNav };
 }
 
@@ -278,54 +275,31 @@ function renderNavSearchJs(nav) {
   return `window.NAV_SEARCH = ${JSON.stringify(nav ?? {})};\n`;
 }
 
-function renderItems(data, model) {
-  const { mods, items } = model;
-
-  const catChips = ['<span class="item-inline" style="border-color:var(--dk-accent);color:var(--dk-accent)" data-category="">全部</span>']
-    .concat((data.facets?.categories ?? []).map((c) => `<span class="item-inline" data-category="${esc(c)}">${esc(c)}</span>`))
-    .join('');
-  const modChips = ['<span class="item-inline" style="border-color:var(--dk-accent);color:var(--dk-accent)" data-mod="">全部模组</span>']
-    .concat(mods.map((m) => `<span class="item-inline" data-mod="${esc(m.id)}">${m.name == null ? esc(m.id) : esc(m.name)}</span>`))
-    .join('');
-
-  const sections = mods.map((mod) => {
-    const modItems = items.filter((it) => it.mod === mod.id);
-    const name = mod.name == null ? esc(mod.id) : esc(mod.name);
-    const version = validVersion(mod.version);
-    const overview = mod.description == null ? '' : `<p style="font-size:13px;color:var(--dk-muted)"><b>${esc(truncate(modOverview(mod.description), 120))}</b></p>`;
-    const grid = modItems.length === 0
-      ? '<p style="font-size:13px;color:var(--dk-muted)">该模组暂无物品条目。</p>'
-      : `<div class="item-grid">\n${modItems.map((it) => itemCard(it, '')).join('\n')}\n</div>`;
-    return `<section data-mod="${esc(mod.id)}">
-<h2 class="sec">${name}${version == null ? '' : `(${esc(version)})`}</h2>
-${overview}
-${grid}
-</section>`;
-  }).join('\n');
-
-  const body = `<h1 class="page-title">物品图鉴</h1>
-<div class="updated">本页数据基线:${esc(data.baseline?.date ?? '')} · 覆盖 ${esc(mods.length)} 个模组 · 共 ${esc(items.length)} 件物品</div>
-<h2 class="sec">概述</h2>
-<p>物品是模组内容的基本载体。每件物品具有数个基本属性:<b>名称、所属模组、品类、基础价值、占格尺寸(宽×高)、标签、描述</b> 等。</p>
-<ul style="font-size:13px">
-<li><b>品类</b>:决定顾客是否收购——顾客有偏好与拒收品类清单。</li>
-<li><b>基础价值</b>:交易基准价,实际成交价受声望、管制、疲劳估值等修正。</li>
-<li><b>标签</b>:价格修正项与机制触发条件,如「触手侵蚀」标记可被侵蚀性触手转化的物品。</li>
-<li><b>占格尺寸</b>:背包与货架内的占用格数(宽×高)。</li>
-</ul>
-<h2 class="sec">筛选</h2>
-<p style="font-size:13px">品类:${catChips}</p>
-<p style="font-size:13px">来源:${modChips}</p>
-<div id="item-filter-status" style="font-size:12px;color:var(--dk-muted)"></div>
-${sections}
-<script src="assets/js/item-filter.js"></script>`;
+/**
+ * 站点页面(site/<slug>.html,阶段 3 Task 5):不属于任何 mod 的页面,例如「关于本站」。
+ * 标题、正文(按 Markdown 渲染,物品内嵌卡可用)。面包屑是「首页、本页」。
+ * 声明了 nav_label 的那一页就是顶栏的「关于本站」,它自己高亮这一项;别的站点页面不高亮任何项。
+ * @param {{ slug: string, file: string|null }} page
+ * @param {{ slug: string, navLabel: string }|null} about 布局里声明了「关于本站」的站点页面
+ */
+async function renderSitePage(data, model, page, about) {
+  const relRoot = '../';
+  const raw = page.file == null ? null : await readOptional(page.file);
+  const { fm, body } = splitFrontmatter(raw ?? '');
+  const title = typeof fm.title === 'string' && fm.title.trim() !== '' ? fm.title.trim() : page.slug;
+  const { html } = mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot));
+  const declared = about !== null && about.slug === page.slug;
 
   return layout({
-    title: '物品图鉴',
-    relRoot: '',
-    activeNav: 'items',
-    breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '物品图鉴' }],
-    bodyHtml: body,
+    title,
+    relRoot,
+    activeNav: declared ? 'about' : null,
+    breadcrumb: [
+      { text: '首页', href: `${relRoot}index.html` },
+      { text: title },
+    ],
+    bodyHtml: `<h1 class="page-title">${esc(title)}</h1>
+${html}`,
     aboutNav: model.aboutNav,
   });
 }
@@ -425,7 +399,7 @@ ${pageLinks}
   return layout({
     title: item.name == null ? item.id : item.name,
     relRoot,
-    activeNav: 'items',
+    activeNav: null, // no top-bar entry is the item pages' own: they are reached through their mod's page
     // 首页、所属 mod、本页。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
@@ -463,7 +437,7 @@ function renderMechanicPage(data, model, mech, modName = null) {
   const page = layout({
     title,
     relRoot,
-    activeNav: 'mechanics',
+    activeNav: null, // as the item pages: reached through their mod's page
     // 首页、所属 mod、本页。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
@@ -477,29 +451,6 @@ ${html}`,
     aboutNav: model.aboutNav,
   });
   return page;
-}
-
-function renderMechanicsIndex(data, model) {
-  const cards = (data.mechanics ?? []).map((m) => `<div class="mod-card">
-<h4><a href="mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
-<p>${esc(firstParagraphExcerpt(m.source ?? '', model.lookup))}</p>
-</div>`).join('\n');
-  const cardsHtml = cards === ''
-    ? '<p style="font-size:13px;color:var(--dk-muted)">机制条目待补充。</p>'
-    : `<div class="mod-cards">
-${cards}
-</div>`;
-
-  return layout({
-    title: '机制说明',
-    relRoot: '',
-    activeNav: 'mechanics',
-    breadcrumb: [{ text: '首页', href: 'index.html' }, { text: '机制说明' }],
-    bodyHtml: `<h1 class="page-title">机制说明</h1>
-<div class="updated">全部机制与玩法指南索引 · 数据基线 ${esc(data.baseline?.date ?? '')}</div>
-${cardsHtml}`,
-    aboutNav: model.aboutNav,
-  });
 }
 
 /**
@@ -568,7 +519,7 @@ ${entries.length === 0 ? blank('还没有更新记录。') : entries.map((c) => 
   return layout({
     title: name,
     relRoot,
-    activeNav: 'mods',
+    activeNav: 'home', // the mod pages are where the home page's navigation leads
     // 首页、mod 名:一个 mod 可以属于几个分区,面包屑里不放分区。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
@@ -620,9 +571,10 @@ function renderSearch(data, model) {
 }
 
 // renderInstallCompat 已删除(final review Important 4):不再有
-// mods/install-compat.html 占位骨架。「关于本站」导航项由机制页自己声明
-// (frontmatter `nav_label` → navLabel → model.aboutNav,task 5b A),
-// 目前是 content/mods/lewd_meme/mechanics/install-compat.md。
+// mods/install-compat.html 占位骨架。「关于本站」导航项由站点页面自己声明
+// (content/site/<文件名>.md 的 frontmatter `nav_label` → sitePagesWithNavLabel
+// → aboutNavItem → model.aboutNav,阶段 3 Task 5),
+// 目前是 content/site/about.md。
 
 /** 精简客户端数据包:不含 provenance / notes 等内部字段;search 由 Task 9 填充。 */
 function renderDataJs(data, model) {
@@ -678,14 +630,15 @@ async function renderSite(data, options = {}) {
   // is still a home page, with nothing to list or to search.
   const layout = options.layout ?? null;
   const nav = options.nav ?? { mods: [], sections: [] };
-  const model = buildSiteModel(data, nav);
+  // The site page that declares the top nav's about entry: the first in file-name order. The
+  // build entry refuses more than one long before it gets here.
+  const about = (await sitePagesWithNavLabel(layout))[0] ?? null;
+  const model = buildSiteModel(data, nav, about);
   // A mod's name for a page that belongs to it: the data's, or — for a hand-written mod — the search model's.
   const modNameOf = (id) => model.modsById.get(id)?.name ?? (nav.mods ?? []).find((m) => m.id === id)?.name ?? null;
   const out = new Map();
 
   out.set('index.html', await renderHomePage(data, model, layout, nav));
-  out.set('items.html', renderItems(data, model));
-  out.set('mechanics.html', renderMechanicsIndex(data, model));
   out.set('changelog.html', renderChangelog(data, model));
   out.set('search.html', renderSearch(data, model));
   out.set('data.js', renderDataJs(data, model));
@@ -710,6 +663,11 @@ async function renderSite(data, options = {}) {
     out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? []));
   }
   out.set('nav-search.js', renderNavSearchJs(nav));
+
+  // One page per site page — 关于本站 among them.
+  for (const page of layout?.site ?? []) {
+    out.set(`site/${page.slug}.html`, await renderSitePage(data, model, page, about));
+  }
 
   // Every item entry of every mod, by the item it names. A file name that
   // differs from the id by case only names its item too (resolveItemId) —

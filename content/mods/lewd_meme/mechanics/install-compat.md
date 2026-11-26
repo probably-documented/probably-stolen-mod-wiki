@@ -1,7 +1,6 @@
 ---
 title: 安装与兼容性
 mod: lewd_meme
-nav_label: 关于本站
 ---
 *适用版本:触手家族各模组,以各自 manifest 为准(数据基线 2026-11-23)*
 

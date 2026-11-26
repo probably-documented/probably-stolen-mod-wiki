@@ -23,7 +23,8 @@
 //
 // Task 5b adds — the build as a contributor meets it (the CMS will let them
 // edit and delete pages):
-//   nav_label   — the top-nav 关于本站 entry is declared by a mechanic page;
+//   nav_label   — the top-nav 关于本站 entry is declared by a site page
+//                 (content/site/<文件名>.md);
 //                 delete the page and the entry is gone, the build still passes
 //   dangling    — a link to a file dist does not ship fails the build with a
 //                 Chinese report naming the file to edit (tests/dangling-refs.test.js
@@ -64,6 +65,7 @@ const { FIXTURE_DATA } = require('../data/fixture-model.js');
 const { auditExternalLinks, CODES } = require('../tools/build/audit.js');
 const { splitFrontmatter } = require('../tools/extract/frontmatter.js');
 const { findWideTableRows } = require('../tools/build/wide-tables.js');
+const { queryIndex } = require('../tools/build/search-index.js');
 
 /** The footer credit link templates.js writes on every page (templates.js keeps its own copy). */
 const BWIKI_CREDIT_URL = 'https://wiki.biligame.com/probablystolen';
@@ -81,9 +83,8 @@ const DATA_JS_PREFIX = 'window.WIKI_DATA = ';
  */
 const EXPECTED_ASSETS = [
   ['theme.css', 'css/theme.css'], // layout: <link rel="stylesheet" href="…css/theme.css">
-  ['search.js', 'assets/js/search.js'],
-  ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2) // search.html: <script src="assets/js/search.js">
-  ['item-filter.js', 'assets/js/item-filter.js'], // items.html: <script src="assets/js/item-filter.js"> (task 6b A8)
+  ['search.js', 'assets/js/search.js'], // search.html: <script src="assets/js/search.js">
+  ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2)
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'], // layout: .ps-site__emblem <img src>
   ['bwiki/bg.png', 'assets/bwiki/bg.png'], // theme.css: body background url(../assets/bwiki/bg.png)
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'], // theme.css @font-face
@@ -335,18 +336,16 @@ test('buildSkeleton merges the item entries (content/mods/<modId>/items/<物品I
   assert.equal(result.pages, await countRenderedFiles(distDir));
 });
 
-test('the mechanic pages of a mod directory (content/mods/<modId>/mechanics/*.md) become mechanic pages; the one with nav_label provides the top-nav 关于本站 entry', async (t) => {
+test('the mechanic pages of a mod directory (content/mods/<modId>/mechanics/*.md) become mechanic pages — reached through their mod\'s page, since there is no all-site index any more', async (t) => {
   const distDir = await tmpDir(t, 'mechanics');
   await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
 
-  // The about entry is no longer a hard-coded NAV_ITEMS row: it exists
-  // because mods/lewd_meme/mechanics/install-compat.md declares `nav_label: 关于本站`.
   const entryPath = fixturePage('install-compat');
   const raw = await fs.readFile(entryPath, 'utf8');
   const { fm, body } = splitFrontmatter(raw);
   assert.equal(typeof fm.title, 'string', 'frontmatter title: (Task 3 YAML subset)');
   assert.ok(fm.title.length > 0, 'frontmatter title is non-empty');
-  assert.equal(fm.nav_label, '关于本站', 'the page declares its own top-nav label');
+  assert.equal(fm.nav_label, undefined, 'a mechanic page declares no nav_label (stage 3): 安装与兼容性 is lewd_meme\'s install page, nothing more');
 
   const page = await fs.readFile(path.join(distDir, 'mechanics', 'install-compat.html'), 'utf8');
   assert.ok(page.includes(`<title>${fm.title} · `), 'page title comes from the frontmatter');
@@ -365,74 +364,98 @@ test('the mechanic pages of a mod directory (content/mods/<modId>/mechanics/*.md
   for (const m of FIXTURE_DATA.mechanics) {
     await fs.access(path.join(distDir, 'mechanics', `${m.slug}.html`));
   }
-  const mechanicsIndex = await fs.readFile(path.join(distDir, 'mechanics.html'), 'utf8');
-  assert.ok(mechanicsIndex.includes(`href="mechanics/install-compat.html"`), 'listed on the mechanics index');
-
-  // A1, end to end: EVERY page's menu-row ends with the about entry built
-  // from that page (label = nav_label, href = mechanics/<slug>.html), and
-  // the ps-site__links never carry it.
-  for (const file of (await listFiles(distDir)).filter((f) => /\.html$/i.test(f))) {
-    const html = await fs.readFile(file, 'utf8');
-    const prefix = path.relative(distDir, file).includes(path.sep) ? '../' : '';
-    const menuRow = html.split('class="menu-row"')[1].split('</div>')[0];
-    assert.ok(menuRow.endsWith(`<a href="${prefix}mechanics/install-compat.html">关于本站</a>`),
-      `${toPosix(path.relative(distDir, file))}: menu-row ends with the about entry`);
-    assert.ok(!html.split('class="ps-site__links"')[1].split('</div>')[0].includes('关于本站'));
-  }
-
-  // A6: the about page is a mechanic page; 机制说明 stays the highlighted
-  // entry (as before the nav became page-declared), the about entry itself
-  // is never highlighted.
-  const menuRow = page.split('class="menu-row"')[1].split('</div>')[0];
-  const siteLinks = page.split('class="ps-site__links"')[1].split('</div>')[0];
-  assert.ok(menuRow.includes('<a href="../mechanics.html" class="active">机制说明</a>'), 'menu-row: 机制说明 is active');
-  assert.ok(siteLinks.includes('<a href="../mechanics.html" class="active">机制说明</a>'), 'ps-site__links: 机制说明 is active');
-  assert.ok(menuRow.includes('<a href="../mechanics/install-compat.html">关于本站</a>'), 'menu-row: the about entry, not highlighted');
-  assert.ok(!siteLinks.includes('关于本站'), 'ps-site__links: no about entry');
-  assert.equal((page.match(/class="active"/g) || []).length, 2, 'exactly the two nav spots, one active entry each');
+  // …and the all-site index is gone: the page is listed where it belongs, on its mod's own page
+  await assert.rejects(fs.access(path.join(distDir, 'mechanics.html')), 'no mechanics.html');
+  await assert.rejects(fs.access(path.join(distDir, 'items.html')), 'no items.html');
+  const modPage = await fs.readFile(path.join(distDir, 'mods', `${FIXTURE_MOD}.html`), 'utf8');
+  assert.ok(modPage.includes('<a href="../mechanics/install-compat.html">安装与兼容性</a>'), 'listed on its mod\'s page, with its title');
+  // A6: a mechanic page is not a top-bar destination of its own — nothing is highlighted on it
+  assert.equal((page.match(/class="active"/g) || []).length, 0, 'no top-bar entry stands for mechanic pages');
 });
 
 // ---------------------------------------------------------------------------
-// Task 5b A — the top-nav about entry is declared by the page itself
+// Stage 3, task 5 — the top-nav about entry is declared by a SITE PAGE
 //
-// `nav_label` in a mechanic page's frontmatter makes that page the top
-// nav's about entry. So deleting the page (which the CMS will let
-// contributors do, Task 6) deletes the entry: the build passes, nothing is
-// left pointing at the removed page. More than one page declaring a label
-// is the one thing that cannot be rendered unambiguously — the build goes
-// red and names the pages.
+// `nav_label` in the front matter of content/site/<文件名>.md makes that page
+// the top nav's 关于本站 entry (a mechanic page can no longer declare it). So
+// deleting the page — which the CMS lets contributors do — deletes the
+// entry: the build passes, nothing is left pointing at the removed page.
+// More than one page declaring a label is the one thing that cannot be
+// rendered unambiguously — the build goes red and names the pages.
 // ---------------------------------------------------------------------------
 
-test('A2 — 删掉带 nav_label 的页面后构建照常通过:顶部导航没有「关于本站」,dist 零悬空引用', async (t) => {
+/** A site page of a content tree that is laid out like the fixture's. */
+const siteIn = (contentDir, slug) => path.join(contentDir, 'site', `${slug}.md`);
+/** The fixture's own site page, which declares 关于本站. */
+const fixtureSitePage = (slug) => siteIn(REPO_CONTENT, slug);
+
+/** content/site/<name>: the given front matter lines between --- markers, then the body. */
+async function writeSitePage(contentDir, name, fmLines, body = '正文。\n') {
+  const file = siteIn(contentDir, name.replace(/\.md$/, ''));
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, ['---', ...fmLines, '---', '', body].join('\n'));
+  return file;
+}
+
+test('A1 — the 关于本站 a site page declares is the last entry of both nav spots on every page, linking at site/<slug>.html; on its own page it is the highlighted entry', async (t) => {
+  const distDir = await tmpDir(t, 'about');
+  await build({ distDir, contentDir: REPO_CONTENT, warn: noop });
+
+  // The about entry is no hard-coded NAV_ITEMS row: it exists because
+  // tests/fixtures/content/site/about.md declares `nav_label: 关于本站`.
+  assert.equal(splitFrontmatter(await fs.readFile(fixtureSitePage('about'), 'utf8')).fm.nav_label, '关于本站');
+  const page = await fs.readFile(path.join(distDir, 'site', 'about.html'), 'utf8');
+  assert.ok(page.includes('<h1 class="page-title">关于本站</h1>'), 'the site page is rendered');
+  for (const file of (await listFiles(distDir)).filter((f) => /\.html$/i.test(f))) {
+    const html = await fs.readFile(file, 'utf8');
+    const prefix = path.relative(distDir, file).includes(path.sep) ? '../' : '';
+    for (const spot of ['menu-row', 'ps-site__links']) {
+      const inner = html.split(`class="${spot}"`)[1].split('</div>')[0];
+      // The entry is highlighted on the page it leads to (checked right below), plain everywhere else.
+      const last = inner.slice(inner.lastIndexOf('<a ')).replace(' class="active"', '');
+      assert.equal(last, `<a href="${prefix}site/about.html">关于本站</a>`,
+        `${toPosix(path.relative(distDir, file))} ${spot}: ends with the about entry`);
+    }
+  }
+  // A6: on the about page itself that entry is the highlighted one, in both spots, and nothing else is
+  for (const spot of ['menu-row', 'ps-site__links']) {
+    assert.ok(page.split(`class="${spot}"`)[1].split('</div>')[0].includes(`<a href="../site/about.html" class="active">关于本站</a>`), `${spot}: 关于本站 is active on its own page`);
+  }
+  assert.equal((page.match(/class="active"/g) || []).length, 2, 'exactly the two nav spots, one active entry each');
+  assert.ok(page.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 关于本站</div>'));
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
+});
+
+test('A2 — 删掉带 nav_label 的站点页面后构建照常通过:顶部导航没有「关于本站」,dist 零悬空引用', async (t) => {
   const distDir = await tmpDir(t, 'nav-none');
   // A copy of the repo's content/ without the about page — what a
   // contributor deleting the page in the CMS ends up with.
   const contentDir = await tmpDir(t, 'nav-none-content');
   await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
-  await fs.rm(pageIn(contentDir, 'install-compat'));
+  await fs.rm(siteIn(contentDir, 'about'));
 
   const { result, exitCode, before } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
   assert.ok(result != null, 'the build passes');
   assert.equal(exitCode, before, 'a build without an about page is not a failure');
-  await assert.rejects(fs.access(path.join(distDir, 'mechanics', 'install-compat.html')), 'the page itself is gone');
+  await assert.rejects(fs.access(path.join(distDir, 'site', 'about.html')), 'the page itself is gone');
   assert.equal(await countRenderedFiles(distDir), result.pages);
   for (const file of (await listFiles(distDir)).filter((f) => /\.html$/i.test(f))) {
     const html = await fs.readFile(file, 'utf8');
-    assert.ok(!html.includes('关于本站'), `${toPosix(path.relative(distDir, file))}: the nav has no about entry`);
-    assert.ok(!html.includes('install-compat'), `${toPosix(path.relative(distDir, file))}: nothing refers to the deleted page`);
+    assert.ok(!html.includes('关于本站</a>'), `${toPosix(path.relative(distDir, file))}: the nav has no about entry`);
+    assert.ok(!html.includes('site/about.html'), `${toPosix(path.relative(distDir, file))}: nothing refers to the deleted page`);
   }
   assert.deepEqual((await findDanglingRefs(distDir)).dangling, [], 'zero dangling references after deleting the page');
 });
 
-test('A3 — 多于一个机制页带 nav_label → 构建失败(exitCode 1),中文报错列出这些页面;上一个 dist 保留', async (t) => {
+test('A3 — 多于一个站点页面带 nav_label → 构建失败(exitCode 1),中文报错列出这些页面;上一个 dist 保留', async (t) => {
   const distDir = await tmpDir(t, 'nav-two');
   await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
   const before = await snapshotTree(distDir);
   const contentDir = await tmpDir(t, 'nav-two-content');
-  await writePage(contentDir, 'first.md', ['title: 第一页', 'nav_label: 关于本站']);
-  await writePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 关于本站']);
-  await writePage(contentDir, 'third.md', ['title: 第三页', 'nav_label: "  "']); // blank → not set
+  await writeSitePage(contentDir, 'first.md', ['title: 第一页', 'nav_label: 关于本站']);
+  await writeSitePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 关于本站']);
+  await writeSitePage(contentDir, 'third.md', ['title: 第三页', 'nav_label: "  "']); // blank → not set
 
   const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
@@ -442,7 +465,7 @@ test('A3 — 多于一个机制页带 nav_label → 构建失败(exitCode 1),中
   // 中文 + names every offending page by its file
   assert.match(err.message, /[\u4e00-\u9fff]/, 'the message is in Chinese');
   for (const slug of ['first', 'second']) {
-    assert.ok(err.message.includes(toPosix(pageIn(contentDir, slug))), `${slug}.md is named`);
+    assert.ok(err.message.includes(toPosix(siteIn(contentDir, slug))), `${slug}.md is named`);
   }
   assert.doesNotMatch(err.message, /third/, 'a blank nav_label counts as not set');
   assert.doesNotMatch(err.message, /\[audit\]/, 'fails long before the audit');
@@ -496,7 +519,7 @@ test('B2 — 每个悬空引用一行;同一次构建里的所有断链一次报
   const distDir = await tmpDir(t, 'links-many');
   const contentDir = await tmpDir(t, 'links-many-content');
   await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
-  await fs.appendFile(pageIn(contentDir, 'install-compat'), '\n[a](a.html) [b](../b.html) [ok](../items.html)\n');
+  await fs.appendFile(pageIn(contentDir, 'install-compat'), `\n[a](a.html) [b](../b.html) [ok](../mods/${FIXTURE_MOD}.html)\n`);
   await writePage(contentDir, 'other.md', ['title: 另一页'], '[c](c.html)\n');
 
   const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
@@ -629,8 +652,8 @@ test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no t
     assert.doesNotMatch(page, /<img[^>]*\ssrc="[^"]*assets\/items\//, `${item.id}: <img> points at an unshipped texture`);
     assert.match(page, /class="no-icon">无图</, `${item.id}: 无图 fallback rendered`);
   }
-  // same degradation everywhere else items are drawn
-  for (const rel of ['index.html', 'items.html', ...FIXTURE_DATA.mods.map((m) => `mods/${m.id}.html`)]) {
+  // same degradation everywhere else items are drawn (the home page and each mod's own page)
+  for (const rel of ['index.html', ...FIXTURE_DATA.mods.map((m) => `mods/${m.id}.html`)]) {
     const page = await fs.readFile(path.join(distDir, rel), 'utf8');
     assert.doesNotMatch(page, /src="[^"]*assets\/items\//, `${rel}: references an unshipped texture`);
   }
@@ -931,7 +954,7 @@ test('what the CMS writes passes the build: a mechanic page with an uploaded ima
   await fs.mkdir(images);
   await fs.writeFile(path.join(images, '冒烟-图片-639ef49482e0.png'), PNG_1PX);
   await fs.writeFile(pageIn(contentDir, 'smoke-mechanic'),
-    `---\ntitle: 冒烟测试 机制页\nmod: ${FIXTURE_MOD}\nnav_label: ''\n---\n\n正文。![](../images/%E5%86%92%E7%83%9F-%E5%9B%BE%E7%89%87-639ef49482e0.png)\n`);
+    `---\ntitle: 冒烟测试 机制页\nmod: ${FIXTURE_MOD}\n---\n\n正文。![](../images/%E5%86%92%E7%83%9F-%E5%9B%BE%E7%89%87-639ef49482e0.png)\n`);
 
   // An item entry saved with nothing typed but the id and the mod.
   await fs.writeFile(entryIn(contentDir, 'tentacle_body'), [
@@ -957,7 +980,8 @@ test('what the CMS writes passes the build: a mechanic page with an uploaded ima
     `---\ntitle: 冒烟分区\norder: null\nmods:\n  - ${FIXTURE_MOD}\n  - smoke-Mod.X\n---\n\n分区的介绍正文。\n`);
 
   // A site page created from its title: the file is named after it, nav_label is written blank.
-  await fs.mkdir(path.join(contentDir, 'site'));
+  // (The fixture's own site/about.md is already there — a site page is a page like any other.)
+  await fs.mkdir(path.join(contentDir, 'site'), { recursive: true });
   await fs.writeFile(path.join(contentDir, 'site', '冒烟站点页.md'), "---\ntitle: 冒烟站点页\nnav_label: ''\n---\n\n这是一页不属于任何 mod 的站点页面。\n");
 
   const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
@@ -1064,7 +1088,7 @@ test('buildSkeleton removes the old dist with fs.rm retries (maxRetries / retryD
 //        missing; permission/disk/target failures propagate unchanged
 // ---------------------------------------------------------------------------
 
-test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 9 sources, checked before rm dist', async (t) => {
+test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 8 sources, checked before rm dist', async (t) => {
   const base = await tmpDir(t, 'asset-precheck');
   let i = 0;
   for (const [src, dest] of EXPECTED_ASSETS) {
@@ -1590,8 +1614,8 @@ test('an image that is not a bitmap (an SVG can hold a script) → the build fai
 test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(与其余面向贡献者的报告同一格式)', async (t) => {
   const distDir = await tmpDir(t, 'nav-format');
   const contentDir = await tmpDir(t, 'nav-format-content');
-  await writePage(contentDir, 'first.md', ['title: 第一页', 'nav_label: 关于本站']);
-  await writePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 桶装指南']);
+  await writeSitePage(contentDir, 'first.md', ['title: 第一页', 'nav_label: 关于本站']);
+  await writeSitePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 桶装指南']);
 
   const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
@@ -1600,9 +1624,9 @@ test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(�
   assert.equal(exitCode, 1);
   const lines = err.message.split('\n');
   assert.equal(lines.length, 4, err.message);
-  assert.match(lines[0], /^\[nav\] FAIL — 2 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口\(first、second\)。$/);
-  assert.equal(lines[1], `  ${toPosix(pageIn(contentDir, 'first'))}(nav_label: 关于本站)`);
-  assert.equal(lines[2], `  ${toPosix(pageIn(contentDir, 'second'))}(nav_label: 桶装指南)`);
+  assert.match(lines[0], /^\[nav\] FAIL — 2 个站点页面都设置了 nav_label,顶部导航只能有一个这样的入口\(first、second\)。$/);
+  assert.equal(lines[1], `  ${toPosix(siteIn(contentDir, 'first'))}(nav_label: 关于本站)`);
+  assert.equal(lines[2], `  ${toPosix(siteIn(contentDir, 'second'))}(nav_label: 桶装指南)`);
   assert.match(lines[3], /^提示:.*nav_label.*[\u4e00-\u9fff]。$/, 'the report ENDS with the hint');
 });
 
@@ -1788,8 +1812,7 @@ test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了不允许的标签
   }
 });
 
-test('a violation on a page written outside the mods is reported against that file: the home page, a section page, a mod page', async (t) => {
-  // (A site page is reported the same way; site pages are rendered from stage 3, task 5 on, and join this test there.)
+test('a violation on a page written outside the mods is reported against that file: the home page, a section page, a mod page, a site page', async (t) => {
   const distDir = await tmpDir(t, 'audit-outside-mods');
   const contentDir = await tmpDir(t, 'audit-outside-mods-content');
   await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
@@ -1797,23 +1820,27 @@ test('a violation on a page written outside the mods is reported against that fi
   const home = path.join(contentDir, 'home.md');
   const section = path.join(contentDir, 'sections', 'series.md');
   const modPage = path.join(contentDir, 'mods', FIXTURE_MOD, '_index.md');
+  const sitePage = siteIn(contentDir, 'about'); // the fixture's own site page, the one that declares 关于本站
   await fs.writeFile(home, `---\ntitle: 首页\n---\n${bad}`);
   await fs.mkdir(path.dirname(section));
   await fs.writeFile(section, `---\ntitle: 分区\nmods:\n  - ${FIXTURE_MOD}\n---\n${bad}`);
   await fs.writeFile(modPage, `---\ntitle: 甲\n---\n${bad}`);
+  await fs.appendFile(sitePage, bad);
 
   const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
   assert.ok(err instanceof Error, `expected the audit violations to fail the build, got ${err}`);
   assert.equal(err.name, 'BuildError');
   assert.equal(exitCode, 1);
-  assert.match(err.message, /^\[audit\] FAIL — 发现 3 处不允许的写法:/);
+  assert.match(err.message, /^\[audit\] FAIL — 发现 4 处不允许的写法:/);
   const entries = err.message.split('\n').filter((line) => /^\s+\d+\. 文件:/.test(line));
-  for (const [generated, source] of [['index.html', home], [`mods/${FIXTURE_MOD}.html`, modPage], ['sections/series.html', section]]) {
+  for (const [generated, source] of [
+    ['index.html', home], [`mods/${FIXTURE_MOD}.html`, modPage], ['sections/series.html', section], ['site/about.html', sitePage],
+  ]) {
     assert.ok(entries.some((line) => line.includes(`文件:${toPosix(source)}(生成页面 ${generated} 第`)),
       `${generated} should be reported against its file:\n${err.message}`);
   }
-  assert.equal(entries.length, 3, 'one entry per page');
+  assert.equal(entries.length, 4, 'one entry per page');
 });
 
 test('source shown in a code block is text: the build passes, and neither the audit nor the dangling-reference check reads a link or a script in it', async (t) => {
@@ -1963,7 +1990,7 @@ test('大小写:拼错的文件名(大小写也对不上)仍然是构建失败',
   assert.ok(err.message.includes('gear.maidres.md'), err.message);
 });
 
-test('分类筛选跟着合并后的物品:content 里的新分类不用重新导出数据', async (t) => {
+test('品类跟着合并后的物品:content 里的新分类不用重新导出数据,检索器就能按它找到这件物品', async (t) => {
   const distDir = await tmpDir(t, 'chip-dist');
   const contentDir = await tmpDir(t, 'chip-content');
   await writeItemEntry(contentDir, FIXTURE_ITEM_ID, ['categories:', '  - 新分类']);
@@ -1971,7 +1998,12 @@ test('分类筛选跟着合并后的物品:content 里的新分类不用重新�
   const { exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
   assert.equal(exitCode, before, err && err.message);
 
-  const itemsHtml = await fs.readFile(path.join(distDir, 'items.html'), 'utf8');
-  assert.ok(itemsHtml.includes('<span class="item-inline" data-category="新分类">新分类</span>'),
-    'the category chip comes from the merged items');
+  // The all-site 物品图鉴 with its category chips is gone (stage 3, task 5); the 物品检索器 is where
+  // a category is searched by, on the data of data.js.
+  const payload = await readDataJs(distDir);
+  const item = payload.items.find((it) => it.id === FIXTURE_ITEM_ID);
+  assert.ok(item.categories.includes('新分类'), "the item's categories come from the merged entry");
+  assert.ok(payload.facets.categories.includes('新分类'), 'and so do the facets, computed from the merged items');
+  const hits = queryIndex(payload.search, '新分类').map((r) => r.doc.id);
+  assert.ok(hits.includes(FIXTURE_ITEM_ID), `the search index finds ${FIXTURE_ITEM_ID} by its new category (got ${hits.join(', ')})`);
 });

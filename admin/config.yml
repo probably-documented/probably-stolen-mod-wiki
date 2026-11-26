@@ -235,7 +235,7 @@ collections:
   - divider: true
 
   # ---------- 机制词条:content/mods/<Mod ID>/mechanics/<文件名>.md ----------
-  # 每个文件是一个机制说明页面,会出现在站点的「机制说明」索引里。
+  # 每个文件是一个机制说明页面,会出现在所属 mod 的导航页的「机制说明和玩法指南」里。
   # 保存之后改「所属 mod」,文件不会跟着移动(随后构建会拦下并说明怎么办)。
   - name: mechanics
     label: 机制词条
@@ -271,7 +271,7 @@ collections:
         label: 标题
         widget: string
         preview: false
-        hint: '页面的标题,会显示在「机制说明」索引里。'
+        hint: '页面的标题,会显示在所属 mod 导航页的「机制说明和玩法指南」里。'
       # 这一项不存内容:它的「设置文件名」按钮打开右侧的「别名」面板。
       - name: filename_hint
         label: 文件名
@@ -290,12 +290,6 @@ collections:
           - title
         preview: false
         hint: '决定这一篇放进哪个 Mod 的目录下。保存后不要再改:文件不会跟着移动,网站会因此停止更新。确实要换 Mod,请新建一篇,把内容搬过去。'
-      - name: nav_label
-        label: 顶部导航上的名字
-        widget: string
-        preview: false
-        required: false
-        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航——目前是「关于本站」那一页。'
       # 这一项不存内容:正文上方多一个「从模板开始」按钮。
       - name: template_starter
         label: 模板
@@ -554,7 +548,7 @@ collections:
         widget: string
         preview: false
         required: false
-        hint: '留空。填了的页面会出现在顶部导航,显示的就是这里填的名字;全站最多一页填写。'
+        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航,显示的就是这里填的名字——目前是「关于本站」那一页。'
       # 正文要放在字段的最后一个
       - name: body
         label: 正文

@@ -111,10 +111,10 @@ async function buildFixture(options = {}) {
 
 // ---------- 路由完整性 ----------
 
-test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + data.js、nav-search.js)', async () => {
+test('renderSite: 产物覆盖全部路由(主页、更新日志、检索器 + 每物品/机制/mod 页 + data.js、nav-search.js)', async () => {
   const out = await buildFixture({ layout: null });
   for (const rel of [
-    'index.html', 'items.html', 'mechanics.html', 'changelog.html', 'search.html', 'data.js', 'nav-search.js',
+    'index.html', 'changelog.html', 'search.html', 'data.js', 'nav-search.js',
     ...MODS.map((m) => `mods/${m.id}.html`),
     ...ITEMS.map((it) => `item/${it.id}.html`),
     ...MECHANICS.map((m) => `mechanics/${m.slug}.html`),
@@ -123,7 +123,7 @@ test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + d
     assert.equal(typeof out.get(rel), 'string');
   }
   assert.ok(!out.has('mods/install-compat.html'), 'install-compat 占位页已删除(final review)');
-  assert.equal(out.size, 6 + 6 + 7 + 2 + 1); // 骨架 5 + data.js + nav-search.js + mods + items + mechanics
+  assert.equal(out.size, 4 + 6 + 7 + 2 + 1); // 骨架 3 页 + data.js + nav-search.js + mods + items + mechanics
 });
 
 // ---------- ① 物品页 ----------
@@ -134,7 +134,7 @@ test('item 页:infobox 贴图相对路径、面包屑、内链与表格', async 
   assert.ok(html.includes('src="../assets/items/lewd_meme/item_milk.png"'), '贴图相对路径 ../assets/');
   assert.ok(html.includes('href="../css/theme.css"'));
   assert.ok(html.includes('href="../index.html"'));
-  assert.ok(html.includes('href="../items.html"'));
+  assert.ok(html.includes('href="../mods/lewd_meme.html"'), 'the item page leads to its mod\'s page');
   assert.ok(html.includes('神奇乳汁</a>') === false || html.includes('class="crumb"'));
   // 概述
   assert.ok(html.includes('苗床产出的核心液体物品'));
@@ -156,8 +156,8 @@ test('item 页:infobox 贴图相对路径、面包屑、内链与表格', async 
   assert.ok(html.includes('每夜 1+ 瓶'), 'sources.probability 渲染于概率列');
   // 相关物品卡片(横排网格 + data 属性)
   assert.ok(html.includes('href="../item/milk_rich.html"'));
-  // 相关页面:机制索引链接
-  assert.ok(html.includes('href="../mechanics.html"'));
+  // 相关页面:所属 mod 的导航页(全站的机制索引已经没有了)
+  assert.ok(html.includes('<a href="../mods/lewd_meme.html">淫色深空:可能是触手</a>'));
   // infobox 适用版本接线(M1):所属 mod 的版本,非恒"待补充"
   assert.ok(html.includes('1.9.2'));
   assert.ok(html.includes('<div class="clear"></div>'));
@@ -174,8 +174,8 @@ test('item 页:name=null 时标题与卡片回退显示 id,不输出字面 null(
     assert.ok(!page.includes('>null<'), `${rel} 出现 >null<`);
     assert.ok(!page.includes('alt="null"'), `${rel} 出现 alt="null"`);
   }
-  const itemsHtml = out.get('items.html');
-  assert.ok(itemsHtml.includes('<span class="nm">tear_merchant</span>'), '卡片名称回退 id');
+  const modPage = out.get('mods/dui_mian_lan_qiu_ji_tearl.html');
+  assert.ok(modPage.includes('<span class="nm">tear_merchant</span>'), '卡片名称回退 id');
 });
 
 test('item 页:icon/price null 用占位,严格 null 判断', async () => {
@@ -242,53 +242,11 @@ test('机制页底部:提取自 content/mods/<mod>/mechanics/<slug>.md;数据里
   }
 });
 
-// ---------- ② items.html ----------
-
-test('items.html:概述文案、品类/来源 chips、按 mod 分区、卡片 data 属性', async () => {
-  const out = await buildFixture({ layout: null });
-  const html = out.get('items.html');
-  assert.ok(html.includes('<h1 class="page-title">物品图鉴</h1>'));
-  // 概述段(mockup 文案)
-  assert.ok(html.includes('物品是模组内容的基本载体'));
-  assert.ok(html.includes('决定顾客是否收购'));
-  // 品类 chips:全部 + facets.categories 逐个
-  assert.ok(html.includes('data-category=""'));
-  for (const cat of FIXTURE.facets.categories) {
-    assert.ok(html.includes(`data-category="${cat}"`), cat);
-  }
-  // 来源 chips:全部模组 + 每个 mod
-  assert.ok(html.includes('data-mod=""'));
-  for (const mod of MODS) {
-    assert.ok(html.includes(`data-mod="${mod.id}"`), mod.id);
-  }
-  // 按 mod 分区标题 = 显示名 + 版本
-  assert.ok(html.includes('淫色深空:可能是触手'));
-  assert.ok(html.includes('1.9.2'));
-  assert.ok(html.includes('暗流交易'));
-  // 卡片 data 属性(品类空格分隔多值)
-  assert.ok(html.includes('data-mod="lewd_meme" data-category="饮料 食物"')
-    || html.includes('data-mod="lewd_meme" data-category="饮料 食物"'));
-  assert.ok(html.includes('href="item/wondrous_milk.html"'));
-  // chips 过滤交互(Ruling 8)+ A8(task 6b):过滤脚本不再是页面里的内联
-  // <script>,而是站点自带的文件 assets/js/item-filter.js,在原来的位置引用
-  // (不带 defer/async 的经典脚本,执行时机才与内联时一致)。
-  assert.ok(html.includes('id="item-filter-status"'));
-  assert.ok(html.includes('<script src="assets/js/item-filter.js"></script>'),
-    'the filter script is loaded from the file the site ships');
-  assert.equal((html.match(/<script\b/gi) || []).length, 1,
-    'exactly one <script> on the page, and it is the external one: nothing executable is inline');
-  assert.match(html,
-    /\r?\n<\/section>\r?\n<script src="assets\/js\/item-filter\.js"><\/script>\r?\n<\/div>\r?\n<div class="wiki-footer">/,
-    'right where the inline script used to be: after the last section, still inside the content box');
-  // The script itself moved; what it does is pinned on the file now.
-  const script = fs.readFileSync(path.join(__dirname, '..', 'assets-src', 'item-filter.js'), 'utf8');
-  assert.ok(script.includes('/* item-filter:'), 'filter script marker');
-  assert.ok(script.includes("querySelectorAll('span.item-inline[data-' + dim + ']')"));
-  assert.ok(script.includes("querySelectorAll('section[data-mod]')"));
-  // Minor 9:取消筛选(再点同一 chip)后,「全部」chip 恢复高亮
-  assert.ok(script.includes('span.item-inline[data-\' + dim + \'=""]'),
-    '取消筛选时「全部」chip 重新高亮');
-});
+// ---------- ② 物品图鉴 ----------
+//
+// (The all-site 物品图鉴 page — items.html, with its chips and the filter script — gave way in
+// stage 3, task 5, to each mod's own navigation page: see ⑤ below for the cards, and
+// tests/search-index.test.js for the search the 物品检索器 runs.)
 
 // ---------- ③ data.js ----------
 
@@ -407,13 +365,15 @@ test('主页:正文首行是搜索栏和「限定范围」;每个分区一个可
 
 test('主页:底部是 home.md 的正文和三个入口;保留全站通知条;两个脚本,数据在前', async (t) => {
   const layout = await homeTree(t);
-  const out = await renderSite(fixtureWithNavLabel('barrel-system', '关于本站'), { layout, nav: NAV });
+  // …with a site page that declares itself 关于本站: the third entry leads there.
+  layout.site = (await siteWith(t, 'nav_label: 关于本站')).site;
+  const out = await renderSite(structuredClone(FIXTURE), { layout, nav: NAV });
   const html = out.get('index.html');
 
   const foot = html.slice(html.indexOf('<div class="home-foot">'));
   assert.ok(foot.indexOf('<strong>Probably Stolen</strong> 的模组百科') < foot.indexOf('class="home-links"'), "home.md's body, rendered, comes before the entries");
   assert.ok(foot.includes('href="https://github.com/probably-documented/probably-stolen-mod-wiki/releases"'), '离线包下载');
-  assert.ok(foot.includes('href="mechanics/barrel-system.html"'), '关于本站: the page that declares itself');
+  assert.ok(foot.includes('<a href="site/about.html">关于本站</a>'), '关于本站: the site page that declares itself');
   assert.ok(foot.includes('href="changelog.html"'), '更新日志');
 
   assert.ok(html.includes('<div class="crumb">首页</div>'), 'the breadcrumb is 首页 and nothing else');
@@ -608,24 +568,30 @@ test('mechanics/<slug>.html:TOC(title 转义)、[[id]] 内链卡、frontmatter t
   // 正文 wikilink → 内链卡
   assert.ok(html.includes('href="../item/wondrous_milk.html"'));
   assert.ok(html.includes('class="item-inline"'));
-  // 面包屑:首页 > 机制说明 > 标题
-  assert.ok(html.includes('机制说明'));
-  assert.ok(html.includes('href="../mechanics.html"') || html.includes('mechanics.html'));
+  // 面包屑:首页 > 标题(夹具里的这一页不属于任何 mod;属于某个 mod 的见下面「物品页和机制页」)
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 夜间结算与疲劳</div>'));
   // 无 h1 重复(源 md 的 h1 已剥,page-title 之外无裸 h1)
   assert.equal((html.match(/<h1/g) || []).length, 1);
 });
 
-test('mechanics.html 索引页(Ruling 6):全部机制卡 + 摘要', async () => {
+test('the two all-site pages are no more (stage 3, task 5): items.html and mechanics.html are not rendered, and nothing points at them', async () => {
   const out = await buildFixture({ layout: null });
-  const html = out.get('mechanics.html');
-  assert.ok(html.includes('href="mechanics/night-settlement.html"'));
-  assert.ok(html.includes('href="mechanics/barrel-system.html"'));
-  assert.ok(html.includes('桶上限 1000 次'), '首段摘要');
+  assert.ok(!out.has('items.html'), '物品图鉴 lives on in each mod\'s own page');
+  assert.ok(!out.has('mechanics.html'), 'so does 机制说明');
+  for (const [rel, html] of out) {
+    assert.ok(!/"(?:\.\.\/)?items\.html"/.test(html), `${rel}: a link to items.html`);
+    assert.ok(!/"(?:\.\.\/)?mechanics\.html"/.test(html), `${rel}: a link to mechanics.html`);
+  }
+  // …while every mechanic page and every item page is still there, and the search still finds them
+  for (const m of MECHANICS) assert.ok(out.has(`mechanics/${m.slug}.html`), `mechanics/${m.slug}.html`);
+  for (const it of ITEMS) assert.ok(out.has(`item/${it.id}.html`), `item/${it.id}.html`);
+  assert.equal(WINDOW('WIKI_DATA')(out.get('data.js')).search.docs.length, ITEMS.length + MECHANICS.length,
+    'the search index still covers the mechanic pages: the 物品检索器 is where they are found now');
 });
 
 // ---------- ⑥ 通用:面包屑 + 返回路径 ----------
 
-test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)', async () => {
+test('每页均有面包屑与返回首页链接;导航目标已接线', async () => {
   const out = await buildFixture({ layout: null });
   for (const [rel, html] of out) {
     if (rel === 'data.js' || rel === 'nav-search.js') continue;
@@ -636,12 +602,11 @@ test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)
   // NAV 占位全部接线:不再有 href="#"
   const index = out.get('index.html');
   assert.ok(!index.includes('href="#"'), '导航占位必须清除');
-  assert.ok(index.includes('href="mechanics.html"'));
+  assert.ok(index.includes('href="changelog.html"'));
   assert.ok(index.includes('href="search.html"'));
-  assert.ok(index.includes('href="index.html#mod-family"'));
-  // Task 5b A2:顶部导航的「关于本站」不再硬编码——没有页面用 navLabel 声明它,
-  // 导航就没有这一项(见下面的 A 组测试)
-  assert.ok(!index.includes('href="mechanics/install-compat.html"'), '导航不再硬编码指向 install-compat');
+  assert.ok(!index.includes('href="index.html#mod-family"'), 'the old 模组介绍 entry pointed at an anchor of the old home page');
+  // 「关于本站」不硬编码:没有站点页面用 nav_label 声明它,导航就没有这一项(见下面的 A 组测试)
+  assert.ok(!index.includes('>关于本站</a>'), 'no page declares the about entry');
 });
 
 // ---------- mods 页 / changelog / search / install-compat ----------
@@ -677,19 +642,20 @@ test('关于本站:占位页已删,全站无占位文案', async () => {
   }
 });
 
-// ---------- Task 5b A — 顶部导航的 about 项由页面自己声明(nav_label) ----------
+// ---------- 阶段 3 Task 5 — 顶部导航的「关于本站」由站点页面声明 ----------
 //
-// 机制页的 frontmatter `nav_label`(mergeMechanicsContent 读成 navLabel)使该页
-// 成为顶部导航的 about 项。没有页面声明 → 导航没有这一项;删掉这页,导航里的
-// 「关于本站」随之消失——这就是贡献者可以在 CMS 里安全删除一个机制页的原因。
+// content/site/<文件名>.md 的 frontmatter `nav_label`(sitePagesWithNavLabel 读出来)使这一页
+// 成为顶部导航的「关于本站」。没有页面声明 → 导航没有这一项;在 CMS 里删掉这一页,
+// 导航里的入口随之消失。机制页不再能声明它。
 
-/** A copy of FIXTURE whose mechanic `slug` carries `navLabel` (undefined = none). */
-function fixtureWithNavLabel(slug, navLabel) {
-  const data = structuredClone(FIXTURE);
-  const mech = data.mechanics.find((m) => m.slug === slug);
-  if (navLabel === undefined) delete mech.navLabel;
-  else mech.navLabel = navLabel;
-  return data;
+/** A layout with one site page: title 关于本站, the given extra front matter lines (undefined = none), and a body. */
+async function siteWith(t, fmLines, body = '这里是关于本站的正文。\n', slug = 'about') {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'render-site-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
+  const file = path.join(root, 'site', `${slug}.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---\ntitle: 关于本站\n${fmLines === undefined ? '' : `${fmLines}\n`}---\n\n${body}`);
+  return { home: null, sections: [], site: [{ slug, file }], mods: [], strayFiles: [], legacyDirs: [], imageFolders: [] };
 }
 
 /** The nav anchors of one spot ('menu-row' | 'ps-site__links') of a page, as [text, html] pairs. */
@@ -698,58 +664,93 @@ function navAnchors(html, spot) {
   return (inner.match(/<a [^>]*>.*?<\/a>/g) ?? []).map((a) => [a.replace(/<a [^>]*>|<\/a>/g, ''), a]);
 }
 
-test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLabel、href = mechanics/<slug>.html、只在 menu-row、位于更新日志之后、全站每页都有', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { layout: null });
+const texts = (anchors) => anchors.map(([text]) => text);
+
+test('站点页面 site/<slug>.html:标题、正文(按 Markdown 渲染,物品内嵌卡可用);面包屑是「首页、本页」', async (t) => {
+  const out = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, undefined, '这是 **关于本站** 的正文,先看 [[wondrous_milk]]。') });
+  const html = out.get('site/about.html');
+  assert.ok(html.includes('<title>关于本站 · probably-documented</title>'));
+  assert.ok(html.includes('<h1 class="page-title">关于本站</h1>'));
+  assert.ok(html.includes('<strong>关于本站</strong> 的正文,先看 '), 'rendered as Markdown');
+  assert.ok(html.includes('href="../item/wondrous_milk.html"'), '[[id]] is an item card');
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 关于本站</div>'));
+  assert.ok(html.includes('href="../css/theme.css"'));
+  assert.equal((html.match(/<script\b/g) || []).length, 0);
+});
+
+test('站点页面没有写 title → 标题、面包屑都用页面的文件名;列在布局里却读不到的文件也照常出一页', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'render-site-bare-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
+  const file = path.join(root, 'site', 'colophon.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '---\n---\n\n版权说明正文。\n');
+  const layout = {
+    home: null, sections: [], mods: [], strayFiles: [], legacyDirs: [], imageFolders: [],
+    site: [{ slug: 'colophon', file }, { slug: 'gone', file: path.join(root, 'site', 'gone.md') }],
+  };
+
+  const out = await renderSite(structuredClone(FIXTURE), { layout });
+
+  const html = out.get('site/colophon.html');
+  assert.ok(html.includes('<title>colophon · probably-documented</title>'), 'titled by the file name, as a section page is');
+  assert.ok(html.includes('<h1 class="page-title">colophon</h1>'));
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; colophon</div>'));
+  assert.ok(html.includes('版权说明正文。'));
+  // neither declares the about entry: the nav has none, and nothing is highlighted
+  assert.deepEqual(texts(navAnchors(html, 'menu-row')), ['首页', '更新日志', '物品检索器']);
+  assert.equal((html.match(/class="active"/g) || []).length, 0);
+  // a page the layout listed whose file cannot be read when it is rendered: no crash — an empty page under its name
+  const gone = out.get('site/gone.html');
+  assert.ok(gone.includes('<h1 class="page-title">gone</h1>'));
+});
+
+test('A1 — a site page that declares nav_label becomes the top nav\'s about entry: label = nav_label, href = site/<slug>.html, last in both spots, on every page; only its own page highlights it', async (t) => {
+  const out = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, 'nav_label: 桶装指南', undefined, 'help') });
   for (const [rel, html] of out) {
     if (rel === 'data.js' || rel === 'nav-search.js') continue;
     const prefix = rel.includes('/') ? '../' : '';
-    const menuRow = navAnchors(html, 'menu-row');
-    assert.deepEqual(menuRow.map(([text]) => text), ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志', '桶装指南'],
-      `${rel}: menu-row ends with the about entry, right after 更新日志`);
-    assert.equal(menuRow.at(-1)[1], `<a href="${prefix}mechanics/barrel-system.html">桶装指南</a>`, `${rel}: the about entry`);
-    assert.ok(!navAnchors(html, 'ps-site__links').some(([text]) => text === '桶装指南'), `${rel}: not in ps-site__links`);
-  }
-  // navLabel is build-time data: the client payload still carries slug + title only
-  assert.ok(!out.get('data.js').includes('navLabel'), 'data.js does not serialize navLabel');
-});
-
-test('A2 — 没有任何页面带 navLabel → 顶部导航没有 about 项;其余页面照常渲染', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system'), { layout: null });
-  assert.equal(out.size, 6 + 6 + 7 + 2 + 1, 'every route is still rendered'); // + nav-search.js
-  for (const [rel, html] of out) {
-    if (rel === 'data.js' || rel === 'nav-search.js') continue;
-    const labels = ['首页', '物品图鉴', '机制说明', '玩法指南', '模组介绍', '更新日志'];
-    assert.deepEqual(navAnchors(html, 'menu-row').map(([text]) => text), labels, `${rel}: menu-row`);
-    assert.deepEqual(navAnchors(html, 'ps-site__links').map(([text]) => text), [...labels, '物品检索器'], `${rel}: ps-site__links`);
+    for (const spot of ['menu-row', 'ps-site__links']) {
+      const anchors = navAnchors(html, spot);
+      assert.deepEqual(texts(anchors), ['首页', '更新日志', '物品检索器', '桶装指南'], `${rel} ${spot}: the about entry is the last one`);
+      assert.deepEqual(anchors.at(-1)[1].replace(' class="active"', ''), `<a href="${prefix}site/help.html">桶装指南</a>`, `${rel} ${spot}: the about entry`);
+      // Highlighted on the page it leads to (A6), and nowhere else
+      assert.equal(anchors.at(-1)[1].includes('class="active"'), rel === 'site/help.html', `${rel} ${spot}: active only on its own page`);
+    }
   }
 });
 
-test('A4 — navLabel 为空串或仅空白 → 视为未设置(无 about 项)', async () => {
-  for (const bad of ['', '   ', '\t\n']) {
-    const out = await renderSite(fixtureWithNavLabel('barrel-system', bad), { layout: null });
-    const menuRow = navAnchors(out.get('index.html'), 'menu-row');
-    assert.equal(menuRow.at(-1)[0], '更新日志', `navLabel ${JSON.stringify(bad)}: menu-row ends with 更新日志, i.e. no about entry`);
+test('A2 — 没有任何站点页面带 nav_label → 顶部导航没有 about 项;其余页面照常渲染', async (t) => {
+  for (const [what, layout] of [['no site pages at all', null], ['a site page that says no nav_label', await siteWith(t)]]) {
+    const out = await renderSite(structuredClone(FIXTURE), { layout });
+    for (const [rel, html] of out) {
+      if (rel === 'data.js' || rel === 'nav-search.js') continue;
+      for (const spot of ['menu-row', 'ps-site__links']) {
+        assert.deepEqual(texts(navAnchors(html, spot)), ['首页', '更新日志', '物品检索器'], `${what} — ${rel} ${spot}`);
+      }
+    }
+  }
+});
+
+test('A4 — nav_label 为空串或仅空白 → 视为未设置(无 about 项),这一页照常渲染', async (t) => {
+  for (const bad of ['""', '"   "', '']) {
+    const out = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, `nav_label: ${bad}`) });
+    assert.deepEqual(texts(navAnchors(out.get('index.html'), 'menu-row')), ['首页', '更新日志', '物品检索器'], `navLabel ${JSON.stringify(bad)}: no about entry`);
+    assert.ok(out.has('site/about.html'), '…while the page itself is still a page');
   }
   // …while surrounding whitespace of a real label is not part of it
-  const padded = await renderSite(fixtureWithNavLabel('barrel-system', '  桶装指南 \n'), { layout: null });
-  assert.equal(navAnchors(padded.get('index.html'), 'menu-row').at(-1)[0], '桶装指南');
+  const padded = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, 'nav_label:   关于本站   ') });
+  assert.deepEqual(texts(navAnchors(padded.get('index.html'), 'menu-row')), ['首页', '更新日志', '物品检索器', '关于本站']);
 });
 
-test('A6 — about 页的高亮与改动前一致:active 的是「机制说明」,about 项本身不高亮', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { layout: null });
-  const page = out.get('mechanics/barrel-system.html');
+test('A6 — the page that declares the about entry highlights it; a site page that declares nothing highlights no entry', async (t) => {
+  const out = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, 'nav_label: 关于本站') });
+  const page = out.get('site/about.html');
   for (const spot of ['menu-row', 'ps-site__links']) {
-    assert.deepEqual(
-      navAnchors(page, spot).filter(([, a]) => a.includes('class="active"')).map(([text, a]) => [text, a]),
-      [['机制说明', '<a href="../mechanics.html" class="active">机制说明</a>']],
-      `${spot}: 机制说明 is the highlighted entry`,
-    );
+    assert.deepEqual(texts(navAnchors(page, spot).filter(([, a]) => a.includes('class="active"'))), ['关于本站'], `${spot}: 关于本站 is the highlighted entry`);
   }
   assert.equal((page.match(/class="active"/g) || []).length, 2, 'exactly the two nav spots, one highlighted entry each');
-  assert.ok(page.includes('<a href="../mechanics/barrel-system.html">桶装指南</a>'), 'the about entry is on its own page and is NOT highlighted');
-  assert.match(page, /<h1 class="page-title">桶装系统<\/h1>/, 'it is still the mechanic page it always was');
-  // 阶段 3:面包屑是「首页、所属 mod、本页」;夹具里的这一页不属于任何 mod,所以只有「首页、本页」。
-  assert.ok(page.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 桶装系统</div>'), 'breadcrumb: 首页 &gt; 标题');
+  const quiet = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t) });
+  assert.equal((quiet.get('site/about.html').match(/class="active"/g) || []).length, 0, 'nothing to highlight');
 });
 
 test('firstParagraphExcerpt: strips what the rich-text editor writes back, exactly like the text that was written', () => {
