@@ -28,36 +28,10 @@
       ],
       "description": "这是什么？这是你的本体！可爱又能干的触手怪！让可爱的少女进入其中让她幸福。将这个太空站改造成为你的个人苗床巢吧。",
       "flavor": "",
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开本体窗口,管理五个分区:侵蚀区 3×16(收触手侵蚀类箱子)、苗床区 16×16(收女性角色)、产出区 16×16(收乳汁/精液)、触手区 3×16(收触手类工具)、便签区 2×2(收说明书)",
-          "source": "据 tentacle_manual desc(物品定义.csv)"
-        },
-        {
-          "type": "drag-target",
-          "text": "把 [[maiden_lower]] 拖进苗床区,每夜自动结算调教并产出 [[wondrous_milk]] / [[tentacle_semen]];本体等级越高每晚行为次数越多",
-          "source": "据 tentacle_manual desc 与机制页 maiden-husbandry"
-        },
-        {
-          "type": "use",
-          "text": "本体等级无上限(第 n 级需求 = 100 + (n-1)/3×100);侵蚀区是暗格,盘查时里面的东西不会被搜出",
-          "source": "据 manifest 1.8.0 / 1.3.8"
-        }
-      ],
-      "sources": [
-        {
-          "source": "开局发放",
-          "detail": "选择「触手起源」天赋后,与 [[corrupt_tentacle]]、[[tentacle_manual]] 三件一起发到仓库,自己拖进对应区域",
-          "probability": "唯一途径"
-        }
-      ],
-      "related": [
-        "corrupt_tentacle",
-        "tentacle_manual",
-        "tentacle_box"
-      ],
-      "notes": "顾客系统:75% 女性顾客、4×4 客人格、特殊 NPC 保护(据 manifest 1.2.0)。1.4.4 起开局三件套不再预置进触手区/便签区,手动放入的物品存档正常。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -66,10 +40,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_body.md",
-        "usage": "content:items/tentacle_body.md",
-        "sources": "content:items/tentacle_body.md",
-        "related": "content:items/tentacle_body.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -92,69 +64,18 @@
       ],
       "description": "被塞进束缚囊的女孩。还活着，还会挣扎。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖进 [[tentacle_body]] 苗床区、[[tentacle_box]]、[[tentacle_alarm]] 或 [[tentacle_trap]] 的苗床格,每夜参与活动、受孕与产出",
-          "source": "据 tentacle_manual desc 与机制页 maiden-husbandry / nightly-settlement"
-        },
-        {
-          "type": "drag-target",
-          "text": "巢穴扩展的成体触手可直接拖到苗床身上交配(每只触手每天一次,与触手等级无关):[[brood_tentacle_red]] 性交 +3~5、[[brood_tentacle_green]] 肛交 +3~5、[[brood_tentacle_yellow]] 口交 +3~5,[[brood_tentacle_aqua]] / [[brood_white_tentacle]] 三项各 +1~2,[[brood_tentacle_purple]] 三项各 +1~2 且调教值额外 +5;每次互动都累计调教值,[[brood_white_tentacle]] 另有概率丰胸/体态成熟",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 分支、Apply"
-        },
-        {
-          "type": "use",
-          "text": "女性角色带随机姓名、体型、乳量与阵营;1.8.0 起新增好感/信任/催眠(−100~100)、互动次数与淫纹刻印属性,右键/详情可查看",
-          "source": "据 manifest 1.0.0 / 1.8.0"
-        },
-        {
-          "type": "sell",
-          "text": "可作为苗床出售变现;启用暗流交易后收购商按 300 + 调教值×2 + 处女加价、再乘疲劳倍率独立估值",
-          "source": "据机制页 nightly-settlement 估值公式"
-        }
-      ],
-      "sources": [
-        {
-          "source": "拾荒捕获",
-          "detail": "携带触手本体时判定,同一拾荒组 0.5 秒内只判一次;概率可在模组设置里调 5%~25%",
-          "probability": "固定 5%(据 manifest 1.3.13 / 1.3.14 / 1.5.0)"
-        },
-        {
-          "source": "[[tentacle_trap]] 捕获",
-          "detail": "部署上层区/下层区/黑市/治安部/革命军,按作战策略判定,捕获的是所部署势力的苗床",
-          "probability": "偏僻 10% / 一般 20% / 热闹 30%(据 manifest 1.6.0 / 1.6.1)"
-        },
-        {
-          "source": "分娩",
-          "detail": "苗床怀孕 30 天后产下女儿,带【女儿】标签并继承母亲的姓",
-          "probability": "怀孕必产(据 tentacle_manual desc / manifest 1.8.0)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "tentacle_box",
-        "tentacle_alarm",
-        "tentacle_trap",
-        "wondrous_milk",
-        "brood_white_tentacle",
-        "brood_tentacle_red",
-        "brood_tentacle_green",
-        "brood_tentacle_yellow",
-        "brood_tentacle_aqua",
-        "brood_tentacle_purple"
-      ],
-      "notes": "属性三档滚动:约 1% 落在 70~80、约 6% 落在 60~70、其余 10~60;阵营基价上层区 100、治安部/黑市/革命军 50(据 MaidenPatch.cs 复刻注释)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "description": "decompile:MidnightPawn",
         "price": "csv:Data/物品定义.csv",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/maiden_lower.md",
-        "usage": "content:items/maiden_lower.md",
-        "sources": "content:items/maiden_lower.md",
-        "related": "content:items/maiden_lower.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -180,32 +101,10 @@
       "tags": [],
       "description": "从苗床身上挤出来的乳白液体。入口甘甜，后劲是热的。",
       "flavor": "上层区的太太们为了它愿意多付三成。",
-      "usage": [
-        {
-          "type": "sell",
-          "text": "苗床产出的主要商品,卖给顾客变现;单价随产出苗床的泌乳等级上涨(价值 = 100 + 泌乳等级×40)",
-          "source": "据 NightlyPatch.cs 复刻公式(MilkValueBase 100 + lv×40)与 tentacle_manual desc"
-        },
-        {
-          "type": "process",
-          "text": "启用暗流交易后,与原版乳汁合并计入 [[barrel_milk_wondrous]] 的自动建桶阈值(3 瓶),也可拖到同类桶上补充",
-          "source": "据机制页 barrel-system"
-        }
-      ],
-      "sources": [
-        {
-          "source": "夜间结算产出",
-          "detail": "苗床泌乳等级 ≥1 时每夜产出,落在 [[tentacle_body]] 产出区(或闹钟/陷阱的产出区)",
-          "probability": "泌乳参与结算必出(据 tentacle_manual desc / NightlyPatch.cs)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "milk_rich",
-        "milk_diluted",
-        "barrel_milk_wondrous"
-      ],
-      "notes": "flavor 提到上层区太太们愿多付三成(据物品定义.csv flavor);拾荒不再掉落排卵诱发剂后,乳汁/精液是苗床两条稳定产出线(据 manifest 1.3.13)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "source:LewdMemeShadowTrade/Source",
         "price": "source:LewdMemeShadowTrade/Source",
@@ -214,10 +113,8 @@
         "flavor": "source:LewdMemeShadowTrade/Source",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/wondrous_milk.md",
-        "usage": "content:items/wondrous_milk.md",
-        "sources": "content:items/wondrous_milk.md",
-        "related": "content:items/wondrous_milk.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "source:LewdMemeShadowTrade/Source"
       }
     },
@@ -239,47 +136,10 @@
       "tags": [],
       "description": "在苗床的子宫中呆了一晚上，并且混合了女性淫水的触手精液显得异常的黏糊，被从苗床的肚子里面挤出，被草草地装进避孕套里面。蕴藏着淫力（10 点），对女性充满了吸引力，但是男性闻起来却是作呕的腥臭味。",
       "flavor": "别问里面有什么，问就是模因。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到 [[corrupt_tentacle]] 身上吸收淫力,每瓶 +10,可多瓶一起拖,溢出不会浪费瓶子",
-          "source": "据 manifest 1.9.2 / 1.3.10"
-        },
-        {
-          "type": "drag-target",
-          "text": "把 [[empty_syringe]] 拖到精液上,消耗一瓶精液,空针管变成 [[ovulation_shot]]",
-          "source": "据 manifest 1.7.0"
-        },
-        {
-          "type": "use",
-          "text": "对女性是「只对女性生效的费洛蒙香水」:为女性顾客提供声望加成,同一顾客只乘一次、重复使用不消耗精液",
-          "source": "据 manifest 1.0.0 / 1.3.1"
-        }
-      ],
-      "sources": [
-        {
-          "source": "夜间结算产出",
-          "detail": "苗床每夜结算按产出率掷瓶,落在产出区;产出率 = 40% + 调教值×1%(60 点必定产出)",
-          "probability": "40%~100%(据 NightlyPatch.cs 复刻公式 / tentacle_manual desc)"
-        },
-        {
-          "source": "[[tentacle_alarm]] 产出",
-          "detail": "每夜固定产出一瓶",
-          "probability": "每夜 1 瓶(据 manifest 1.4.0)"
-        },
-        {
-          "source": "[[tentacle_trap]] 产出",
-          "detail": "苗床区里每有一个少女,各自判定产出一瓶",
-          "probability": "每名苗床 50%(据 manifest 1.6.1)"
-        }
-      ],
-      "related": [
-        "corrupt_tentacle",
-        "empty_syringe",
-        "ovulation_shot",
-        "wondrous_milk"
-      ],
-      "notes": "蕴藏淫力 10 点,物品详情里会显示(据 manifest 1.9.2);对女性充满吸引力,男性闻起来作呕(据物品定义.csv desc)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -288,10 +148,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_semen.md",
-        "usage": "content:items/tentacle_semen.md",
-        "sources": "content:items/tentacle_semen.md",
-        "related": "content:items/tentacle_semen.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -313,26 +171,10 @@
       "tags": [],
       "description": "一小管从触手腺体里抽出来的透明液体。注入后，她的身体会立刻开始排卵。",
       "flavor": "医学上它不存在。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到苗床少女身上:一根触手卷起针剂扎入她的后颈或小腹并全部注入,她立刻进入排卵期(当晚受孕率 = 性交次数%)",
-          "source": "据 SpecialAndManualPatches.cs 复刻文案(OvuAngryText/OvuTameText)与 tentacle_manual desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "制作",
-          "detail": "[[empty_syringe]] 拖到 [[tentacle_semen]] 上获得;1.7.1 起这是唯一途径(医疗类战利品 10% 掉落已删除,F9 调试按钮除外)",
-          "probability": "唯一产线(据 manifest 1.7.1)"
-        }
-      ],
-      "related": [
-        "empty_syringe",
-        "tentacle_semen",
-        "tentacle_printer"
-      ],
-      "notes": "注入文案按调教值分两档:≥60 驯服(主动求孕)、<60 恶狠抗拒(据 SpecialAndManualPatches.cs,阈值 60 可由 lewd_meme_api 配置)。完成暗流交易治安部支线「双处女交货」后,本物品被列为 I 级管制品(据机制页 security-branch)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -341,10 +183,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/ovulation_shot.md",
-        "usage": "content:items/ovulation_shot.md",
-        "sources": "content:items/ovulation_shot.md",
-        "related": "content:items/ovulation_shot.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -367,31 +207,10 @@
       "tags": [],
       "description": "恒温恒湿的触手苗床箱，内部空间折叠，每个苗床都能分配到三室一厅的住所。",
       "flavor": "",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "把 [[maiden_lower]] 拖进箱内收纳;放入本体侵蚀区且开启箱内结算时,苗床每夜照常结算并追加疲劳",
-          "source": "据机制页 nightly-settlement(侵蚀区直接苗床箱条目)"
-        },
-        {
-          "type": "use",
-          "text": "带暗格特性:盘查时里面的违禁品不会被搜出来(与触手本体一致)",
-          "source": "据 manifest 1.3.8"
-        }
-      ],
-      "sources": [
-        {
-          "source": "侵蚀制作",
-          "detail": "淫力满 100 的 [[corrupt_tentacle]] 侵蚀 7 种容器之一获得(把箱子拖到触手上):工程铸造厂/后勤服务部/医疗舱/治安部物证柜/治安部物资箱 5 种物资箱 + 储藏区/储藏区(扩建)",
-          "probability": "每次侵蚀消耗 100 淫力(据 manifest 1.3.4 / 1.3.7)"
-        }
-      ],
-      "related": [
-        "corrupt_tentacle",
-        "maiden_lower",
-        "tentacle_body"
-      ],
-      "notes": "1.3.8 起售价从 2000 下调为 200,不再算「日用品」;侵蚀前游戏会先把容器内容倒回背包,防止物品被吞(据 manifest 1.3.3 / 1.3.7)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -400,10 +219,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_box.md",
-        "usage": "content:items/tentacle_box.md",
-        "sources": "content:items/tentacle_box.md",
-        "related": "content:items/tentacle_box.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -428,39 +245,10 @@
       ],
       "description": null,
       "flavor": "它在你手心里蠕动，像一根等不及的舌头。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "淫力满 100 时,把【物资箱】/【储藏区】拖到它身上侵蚀成 [[tentacle_box]];[[alarm_clock]]→[[tentacle_alarm]]、[[manhole_cover]]→[[tentacle_trap]]、原版 3D 打印机→[[tentacle_printer]] 走特殊转化(注意是把箱子拖到触手上,不是反过来)",
-          "source": "据 manifest 1.3.7 / 1.4.0 / 1.6.0 / 1.7.0 与机制页 tentacle-corruption"
-        },
-        {
-          "type": "drag-target",
-          "text": "把 [[tentacle_semen]] 拖到它身上恢复淫力,每瓶 +10,可多瓶一起拖;溢出不浪费瓶子",
-          "source": "据 manifest 1.9.2"
-        },
-        {
-          "type": "use",
-          "text": "淫力每天自动恢复 10 点;侵蚀一次消耗 100 点;触手自身及带【重要物品】标签的剧情道具(如卢的储物柜)不可侵蚀",
-          "source": "据 manifest 1.3.0 / 1.3.4 / CorruptPatch.cs 复刻名单"
-        }
-      ],
-      "sources": [
-        {
-          "source": "开局发放",
-          "detail": "选择「触手起源」天赋后,与 [[tentacle_body]]、[[tentacle_manual]] 三件一起发到仓库",
-          "probability": "唯一途径(据 manifest 1.4.4)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "tentacle_box",
-        "tentacle_semen",
-        "tentacle_alarm",
-        "tentacle_trap",
-        "tentacle_printer"
-      ],
-      "notes": "1.9.2 起「充能」改叫「淫力」,上限 100;侵蚀被拒绝时日志留「侵蚀拒绝」记录便于排查(据 manifest 1.9.2 / 1.3.6)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -468,10 +256,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/corrupt_tentacle.md",
-        "usage": "content:items/corrupt_tentacle.md",
-        "sources": "content:items/corrupt_tentacle.md",
-        "related": "content:items/corrupt_tentacle.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -492,25 +278,10 @@
       "tags": [],
       "description": "【本体的五个区，从左到右】\n① 侵蚀区 3×16：只收带【触手侵蚀】的箱子 / 机器\n② 苗床区 16×16：把【女性角色】放进来，每晚自动结算调教\n③ 产出区 16×16：产出的乳汁 / 精液落在这里\n④ 触手区 3×16：只收带【触手】标签的工具（侵蚀性触手）\n⑤ 便签区 2×2：就是这张纸\n\n【每晚结算（每个苗床）】\n· 性爱 5~10 次、口交 0~2 次、肛交 0~2 次，本体等级越高越多\n· 调教值 = 性交 + 口交 + 肛交次数之和\n· 精液产出率 = 40% + 调教值每 10 点 +10%（60 点必定产出）\n· 泌乳等级 ≥1 才产【神奇乳汁】，价值 = 100 + 等级×40\n· 每天 1/7 概率进入排卵期，受孕率 = 当晚性交次数%\n· 怀孕 30 天后产下一个继承立绘和势力的女儿\n\n【触手区】\n· 侵蚀性触手每天自动回 10 点淫力；把【触手精液】拖到它身上 +10（可多瓶一起拖）\n· 淫力满 100 时，把下面这些【拖到它身上】，可以侵蚀成【触手苗床箱】：\n\\u3000工程铸造厂物资箱 / 后勤服务部物资箱 / 医疗舱物资箱 /\n\\u3000治安部物证柜 / 治安部物资箱 / 储藏区 / 储藏区（扩建）\n· 带【重要物品】标签的东西（剧情道具之类）一律侵蚀不了\n\n本体的侵蚀区是暗格，盘查时里面的东西不会被搜出来。",
       "flavor": "字迹歪歪扭扭，一看就是用触手写的。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击阅读:本体五分区布局、每晚结算数值、侵蚀操作与白名单速查,数值位随当前配置渲染",
-          "source": "据 tentacle_manual desc(物品定义.csv)与 SpecialAndManualPatches.cs manual.render 注释"
-        }
-      ],
-      "sources": [
-        {
-          "source": "开局发放",
-          "detail": "选择「触手起源」天赋后,与 [[tentacle_body]]、[[corrupt_tentacle]] 三件一起发到仓库,可放进本体便签区 2×2 随身携带",
-          "probability": "唯一途径(据 manifest 1.4.4 / 1.3.0)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "corrupt_tentacle"
-      ],
-      "notes": "lewd_meme_api 可用配置键替换说明书里的数值位,默认渲染与主 mod 原文逐字一致(据 SpecialAndManualPatches.cs)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -519,10 +290,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_manual.md",
-        "usage": "content:items/tentacle_manual.md",
-        "sources": "content:items/tentacle_manual.md",
-        "related": "content:items/tentacle_manual.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -545,30 +314,10 @@
       "tags": [],
       "description": "每天准时响起的时候，你可以关掉它，然后再睡五分钟，毕竟闹钟不会跳起来打你。",
       "flavor": "滴答、滴答。它对接下来要发生的事一无所知。",
-      "usage": [
-        {
-          "type": "sell",
-          "text": "普通日用品,无特殊功能;留给 [[corrupt_tentacle]] 侵蚀才是它的真正去处",
-          "source": "据 manifest 1.4.0 介绍文本"
-        },
-        {
-          "type": "process",
-          "text": "淫力满 100 时把它拖到 [[corrupt_tentacle]] 上,侵蚀成 [[tentacle_alarm]]",
-          "source": "据 manifest 1.4.0"
-        }
-      ],
-      "sources": [
-        {
-          "source": "拾荒掉落",
-          "detail": "日用品拾荒客 / 日用品小偷 / 普通拾荒客的货架各概率带一个",
-          "probability": "各 5%(据 manifest 1.4.0)"
-        }
-      ],
-      "related": [
-        "tentacle_alarm",
-        "corrupt_tentacle"
-      ],
-      "notes": "1.8.0 起追加「奢侈品」分类(据 manifest 1.8.0)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -577,10 +326,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/alarm_clock.md",
-        "usage": "content:items/alarm_clock.md",
-        "sources": "content:items/alarm_clock.md",
-        "related": "content:items/alarm_clock.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -605,37 +352,10 @@
       "tags": [],
       "description": "已经完全被你的触手侵蚀了的闹钟，可以主动打醒喜欢赖床的人。\n里面可以收纳一个苗床少女，每天早晨她会准时地用身体唤醒你，向你道个早安，然后得到你的精液赏赐。\n\n【苗床区】收一个少女：每夜口交 / 性交 / 肛交 各 +1，并产出一瓶触手精液\n【额外效果】昨夜有外出时，次日普通顾客名额不会减少",
       "flavor": "它现在只会在该起床的时候发出湿漉漉的声音。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "苗床区 4×4 收纳一位 [[maiden_lower]]:每夜口交/性交/肛交各 +1,并在产出区产出一瓶 [[tentacle_semen]]",
-          "source": "据 manifest 1.4.0"
-        },
-        {
-          "type": "use",
-          "text": "昨夜有外出时,次日普通顾客名额不会减少(相当于临时「短眠者」);收纳苗床的早晨有一份专属夜间报告",
-          "source": "据 manifest 1.4.0"
-        },
-        {
-          "type": "process",
-          "text": "苗床区里的少女照常累积/恢复疲劳(透支 90 时整夜暂停并恢复 5 点)",
-          "source": "据机制页 nightly-settlement(触手闹钟条目)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "侵蚀制作",
-          "detail": "淫力满 100 的 [[corrupt_tentacle]] 侵蚀 [[alarm_clock]] 获得",
-          "probability": "唯一途径,消耗 100 淫力(据 manifest 1.4.0)"
-        }
-      ],
-      "related": [
-        "alarm_clock",
-        "maiden_lower",
-        "tentacle_semen",
-        "corrupt_tentacle"
-      ],
-      "notes": "每台闹钟只结算自己(1.4.3 修复多台多倍产出);涡轮增压器无法对它加速(据 manifest 1.4.3 / 1.4.5)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -644,10 +364,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_alarm.md",
-        "usage": "content:items/tentacle_alarm.md",
-        "sources": "content:items/tentacle_alarm.md",
-        "related": "content:items/tentacle_alarm.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -670,30 +388,10 @@
       "tags": [],
       "description": "不知道啊，这是俺拾的。",
       "flavor": "铸铁的，沉得很。挥起来大概能砸开一个脑袋。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "近战武器类物品,可作武器装备;真正的价值是被 [[corrupt_tentacle]] 侵蚀成 [[tentacle_trap]]",
-          "source": "据物品定义.csv 分类(武器/近战武器)与 manifest 1.6.0"
-        },
-        {
-          "type": "process",
-          "text": "淫力满 100 时把它拖到 [[corrupt_tentacle]] 上,侵蚀成触手落穴陷阱",
-          "source": "据 manifest 1.6.0"
-        }
-      ],
-      "sources": [
-        {
-          "source": "拾荒掉落",
-          "detail": "日用品小偷、普通拾荒客的货架概率携带",
-          "probability": "日用品小偷 5% / 普通拾荒客 10%(据 manifest 1.6.0)"
-        }
-      ],
-      "related": [
-        "tentacle_trap",
-        "corrupt_tentacle"
-      ],
-      "notes": "介绍只有一句「不知道啊,这是俺拾的。」——来源确实是拾的(据 manifest 1.6.0)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -702,10 +400,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/manhole_cover.md",
-        "usage": "content:items/manhole_cover.md",
-        "sources": "content:items/manhole_cover.md",
-        "related": "content:items/manhole_cover.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -728,37 +424,10 @@
       "tags": [],
       "description": null,
       "flavor": "已经完全被你的触手侵蚀了的井盖，现在是触手落穴陷阱，可以在晚上控制着主动出去捕捉调教苗床。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开窗口:左侧按钮切换部署势力(上层区/下层区/黑市/治安部/革命军)与作战策略(偏僻/一般/热闹);每夜先按策略判定捕获该势力苗床,再对苗床区少女各做一轮调教(口交/性交/肛交各 +1)",
-          "source": "据 manifest 1.6.0 / 1.6.1"
-        },
-        {
-          "type": "use",
-          "text": "「运行:开启/关闭」按钮可整体停摆:捕捉、调教、产出全部停止;关闭状态的陷阱里的少女每天场外恢复疲劳 25 点",
-          "source": "据 manifest 1.8.0 与机制页 nightly-settlement"
-        },
-        {
-          "type": "use",
-          "text": "介绍下方显示昨天的捕捉、调教、产出情况",
-          "source": "据 manifest 1.6.0"
-        }
-      ],
-      "sources": [
-        {
-          "source": "侵蚀制作",
-          "detail": "淫力满 100 的 [[corrupt_tentacle]] 侵蚀 [[manhole_cover]] 获得;内部苗床区 12×12、产出区 12×12",
-          "probability": "唯一途径,消耗 100 淫力(据 manifest 1.6.0)"
-        }
-      ],
-      "related": [
-        "manhole_cover",
-        "corrupt_tentacle",
-        "maiden_lower",
-        "tentacle_semen"
-      ],
-      "notes": "捕获概率:偏僻 10% / 一般 20% / 热闹 30%(据 manifest 1.6.0);产出为苗床区每名少女各 50% 概率一瓶精液(据 manifest 1.6.1);涡轮增压器无法对它加速(据 manifest 1.6.0)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -766,10 +435,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_trap.md",
-        "usage": "content:items/tentacle_trap.md",
-        "sources": "content:items/tentacle_trap.md",
-        "related": "content:items/tentacle_trap.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -791,26 +458,10 @@
       "tags": [],
       "description": "一次性医疗用具，不可复用，干净卫生。",
       "flavor": "针头是触手磨出来的，比工厂货还细。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到 [[tentacle_semen]] 上:消耗一瓶精液,空针管变成 [[ovulation_shot]]",
-          "source": "据 manifest 1.7.0"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[tentacle_printer]] 生产",
-          "detail": "1 份 3D 打印耗材 + 15 进度 = 1 支;进度由苗床每夜提供并累积,一晚能连造多支",
-          "probability": "唯一产线(据 manifest 1.7.0 / 1.7.1)"
-        }
-      ],
-      "related": [
-        "tentacle_printer",
-        "tentacle_semen",
-        "ovulation_shot"
-      ],
-      "notes": "一次性医疗用具,不可复用(据物品定义.csv desc)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -819,10 +470,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/empty_syringe.md",
-        "usage": "content:items/empty_syringe.md",
-        "sources": "content:items/empty_syringe.md",
-        "related": "content:items/empty_syringe.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -845,41 +494,18 @@
       "tags": [],
       "description": null,
       "flavor": null,
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开窗口:材料区 12×12 放 3D 打印耗材,苗床区 12×12 收 [[maiden_lower]];右侧「切换生产方案」按钮选定配方(▶ 生产:空针管),夜间按苗床智力折算进度结算生产",
-          "source": "据 manifest 1.7.0 / 1.7.1"
-        },
-        {
-          "type": "use",
-          "text": "介绍里实时显示当前每日进度、未完成进度与材料全部产完要几天",
-          "source": "据 manifest 1.7.0"
-        }
-      ],
-      "sources": [
-        {
-          "source": "侵蚀制作",
-          "detail": "淫力满 100 的 [[corrupt_tentacle]] 侵蚀原版 3D 打印机获得(机器里的东西会先还给你)",
-          "probability": "唯一途径,消耗 100 淫力(据 manifest 1.7.0)"
-        }
-      ],
-      "related": [
-        "empty_syringe",
-        "maiden_lower",
-        "corrupt_tentacle"
-      ],
-      "notes": "进度规则:每苗床每夜 3 点基础 + 智力加成(11~60 每点 +0.1,61~70 +0.2,71~80 +0.5,81~90 +1,≥91 +2),智力 80 的一夜 15 点正好一支针管(据 manifest 1.7.0)。涡轮增压器无法对它加速(据 manifest 1.7.0)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
         "icon": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_printer.md",
-        "usage": "content:items/tentacle_printer.md",
-        "sources": "content:items/tentacle_printer.md",
-        "related": "content:items/tentacle_printer.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -902,31 +528,10 @@
       "tags": [],
       "description": "记录你这个触手怪都干了些什么的档案。",
       "flavor": "翻看的时候它会自己更新。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "放入物品栏后点击激活:打开纸质「触手档案」窗口,一页看完统计表(触手武力/智力/魅力/侵蚀力、本体等级与经验、捕获与破处统计、淫纹四档人数)与图鉴表(触手/触手侵蚀等分类,条目带介绍、获得方法、前置,部分可「生长」,冷却 7 天)",
-          "source": "据反编译产物 2.5.5 TentacleArchive.cs(onActivateSlotItemFunc→ArchivePaper.Open)与 manifest 1.10.0/2.3.0 段"
-        },
-        {
-          "type": "process",
-          "text": "统计为打开时现扫(卖掉或丢掉少女,捕获数随之减少,累计次数不减);淫纹四档为持久化计数,少女被放生也不减",
-          "source": "据 manifest 1.9.3/1.9.4 段"
-        }
-      ],
-      "sources": [
-        {
-          "source": "开局发放",
-          "detail": "选择「触手起源」天赋开局,与 [[tentacle_body]]、[[corrupt_tentacle]]、[[tentacle_manual]]、[[customer_archive]] 五件一起发放;图鉴另注「由触手本体长出」",
-          "probability": "唯一常规途径(据反编译产物 2.5.5 Perks.cs OnNewGameStarted 与 Codex.cs)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "customer_archive",
-        "tentacle_manual"
-      ],
-      "notes": "文档类,3×2,基价 50(据反编译产物 2.5.5 TentacleArchive.cs Create);1.10.2 起侵蚀区/触手区「标签或分类」命中其一即可收纳。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -935,10 +540,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/tentacle_archive.md",
-        "usage": "content:items/tentacle_archive.md",
-        "sources": "content:items/tentacle_archive.md",
-        "related": "content:items/tentacle_archive.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     },
@@ -961,30 +564,10 @@
       "tags": [],
       "description": "记录你已经见过的顾客身份与面孔。",
       "flavor": "翻一翻，看看熟人都在哪。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开「顾客档案」窗口:首页为最近 3 位到店顾客的卡片,点身份名进入身份详情;身份列表一行 2 个、竖 5 行,每页 10 个,可翻页,默认 37 种身份,见过的会自动补进列表",
-          "source": "据反编译产物 2.5.5 CustomerArchive.cs(SLOTS=3/COLS=2/ROWS=5/PER_PAGE=10/DEFAULT_IDENTITIES)与 manifest 2.5.3/2.4.1 段"
-        },
-        {
-          "type": "process",
-          "text": "详情页显示名称/姓/名/身份/体型/胸型/武力/智力/魅力/好感/信任/催眠/调教值/淫纹刻印/特性/口交·性交·肛交次数/状态;数据随角色存进顾客池——同一位身份下次遇到沿用同样的名字、立绘、属性与观感,好感变化实时写回",
-          "source": "据 manifest 2.5.4/2.5.5 段(2.5.5 起统一以中文身份名为键、属性以角色池为准)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "开局发放",
-          "detail": "选择「触手起源」天赋开局直接给,无前置、不需要图鉴生长(与 [[tentacle_archive]] 一同)",
-          "probability": "唯一途径(据 manifest 2.5.0【顾客档案获得方式】与反编译产物 2.5.5 Perks.cs)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "tentacle_archive"
-      ],
-      "notes": "文档类,3×2,基价 60(据反编译产物 2.5.5 CustomerArchive.cs Create);拉黑某位顾客后档案里对应一格清空变回【???】(据 manifest 2.4.0)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "decompile:MidnightPawn",
         "price": "decompile:MidnightPawn",
@@ -993,10 +576,8 @@
         "flavor": "decompile:MidnightPawn",
         "categories": "csv:Data/物品定义.csv",
         "tags": "csv:Data/物品定义.csv",
-        "notes": "content:items/customer_archive.md",
-        "usage": "content:items/customer_archive.md",
-        "sources": "content:items/customer_archive.md",
-        "related": "content:items/customer_archive.md",
+        "usage": "待补充",
+        "sources": "待补充",
         "shape": "decompile:MidnightPawn"
       }
     }

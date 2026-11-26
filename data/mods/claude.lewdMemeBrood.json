@@ -20,47 +20,20 @@
         null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_egg.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "半透明的卵壳下有东西在缓慢舒张，寻求着孵卵巢的温暖。离开母巢会生命力会逐渐流逝，最终变成只能作为营养的材料。\\n 卵内小生命在寻求适合的食物，似乎不同的成分会对小生命带来不同影响。\\n或许可以试试将不同类型的液体或疑似液体的物品放上去？",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "放进孵卵巢的孵化区(6×6),逐夜累积孵化进度;把不同类型的液体(乳汁、精液等或疑似液体的物品)放到卵壳上,会影响孵出什么——卵壳会自己开口要某种成分(血肉/药腐/甜烈/清水/香麻)",
-          "source": "据 zh.csv item.brood_egg.desc 与 egg.hint.need.* / egg.guide.* 词条"
-        },
-        {
-          "type": "process",
-          "text": "不在孵化区里的卵,数夜后枯萎成 [[brood_nutrient_egg]],只能当营养材料",
-          "source": "据机制页 brood-incubation 与 zh.csv tip.egg.spoil"
-        }
-      ],
-      "sources": [
-        {
-          "source": "苗床产卵",
-          "detail": "苗床夜间受孕后怀上并产下;部署紫触手可提高触手卵受孕概率",
-          "probability": "夜间受孕判定(据 manifest Description 与 ab.nrv 词条)"
-        }
-      ],
-      "related": [
-        "brood_nest",
-        "brood_larva",
-        "brood_nutrient_egg",
-        "brood_tentacle_purple"
-      ],
-      "notes": "孵化有概率失败:卵壳变异没成功时留下 [[brood_failed_seedling]],要从头来过(据 zh.csv egg.guide.fail)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_egg",
         "description": "loc:zh:item.brood_egg.desc",
         "icon": "loc:zh:item.brood_egg",
-        "notes": "content:items/brood_egg.md",
-        "categories": "content:items/brood_egg.md",
-        "usage": "content:items/brood_egg.md",
-        "sources": "content:items/brood_egg.md",
-        "related": "content:items/brood_egg.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -74,40 +47,20 @@
         null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_nutrient_egg.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "没能受精的卵，只剩一壳浓稠的养分。也算一顿不错的饭。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "process",
-          "text": "只能作为营养材料:喂给巢当存粮,或给卵提供养分;「没能受精的卵,只剩一壳浓稠的养分。也算一顿不错的饭。」",
-          "source": "据 zh.csv item.brood_nutrient_egg.desc 与机制页 brood-incubation"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵枯萎",
-          "detail": "离开孵化区的 [[brood_egg]] 数夜后生命力流逝变成营养卵",
-          "probability": "常见(据 zh.csv tip.egg.spoil / item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_egg",
-        "brood_base_nest"
-      ],
-      "notes": "名称直译自「没能受精的卵」设定(据 zh.csv item.brood_nutrient_egg.desc)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_nutrient_egg",
         "description": "loc:zh:item.brood_nutrient_egg.desc",
         "icon": "loc:zh:item.brood_nutrient_egg",
-        "notes": "content:items/brood_nutrient_egg.md",
-        "categories": "content:items/brood_nutrient_egg.md",
-        "usage": "content:items/brood_nutrient_egg.md",
-        "sources": "content:items/brood_nutrient_egg.md",
-        "related": "content:items/brood_nutrient_egg.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -125,40 +78,16 @@
       "tags": [],
       "description": "刚从卵里钻出来的小触手，湿漉漉地扭动着。放进孵卵巢的培养区，喂饱了才会慢慢长大。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "放进孵卵巢的培养区,喂饱了才会慢慢长大;长成后成为 [[brood_white_tentacle]](口粮)或红/绿/黄/蓝/紫功能触手。功能触手成体从 Lv0 起步,之后靠把食物拖到触手身上喂养升级(上限 = 对应基因等级 + 1),养成循环见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 zh.csv item.brood_larva.desc、NestCycle.cs Mature/NewAdult(成体 Lv0 出场)与 manifest Description"
-        },
-        {
-          "type": "process",
-          "text": "幼体每夜从水巢汲取水分、从基础巢吃存粮,营养不良会停止成长",
-          "source": "据 zh.csv item.brood_water_nest.desc / item.brood_base_nest.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 在孵化区孵出幼体(带名字后缀「触手幼体({0})」)",
-          "probability": "孵化成功即得(据 manifest 与 item.brood_larva.named)"
-        }
-      ],
-      "related": [
-        "brood_egg",
-        "brood_nest",
-        "brood_sym_nest",
-        "brood_white_tentacle"
-      ],
-      "notes": "吞噬反哺:本体每主动吞噬一定数量个体,卵与幼体培养速度提升(据 zh.csv tip.nest.feedback)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_larva",
         "description": "loc:zh:item.brood_larva.desc",
         "icon": "loc:zh:item.brood_larva",
-        "notes": "content:items/brood_larva.md",
-        "usage": "content:items/brood_larva.md",
-        "sources": "content:items/brood_larva.md",
-        "related": "content:items/brood_larva.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -172,46 +101,20 @@
         null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_failed_seedling.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "没能活下来的幼苗，蔫蔫的，但还能吃。把它放到正被吞噬的苗床身上，本体似乎会把它当作替代品，松口让你把人挪出来。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "放到正被吞噬的苗床身上:本体会转而缠住幼苗、松开苗床,吞噬暂停,可以把人挪出来(预计吞噬提示里也写了这一招)",
-          "source": "据 zh.csv item.brood_failed_seedling.desc 与 tip.maiden.devourEta / devour.paused"
-        },
-        {
-          "type": "process",
-          "text": "「没能活下来的幼苗,蔫蔫的,但还能吃」",
-          "source": "据 zh.csv item.brood_failed_seedling.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "孵化失败",
-          "detail": "卵壳变异没有成功时留下,孵化要从头来过(「不过它看起来更肥了」)",
-          "probability": "孵化失败时必得(据 zh.csv egg.guide.fail)"
-        }
-      ],
-      "related": [
-        "brood_egg",
-        "tentacle_body",
-        "maiden_lower"
-      ],
-      "notes": "是吞噬流救人质的关键道具,详见机制页「本体吞噬进化」。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_failed_seedling",
         "description": "loc:zh:item.brood_failed_seedling.desc",
         "icon": "loc:zh:item.brood_failed_seedling",
-        "notes": "content:items/brood_failed_seedling.md",
-        "categories": "content:items/brood_failed_seedling.md",
-        "usage": "content:items/brood_failed_seedling.md",
-        "sources": "content:items/brood_failed_seedling.md",
-        "related": "content:items/brood_failed_seedling.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -229,34 +132,16 @@
       "tags": [],
       "description": "吞噬母体时偶尔凝结出的结晶，本体对精华有所反应。似乎会对本体带来某种不可逆的变化？",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "给触手本体吸收:本体 Lv5 起每颗推进一段突破进度(显示「突破进度 当前/所需」),突破后本体等级上限升至 Lv10 并发放适应点,到顶后不再吸收",
-          "source": "据机制页 brood-devour-evolution(引 zh.csv essence 系列词条)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "吞噬凝结",
-          "detail": "本体吞噬母体(苗床)时偶尔凝结出的结晶",
-          "probability": "吞噬时概率掉落(据 manifest Description 与 zh.csv rep.essence)"
-        }
-      ],
-      "related": [
-        "tentacle_body",
-        "maiden_lower",
-        "brood_nest"
-      ],
-      "notes": "适应点在孵卵巢的「本体适应」面板分配:代谢适应(食水消耗 −3%/点)、基因同化(基因经验 +10%/点)、孵育稳定(孵化进度 +5%/点),单项点数上限为运行时数值,待补充(据机制页 brood-devour-evolution)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_essence",
         "description": "loc:zh:item.brood_essence.desc",
         "icon": "loc:zh:item.brood_essence",
-        "notes": "content:items/brood_essence.md",
-        "usage": "content:items/brood_essence.md",
-        "sources": "content:items/brood_essence.md",
-        "related": "content:items/brood_essence.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -264,53 +149,26 @@
       "aliases": [],
       "name": "触手肉块（大）",
       "mod": "claude.lewdMemeBrood",
-      "price": 52,
+      "price": null,
       "shape": [
-        2,
-        2
+        null,
+        null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_tentacle_meat_large.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "一大块完整的触手肉，还在微微收缩。用刀可以切成 2 块中块。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "process",
-          "text": "用刀再切:一大块可以切成 2 块 [[brood_tentacle_meat]]",
-          "source": "据 zh.csv item.brood_tentacle_meat_large.desc 与 Meat.cs Grades(next 链)"
-        },
-        {
-          "type": "sell",
-          "text": "食物类商品(热量 800,基础价 52),可直接出售或做菜;小窝后厨联动可用触手肉做章鱼烧等菜式",
-          "source": "据 Meat.cs Grades(kcal 800/value 52)与 manifest「联动小窝后厨经营(章鱼烧)」"
-        }
-      ],
-      "sources": [
-        {
-          "source": "切块",
-          "detail": "把刀拖到 [[brood_white_tentacle]] 或功能触手上切成大块",
-          "probability": "切肉必得(据 Meat.cs IsKnife 分支)"
-        }
-      ],
-      "related": [
-        "brood_tentacle_meat",
-        "brood_white_tentacle"
-      ],
-      "notes": "三档肉块价值成阶梯:大块比同热量的中块贵、中块比小块贵(据 Meat.cs 自检断言)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_meat_large",
         "description": "loc:zh:item.brood_tentacle_meat_large.desc",
         "icon": "loc:zh:item.brood_tentacle_meat_large",
-        "notes": "content:items/brood_tentacle_meat_large.md",
-        "price": "content:items/brood_tentacle_meat_large.md",
-        "categories": "content:items/brood_tentacle_meat_large.md",
-        "usage": "content:items/brood_tentacle_meat_large.md",
-        "sources": "content:items/brood_tentacle_meat_large.md",
-        "related": "content:items/brood_tentacle_meat_large.md",
-        "shape": "content:items/brood_tentacle_meat_large.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -318,53 +176,26 @@
       "aliases": [],
       "name": "触手肉块（中）",
       "mod": "claude.lewdMemeBrood",
-      "price": 23,
+      "price": null,
       "shape": [
-        2,
-        1
+        null,
+        null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_tentacle_meat.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "切好的触手肉。用刀可以再切成 2 块小块。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "process",
-          "text": "用刀再切:中块可以切成 2 块 [[brood_tentacle_meat_small]]",
-          "source": "据 zh.csv item.brood_tentacle_meat.desc 与 Meat.cs Grades(next 链)"
-        },
-        {
-          "type": "sell",
-          "text": "食物类商品(热量 400,基础价 23),可直接出售或做菜",
-          "source": "据 Meat.cs Grades(kcal 400/value 23)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "切块",
-          "detail": "把刀拖到 [[brood_white_tentacle]] / 功能触手上,或把大块再切获得",
-          "probability": "切肉必得(据 Meat.cs)"
-        }
-      ],
-      "related": [
-        "brood_tentacle_meat_large",
-        "brood_tentacle_meat_small"
-      ],
-      "notes": "「切好的触手肉。用刀可以再切成 2 块小块。」(据 zh.csv item.brood_tentacle_meat.desc)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_meat",
         "description": "loc:zh:item.brood_tentacle_meat.desc",
         "icon": "loc:zh:item.brood_tentacle_meat",
-        "notes": "content:items/brood_tentacle_meat.md",
-        "price": "content:items/brood_tentacle_meat.md",
-        "categories": "content:items/brood_tentacle_meat.md",
-        "usage": "content:items/brood_tentacle_meat.md",
-        "sources": "content:items/brood_tentacle_meat.md",
-        "related": "content:items/brood_tentacle_meat.md",
-        "shape": "content:items/brood_tentacle_meat.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -372,48 +203,26 @@
       "aliases": [],
       "name": "触手肉块（小）",
       "mod": "claude.lewdMemeBrood",
-      "price": 10,
+      "price": null,
       "shape": [
-        1,
-        1
+        null,
+        null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_tentacle_meat_small.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "一小块触手肉，切口还在渗汁。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "sell",
-          "text": "最小的肉块档位,食物类商品(热量 200,基础价 10),可直接出售或做菜;不能再切",
-          "source": "据 Meat.cs Grades(kcal 200/value 10,next=null)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "切块",
-          "detail": "把刀拖到 [[brood_white_tentacle]] / 功能触手上,或把中块再切获得",
-          "probability": "切肉必得(据 Meat.cs)"
-        }
-      ],
-      "related": [
-        "brood_tentacle_meat",
-        "brood_tentacle_meat_large"
-      ],
-      "notes": "「一小块触手肉,切口还在渗汁。」(据 zh.csv item.brood_tentacle_meat_small.desc)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_meat_small",
         "description": "loc:zh:item.brood_tentacle_meat_small.desc",
         "icon": "loc:zh:item.brood_tentacle_meat_small",
-        "notes": "content:items/brood_tentacle_meat_small.md",
-        "price": "content:items/brood_tentacle_meat_small.md",
-        "categories": "content:items/brood_tentacle_meat_small.md",
-        "usage": "content:items/brood_tentacle_meat_small.md",
-        "sources": "content:items/brood_tentacle_meat_small.md",
-        "related": "content:items/brood_tentacle_meat_small.md",
-        "shape": "content:items/brood_tentacle_meat_small.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -431,31 +240,15 @@
       "tags": [],
       "description": null,
       "flavor": null,
-      "usage": [
-        {
-          "type": "use",
-          "text": "剧情事件 NPC:巢穴失控/暴露演出里破门而入的治安部执法员——「门……门开了?这、这满地的黏液是怎么回事……」「你……你根本不是人类!开火!开火!」;非玩家可获得/可交易的物品",
-          "source": "据 Officer.cs Arrive 与 StoryDirector.cs 449 行调用、zh.csv officer.* 词条"
-        }
-      ],
-      "sources": [
-        {
-          "source": "剧情事件",
-          "detail": "主线剧情(觉醒/渴望/失控/暴走演出)推进到对应节点时上门",
-          "probability": "剧情触发(据 StoryDirector.cs)"
-        }
-      ],
-      "related": [
-        "tentacle_body"
-      ],
-      "notes": "Wiki 收录它是因为物品目录里有注册;页面仅作剧情资料。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:officer.name",
         "icon": "loc:zh:officer.name",
-        "notes": "content:items/officer.md",
-        "usage": "content:items/officer.md",
-        "sources": "content:items/officer.md",
-        "related": "content:items/officer.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -473,33 +266,16 @@
       "tags": [],
       "description": "旧版本留下的成体。读档时会自动换成对应颜色的触手。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "process",
-          "text": "旧版本遗留的成体条目:读档时会自动换成对应颜色的功能触手,无需手动处理",
-          "source": "据 zh.csv item.brood_adult.desc 与 SaveCompat.cs 存档兼容清单"
-        }
-      ],
-      "sources": [
-        {
-          "source": "旧版存档迁移",
-          "detail": "只会在旧版本存档里出现,新档不会生成",
-          "probability": "仅旧档(据 item.brood_adult.desc)"
-        }
-      ],
-      "related": [
-        "brood_tentacle_red",
-        "brood_tentacle_green"
-      ],
-      "notes": "正常游玩不会接触到它;新版的成体是红/绿/黄/蓝/紫五色功能触手(据 manifest Description)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_adult",
         "description": "loc:zh:item.brood_adult.desc",
         "icon": "loc:zh:item.brood_adult",
-        "notes": "content:items/brood_adult.md",
-        "usage": "content:items/brood_adult.md",
-        "sources": "content:items/brood_adult.md",
-        "related": "content:items/brood_adult.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -513,57 +289,20 @@
         null
       ],
       "icon": "items/claude.lewdMemeBrood/brood_tentacle_white.png",
-      "categories": [
-        "食物"
-      ],
+      "categories": [],
       "tags": [],
       "description": "泛着粉光的白触手，肥嫩得轻轻一按就会陷下去。它是巢里长出来的口粮，可以直接吃，也能动刀切成大小几块肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "eat",
-          "text": "巢里长出来的口粮:可以直接吃,是稳定的食物来源",
-          "source": "据 zh.csv item.brood_white_tentacle.desc"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:口交/性交/肛交次数各 +1~2、调教值 +3~6,首次使用会同时转换处女与后庭标记;并有默认 12% 概率胸部变大一档(贫乳→普乳→巨乳)、10% 概率体态成熟一档(萝莉→少女→御姐→少妇→熟女),两档封顶、概率可在模组设置中调整。同一只触手每天限用一次",
-          "source": "据 TentacleUse.cs Use 默认分支、TryGrow/TryShiftBody、Settings.cs WhiteGrow/WhiteBody 默认值与 zh.csv tip.white.use 词条"
-        },
-        {
-          "type": "process",
-          "text": "用刀(拖刀上去)切成 [[brood_tentacle_meat_large]] / [[brood_tentacle_meat]] / [[brood_tentacle_meat_small]] 三档肉块,大块可再切 2 中块、中块切 2 小块",
-          "source": "据 item.brood_white_tentacle.desc 与 Meat.cs IsKnife 分支"
-        },
-        {
-          "type": "sell",
-          "text": "整条或切块出售变现",
-          "source": "据 Meat.cs 肉块价值阶梯"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化产出的基础形态;[[brood_larva]] 长成后的默认去向之一",
-          "probability": "孵化循环产出(据 manifest Description)"
-        }
-      ],
-      "related": [
-        "brood_egg",
-        "brood_larva",
-        "brood_tentacle_meat_large",
-        "maiden_lower"
-      ],
-      "notes": "「泛着粉光的白触手,肥嫩得轻轻一按就会陷下去。」(据 zh.csv item.brood_white_tentacle.desc)它不走五色的喂养/升级循环:不能被喂食升级、不能部署共生,本体吞下也没有基因经验(据 TentacleItems.cs CanFeed 的 IsFunctional 判定、NestItems.cs CanDeploy 与 BodyActions.cs Absorb 的 White 排除);它的「营养」(1600+200×等级)是卵期孵化喂食决定的另一条线(据 BranchInfo.cs WhiteKcal 与 BROOD_WHITE_BONUS 链),详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)的区分说明。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_white_tentacle",
         "description": "loc:zh:item.brood_white_tentacle.desc",
         "icon": "loc:zh:item.brood_white_tentacle",
-        "notes": "content:items/brood_white_tentacle.md",
-        "categories": "content:items/brood_white_tentacle.md",
-        "usage": "content:items/brood_white_tentacle.md",
-        "sources": "content:items/brood_white_tentacle.md",
-        "related": "content:items/brood_white_tentacle.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -581,58 +320,16 @@
       "tags": [],
       "description": "充满筋肉、浑身鲜红、散发着力量感的触手。鞭打的力道足以破开石壁。可疑造型或许会迎来盘查。\\n似乎渴望着外出探索，与其共生时对拾荒有所助力，添加捕获的概率。\\n可直接与苗床交配互动，也可以切了获取肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "feed",
-          "text": "把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求力支基因等级 ≥ 触手当前等级,最高可升到 对应力支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬红触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 TentacleItems.cs CanFeed/Feed/ExpToNext、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条"
-        },
-        {
-          "type": "drag-target",
-          "text": "喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):拾荒次数 +(不同条取最高)· 捕获概率 +(可叠加);鞭打力道足以破开石壁,可疑造型或许会迎来盘查",
-          "source": "据 zh.csv ab.str 词条、item.brood_tentacle_red.desc 与 tip.adult.lv0"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:性交次数 +3~5、调教值同步 +3~5,首次使用会把处女标记转换为破身(影响收购商的处女加价);同一只触手每天限用一次,效果与触手等级无关",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的 Str 分支、Apply"
-        },
-        {
-          "type": "drag-target",
-          "text": "让 [[tentacle_body]] 本体吞下:获得力支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定",
-          "source": "据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条"
-        },
-        {
-          "type": "process",
-          "text": "不需要时可以用刀切了获取肉块",
-          "source": "据 item.brood_tentacle_red.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果",
-          "probability": "孵化产出(据 manifest Description 与 item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_sym_nest",
-        "brood_egg",
-        "brood_tentacle_green",
-        "brood_tentacle_yellow",
-        "brood_tentacle_aqua",
-        "brood_tentacle_purple",
-        "maiden_lower"
-      ],
-      "notes": "部署数值为运行时等级数值,本地化文本未给出具体数字,待补充(据 zh.csv ab.str 模板);等级只改名字不改贴图(据 TentacleItems.cs RefreshName)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_red",
         "description": "loc:zh:item.brood_tentacle_red.desc",
         "icon": "loc:zh:item.brood_tentacle_red",
-        "notes": "content:items/brood_tentacle_red.md",
-        "usage": "content:items/brood_tentacle_red.md",
-        "sources": "content:items/brood_tentacle_red.md",
-        "related": "content:items/brood_tentacle_red.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -650,58 +347,16 @@
       "tags": [],
       "description": "深绿的触手，表皮粗粝如老藤，浑身绷着一股韧劲，怎么拉扯都不断。一看就不是该摆在柜台上的东西。\\n与它共生后，外出拾荒似乎更顺了，受的伤也少了。\\n它对苗床另有一番纠缠；也可以切了获取肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "feed",
-          "text": "把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求韧支基因等级 ≥ 触手当前等级,最高可升到 对应韧支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬绿触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 TentacleItems.cs CanFeed/Feed/ExpToNext、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条"
-        },
-        {
-          "type": "drag-target",
-          "text": "喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):拾荒次数 +(不同条取最高)· 受伤 −(可叠加);外出拾荒更顺、受的伤更少",
-          "source": "据 zh.csv ab.vit 词条、item.brood_tentacle_green.desc 与 tip.adult.lv0"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:肛交次数 +3~5、调教值同步 +3~5,首次使用会转换后庭贞操标记;同一只触手每天限用一次,效果与触手等级无关",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的 Vit 分支、Apply"
-        },
-        {
-          "type": "drag-target",
-          "text": "让 [[tentacle_body]] 本体吞下:获得韧支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定",
-          "source": "据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条"
-        },
-        {
-          "type": "process",
-          "text": "不需要时可以用刀切了获取肉块",
-          "source": "据 item.brood_tentacle_green.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果",
-          "probability": "孵化产出(据 manifest Description 与 item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_sym_nest",
-        "brood_egg",
-        "brood_tentacle_red",
-        "brood_tentacle_yellow",
-        "brood_tentacle_aqua",
-        "brood_tentacle_purple",
-        "maiden_lower"
-      ],
-      "notes": "「一看就不是该摆在柜台上的东西。」(据 zh.csv item.brood_tentacle_green.desc)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_green",
         "description": "loc:zh:item.brood_tentacle_green.desc",
         "icon": "loc:zh:item.brood_tentacle_green",
-        "notes": "content:items/brood_tentacle_green.md",
-        "usage": "content:items/brood_tentacle_green.md",
-        "sources": "content:items/brood_tentacle_green.md",
-        "related": "content:items/brood_tentacle_green.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -719,59 +374,16 @@
       "tags": [],
       "description": "通体覆满腺体的黄色触手，总渗出一层黏滑的液体，带着若有似无的腥甜。\\n与它共生后，苗床们似乎更丰沛了，产出的乳汁也愈发醇厚。\\n对苗床另有一番本事；也可以切了获取肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "feed",
-          "text": "把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求腺支基因等级 ≥ 触手当前等级,最高可升到 对应腺支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬黄触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 TentacleItems.cs CanFeed/Feed/ExpToNext、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条"
-        },
-        {
-          "type": "drag-target",
-          "text": "喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):每个苗床额外产出 +(取最高)· 分泌物价值 +(可叠加);分泌加成直接推动乳汁档位(底子 + 分泌推档决定最终产出,tip 里可见「再推一档需要多少」)",
-          "source": "据 zh.csv ab.gld / tip.milk.base / tip.milk.next 词条与机制页 brood-symbiotic-nest"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:口交次数 +3~5、调教值同步 +3~5,不触碰任何贞操标记;同一只触手每天限用一次,效果与触手等级无关",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的 Gld 分支、Apply"
-        },
-        {
-          "type": "drag-target",
-          "text": "让 [[tentacle_body]] 本体吞下:获得腺支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定",
-          "source": "据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条"
-        },
-        {
-          "type": "process",
-          "text": "不需要时可以用刀切了获取肉块",
-          "source": "据 item.brood_tentacle_yellow.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果",
-          "probability": "孵化产出(据 manifest Description 与 item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_sym_nest",
-        "brood_egg",
-        "wondrous_milk",
-        "brood_tentacle_red",
-        "brood_tentacle_green",
-        "brood_tentacle_aqua",
-        "brood_tentacle_purple",
-        "maiden_lower"
-      ],
-      "notes": "乳汁评级显示为「乳汁 {0} 级」(据 zh.csv milk.grade / dbg.milkGrade 词条)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_yellow",
         "description": "loc:zh:item.brood_tentacle_yellow.desc",
         "icon": "loc:zh:item.brood_tentacle_yellow",
-        "notes": "content:items/brood_tentacle_yellow.md",
-        "usage": "content:items/brood_tentacle_yellow.md",
-        "sources": "content:items/brood_tentacle_yellow.md",
-        "related": "content:items/brood_tentacle_yellow.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -789,64 +401,16 @@
       "tags": [],
       "description": "会呼吸的淡蓝触手，表面总凝着一层水雾，身体像一口活着的水囊。它似乎能从空气里榨出水，还会自己把存水变干净。\\n共生时，这些水会悄悄补进孵卵巢。对苗床温和得多；也可以切了获取肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "feed",
-          "text": "把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手,给它倒液体走容器互倒、不算喂食);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求水支基因等级 ≥ 触手当前等级,最高可升到 对应水支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬蓝触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 TentacleItems.cs CanFeed/Feed/ExpToNext/LiquidPair、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条"
-        },
-        {
-          "type": "drag-target",
-          "text": "喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):每天集水与去杂质,存水悄悄补进孵卵巢的水巢;对苗床温和得多",
-          "source": "据 zh.csv ab.aqu 词条、item.brood_tentacle_aqua.desc 与 tip.adult.lv0"
-        },
-        {
-          "type": "drag-target",
-          "text": "把蓝触手贴到 [[brood_water_nest]] 上灌水",
-          "source": "据 item.brood_water_nest.desc"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:口交/性交/肛交次数各 +1~2、调教值 +3~6,首次使用会同时转换处女与后庭标记;同一只触手每天限用一次,效果与触手等级无关",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的默认分支、Apply"
-        },
-        {
-          "type": "drag-target",
-          "text": "让 [[tentacle_body]] 本体吞下:获得水支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定",
-          "source": "据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条"
-        },
-        {
-          "type": "process",
-          "text": "不需要时可以用刀切了获取肉块",
-          "source": "据 item.brood_tentacle_aqua.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果",
-          "probability": "孵化产出(据 manifest Description 与 item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_sym_nest",
-        "brood_water_nest",
-        "brood_egg",
-        "brood_tentacle_red",
-        "brood_tentacle_green",
-        "brood_tentacle_yellow",
-        "brood_tentacle_purple",
-        "maiden_lower"
-      ],
-      "notes": "「会呼吸的淡蓝触手,表面总凝着一层水雾,身体像一口活着的水囊。」(据 zh.csv item.brood_tentacle_aqua.desc)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_aqua",
         "description": "loc:zh:item.brood_tentacle_aqua.desc",
         "icon": "loc:zh:item.brood_tentacle_aqua",
-        "notes": "content:items/brood_tentacle_aqua.md",
-        "usage": "content:items/brood_tentacle_aqua.md",
-        "sources": "content:items/brood_tentacle_aqua.md",
-        "related": "content:items/brood_tentacle_aqua.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -864,59 +428,16 @@
       "tags": [],
       "description": "细长而敏感的紫色触手，末端总在空气里微微探动，像在聆听什么。\\n与它共生，苗床似乎更容易受孕；养满三条，店里会弥漫开一股若有似无的甜香，让顾客变得好说话。\\n对苗床有种安静的影响力；也可以切了获取肉。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "feed",
-          "text": "把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求神支基因等级 ≥ 触手当前等级,最高可升到 对应神支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬紫触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)",
-          "source": "据 TentacleItems.cs CanFeed/Feed/ExpToNext、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条"
-        },
-        {
-          "type": "drag-target",
-          "text": "喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):触手卵受孕概率 +(可叠加)· 部署 3 条开启 [[fragrance]] 母巢芬芳",
-          "source": "据 zh.csv ab.nrv 词条、item.brood_tentacle_purple.desc 与 tip.adult.lv0"
-        },
-        {
-          "type": "drag-target",
-          "text": "直接拖到 [[maiden_lower]] 苗床身上交配:口交/性交/肛交次数各 +1~2,且调教值额外 +5(合计 +8~11),首次使用会同时转换处女与后庭标记;同一只触手每天限用一次,效果与触手等级无关",
-          "source": "据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的 Nrv 默认分支(train=5)、Apply"
-        },
-        {
-          "type": "drag-target",
-          "text": "让 [[tentacle_body]] 本体吞下:获得神支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定",
-          "source": "据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条"
-        },
-        {
-          "type": "process",
-          "text": "不需要时可以用刀切了获取肉块",
-          "source": "据 item.brood_tentacle_purple.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "卵孵化",
-          "detail": "[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果",
-          "probability": "孵化产出(据 manifest Description 与 item.brood_egg.desc)"
-        }
-      ],
-      "related": [
-        "brood_sym_nest",
-        "brood_egg",
-        "fragrance",
-        "brood_tentacle_red",
-        "brood_tentacle_green",
-        "brood_tentacle_yellow",
-        "brood_tentacle_aqua",
-        "maiden_lower"
-      ],
-      "notes": "「细长而敏感的紫色触手,末端总在空气里微微探动,像在聆听什么。」(据 zh.csv item.brood_tentacle_purple.desc)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_tentacle_purple",
         "description": "loc:zh:item.brood_tentacle_purple.desc",
         "icon": "loc:zh:item.brood_tentacle_purple",
-        "notes": "content:items/brood_tentacle_purple.md",
-        "usage": "content:items/brood_tentacle_purple.md",
-        "sources": "content:items/brood_tentacle_purple.md",
-        "related": "content:items/brood_tentacle_purple.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -934,34 +455,16 @@
       "tags": [],
       "description": "李北文带来的晶体。靠近它时，体内的什么东西会跟着发烫。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "use",
-          "text": "持有它且本体达到 Lv2 即触发觉醒:当晚触手渴望发作,长出 [[brood_nest]] 孵卵巢;「靠近它时,体内的什么东西会跟着发烫。」",
-          "source": "据 manifest Description 与 BroodVersionMerge.cs(bodyLevel>=2 && Has(brood_core_crystal) → awakeReady)"
-        }
-      ],
-      "sources": [
-        {
-          "source": "李北文送货",
-          "detail": "本体 Lv2 且卖过或对来客用过触手精液后,李北文会在一周内带来源晶(放进你的库存)",
-          "probability": "满足条件必来(据 manifest Description 与 LiVisit.cs Spawn)"
-        }
-      ],
-      "related": [
-        "brood_nest",
-        "tentacle_body",
-        "tentacle_semen"
-      ],
-      "notes": "是巢穴扩展整条孵化/吞噬线的起点道具;旧存档迁移时会按「已持有源晶」补齐觉醒状态(据 BroodVersionMerge.cs)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_core_crystal",
         "description": "loc:zh:item.brood_core_crystal.desc",
         "icon": "loc:zh:item.brood_core_crystal",
-        "notes": "content:items/brood_core_crystal.md",
-        "usage": "content:items/brood_core_crystal.md",
-        "sources": "content:items/brood_core_crystal.md",
-        "related": "content:items/brood_core_crystal.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -979,35 +482,16 @@
       "tags": [],
       "description": "从你身体里分出来的那团东西，与源晶长成了一座活的巢。它分成几个腔室：一边喂养孵化，一边培育幼体，还有储水与产出，另一头留给与你共生的触手。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开面板:孵化区 6×6(放 [[brood_egg]] 逐夜孵化)、培养区(放 [[brood_larva]] 喂养长大)、储水与产出,以及留给成年触手的部署区 6×6;「本体适应」面板在这里分配突破后的适应点",
-          "source": "据 zh.csv nest.panel.hatch / nest.panel.deploy 与机制页 brood-incubation / brood-devour-evolution"
-        }
-      ],
-      "sources": [
-        {
-          "source": "觉醒长出",
-          "detail": "持有 [[brood_core_crystal]] 且本体 Lv2 的当晚,触手渴望发作从你身体里长出来——「从你身体里分出来的那团东西,与源晶长成了一座活的巢」",
-          "probability": "觉醒必得(据 manifest Description 与 item.brood_nest.desc)"
-        }
-      ],
-      "related": [
-        "brood_core_crystal",
-        "brood_egg",
-        "brood_larva",
-        "brood_sym_nest"
-      ],
-      "notes": "内部腔室:基础巢(吃食与孵化)、水巢(储水)、共生巢(部署),另有吞咽反哺——本体每主动吞噬若干个体,卵与幼体培养速度 +(据 item.brood_nest.desc 与 tip.nest.feedback)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_nest",
         "description": "loc:zh:item.brood_nest.desc",
         "icon": "loc:zh:item.brood_nest",
-        "notes": "content:items/brood_nest.md",
-        "usage": "content:items/brood_nest.md",
-        "sources": "content:items/brood_nest.md",
-        "related": "content:items/brood_nest.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -1025,34 +509,16 @@
       "tags": [],
       "description": "巢里负责吃食与孵化的一间腔室。把食物放进它左边，过夜后会被消化成巢的存粮；卵放进右边，它会用存粮去喂。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "把食物放进左边,过夜后消化成巢的存粮;把 [[brood_egg]] 放进右边,巢会用存粮去喂它",
-          "source": "据 zh.csv item.brood_base_nest.desc"
-        }
-      ],
-      "sources": [
-        {
-          "source": "孵卵巢腔室",
-          "detail": "觉醒长出 [[brood_nest]] 时自带的组成腔室之一,负责吃食与孵化",
-          "probability": "觉醒必得(据 item.brood_nest.desc)"
-        }
-      ],
-      "related": [
-        "brood_nest",
-        "brood_egg",
-        "brood_water_nest"
-      ],
-      "notes": "不吃食时提示「肚子空了。里面的动静越来越轻」——卵会饿(据 zh.csv egg.hint.hatch.starving)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_base_nest",
         "description": "loc:zh:item.brood_base_nest.desc",
         "icon": "loc:zh:item.brood_base_nest",
-        "notes": "content:items/brood_base_nest.md",
-        "usage": "content:items/brood_base_nest.md",
-        "sources": "content:items/brood_base_nest.md",
-        "related": "content:items/brood_base_nest.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -1070,34 +536,16 @@
       "tags": [],
       "description": "巢的储水器官，软软的一只。把水瓶、水壶或蓝触手贴上去，就能把水灌进去；幼体每夜都从这里汲取水分。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "把水瓶、水壶或蓝触手贴上去灌水;[[brood_larva]] 幼体每夜从这里汲取水分(「这里太干了,长不动」就是缺水)",
-          "source": "据 zh.csv item.brood_water_nest.desc 与 egg.hint.hatch.outside"
-        }
-      ],
-      "sources": [
-        {
-          "source": "孵卵巢腔室",
-          "detail": "觉醒长出 [[brood_nest]] 时自带的储水器官(「软软的一只」)",
-          "probability": "觉醒必得(据 item.brood_nest.desc)"
-        }
-      ],
-      "related": [
-        "brood_nest",
-        "brood_tentacle_aqua",
-        "brood_base_nest"
-      ],
-      "notes": "蓝触手共生时每天集水并去杂质,存水自动补进水巢(据 zh.csv ab.aqu 词条)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_water_nest",
         "description": "loc:zh:item.brood_water_nest.desc",
         "icon": "loc:zh:item.brood_water_nest",
-        "notes": "content:items/brood_water_nest.md",
-        "usage": "content:items/brood_water_nest.md",
-        "sources": "content:items/brood_water_nest.md",
-        "related": "content:items/brood_water_nest.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -1115,37 +563,16 @@
       "tags": [],
       "description": "留给成年触手栖息的腔室。把长成的触手放进来，它们会与你重新连成一体，各显其能。",
       "flavor": null,
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "把喂到 Lv10 的长成功能触手放进部署区(6×6):它们与你重新连成一体,各显其能——红(拾荒/捕获)、绿(拾荒/减伤)、黄(产出/分泌推档)、蓝(集水)、紫(受孕/母巢芬芳),同类多条可叠加",
-          "source": "据 zh.csv item.brood_sym_nest.desc / nest.panel.deploy 与机制页 brood-symbiotic-nest"
-        }
-      ],
-      "sources": [
-        {
-          "source": "孵卵巢腔室",
-          "detail": "觉醒长出 [[brood_nest]] 时留给你与成年触手共生的腔室",
-          "probability": "觉醒必得(据 item.brood_nest.desc)"
-        }
-      ],
-      "related": [
-        "brood_nest",
-        "brood_tentacle_red",
-        "brood_tentacle_green",
-        "brood_tentacle_yellow",
-        "brood_tentacle_aqua",
-        "brood_tentacle_purple"
-      ],
-      "notes": "部署不是触手唯一去向:也可直接用在苗床身上、让本体吞下获取基因,或切肉(据 manifest Description 与各触手描述)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:item.brood_sym_nest",
         "description": "loc:zh:item.brood_sym_nest.desc",
         "icon": "loc:zh:item.brood_sym_nest",
-        "notes": "content:items/brood_sym_nest.md",
-        "usage": "content:items/brood_sym_nest.md",
-        "sources": "content:items/brood_sym_nest.md",
-        "related": "content:items/brood_sym_nest.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -1267,32 +694,15 @@
       "tags": [],
       "description": null,
       "flavor": null,
-      "usage": [
-        {
-          "type": "use",
-          "text": "紫触手部署满 3 条开启的常驻效果:店里弥漫若有似无的甜香,让顾客变得好说话——你出售的物品挂 +价格特征(至多 +25%),要收购的物品挂 −价格特征(至多 −15%),强度随部署加成变化",
-          "source": "据 Fragrance.cs Apply(0.25/0.15 × strength)与 Tune.cs FragranceSellMax/FragranceBuyMax、zh.csv ab.nrv / fragrance.name"
-        }
-      ],
-      "sources": [
-        {
-          "source": "共生巢部署",
-          "detail": "[[brood_sym_nest]] 部署 3 条紫触手后自动生效,无需使用任何物品",
-          "probability": "3 条紫触手(据 zh.csv ab.nrv)"
-        }
-      ],
-      "related": [
-        "brood_tentacle_purple",
-        "brood_sym_nest"
-      ],
-      "notes": "它不是背包物品,而是挂在交易物品上的「母巢芬芳」价格特征;物品目录里注册了同名条目,故 wiki 保留此页(据 Fragrance.cs RemoveItemFeatureByID(\"broodFragrance\") 与 manifest)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:fragrance.name",
         "icon": "loc:zh:fragrance.name",
-        "notes": "content:items/fragrance.md",
-        "usage": "content:items/fragrance.md",
-        "sources": "content:items/fragrance.md",
-        "related": "content:items/fragrance.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {

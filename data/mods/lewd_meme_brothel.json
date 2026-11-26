@@ -66,59 +66,27 @@
       "aliases": [],
       "name": "掌上青楼",
       "mod": "lewd_meme_brothel",
-      "price": 0,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/palm_brothel.png",
-      "categories": [
-        "工具"
-      ],
+      "categories": [],
       "tags": [],
       "description": "一部能看见今日预约客人的掌上终端。点开后按页安排少女与推销品，过夜费与推销的结果要到第二天才知道。",
       "flavor": "屏幕边缘留着一圈唇印。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "点击打开可翻页的掌上终端:每一页是今天预约的一位客人,上方是借用的路人立绘,悬停看想要的特征与预算;「少女」格只能放一位少女,「推销」格 4×4 不限件数",
-          "source": "据 manifest Description 与 zh.csv palm.description / palm.itemTooltip"
-        },
-        {
-          "type": "use",
-          "text": "点「接客」只是锁住这一页,过夜费与推销结果第二天揭晓;每命中一个想要的特征标签,客人预算 +10%;总价超预算时命中 ≥5 个标签才有一半机会被负债买下,预算内必定卖出",
-          "source": "据 manifest Description 与 zh.csv palm.tooltip / palm.hint 系列"
-        },
-        {
-          "type": "use",
-          "text": "过夜费在少女右键菜单里设(0~9999),超过客人预算的少女不能放进这一页;每天预约人数 = 基础 2 + 客源扩建(每次 +2)×展示柜每多一位少女 +1",
-          "source": "据 manifest Description 与 zh.csv network.profession.description / maiden.rightClickHint"
-        }
-      ],
-      "sources": [
-        {
-          "source": "网络解锁",
-          "detail": "在「Wild 的人脉」网络花 800 信用解锁「青楼职业」后发放,同时赠送一件 [[gear.maidDress]];物品丢失会重新补发一份",
-          "probability": "必得(据 NetworkUpgrades.cs AddNetworkUpgrade 800 与 PalmBrothelService 发放逻辑)"
-        }
-      ],
-      "related": [
-        "gear.maidDress",
-        "ledger",
-        "merchant"
-      ],
-      "notes": "带【重要物品】【不可转售】标签的容器物品;找不到掌上青楼时游戏会提示重新解锁青楼职业(据 BrothelItemCatalog.cs CreatePalmBrothel 与 zh.csv error.palmMissing)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:palm.name",
         "description": "loc:zh:palm.description",
         "flavor": "loc:zh:palm.flavor",
         "icon": "content:items/palm.md",
-        "notes": "content:items/palm.md",
-        "price": "content:items/palm.md",
-        "categories": "content:items/palm.md",
-        "usage": "content:items/palm.md",
-        "sources": "content:items/palm.md",
-        "related": "content:items/palm.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -126,59 +94,27 @@
       "aliases": [],
       "name": "女仆装",
       "mod": "lewd_meme_brothel",
-      "price": 260,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/maid_dress.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "带围裙和蕾丝边的贴身女仆装，能把少女衬得更乖巧。",
       "flavor": "“欢迎回来，主人。”",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「身体」部位,带【女仆】特征标签,能命中想要女仆的客人预算 +10%",
-          "source": "据 GearCatalog.cs(maidDress=Body/BROTHEL_TRAIT_MAID)与 zh.csv gear.tooltip"
-        },
-        {
-          "type": "process",
-          "text": "在青楼经营中给侍奉少女穿戴,提升客人标签命中数;也可以通过少女右键菜单脱下收回",
-          "source": "据 zh.csv gear.tooltip 与 maiden.menu.noGear / context.strip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "职业解锁赠送",
-          "detail": "解锁青楼职业时随 [[palm]] 一并发放一件(解锁礼,发放失败会重试)",
-          "probability": "必得一件(据 MerchantService.cs EnsureStarterGear)"
-        },
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "首次来访固定上架的三件之一,基础价 260 信用",
-          "probability": "首访必刷(据 GearCatalog.cs FirstVisitItemIds 与 BrothelItemCatalog.cs ItemValue)"
-        }
-      ],
-      "related": [
-        "palm",
-        "gear.laceDress",
-        "merchant"
-      ],
-      "notes": "服饰均占格 2×2(据 BrothelItemCatalog.cs CreateGear 形状校正)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.maidDress.name",
         "description": "loc:zh:gear.maidDress.description",
         "flavor": "loc:zh:gear.maidDress.flavor",
         "icon": "loc:zh:gear.maidDress.name",
-        "notes": "content:items/gear.maidDress.md",
-        "price": "content:items/gear.maidDress.md",
-        "categories": "content:items/gear.maidDress.md",
-        "usage": "content:items/gear.maidDress.md",
-        "sources": "content:items/gear.maidDress.md",
-        "related": "content:items/gear.maidDress.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -186,54 +122,27 @@
       "aliases": [],
       "name": "猫耳发箍",
       "mod": "lewd_meme_brothel",
-      "price": 180,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/cat_ears.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "毛茸茸的猫耳发箍，戴上后会多出一点猫的娇气。",
       "flavor": "耳朵会随着情绪轻轻抖动。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「头饰」部位,带【猫耳】特征标签",
-          "source": "据 GearCatalog.cs(catEars=Head/BROTHEL_TRAIT_CAT_EARS)与 zh.csv gear.tooltip"
-        },
-        {
-          "type": "process",
-          "text": "与 [[gear.catTailPlug]] 成套搭配;在青楼经营中命中想要猫耳的客人,预算 +10%",
-          "source": "据 zh.csv gear.catTailPlug.description「适合搭配猫耳」与 palm.tooltip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "寐空 梦首次来访固定上架的三件之一,基础价 180 信用;后续来访从全部六件服饰中随机上 3~6 件",
-          "probability": "首访必刷;后续随机(据 GearCatalog.cs RollStock 与 ItemValue)"
-        }
-      ],
-      "related": [
-        "gear.catTailPlug",
-        "merchant",
-        "palm"
-      ],
-      "notes": "「耳朵会随着情绪轻轻抖动。」(据 zh.csv gear.catEars.flavor)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.catEars.name",
         "description": "loc:zh:gear.catEars.description",
         "flavor": "loc:zh:gear.catEars.flavor",
         "icon": "loc:zh:gear.catEars.name",
-        "notes": "content:items/gear.catEars.md",
-        "price": "content:items/gear.catEars.md",
-        "categories": "content:items/gear.catEars.md",
-        "usage": "content:items/gear.catEars.md",
-        "sources": "content:items/gear.catEars.md",
-        "related": "content:items/gear.catEars.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -241,54 +150,27 @@
       "aliases": [],
       "name": "猫尾肛塞",
       "mod": "lewd_meme_brothel",
-      "price": 220,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/cat_tail_plug.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "末端带着细长猫尾的饰品，适合搭配猫耳。",
       "flavor": "尾巴会随着步伐慢慢摇晃。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「配件」部位,带【猫尾】特征标签",
-          "source": "据 GearCatalog.cs(catTailPlug=Accessory/BROTHEL_TRAIT_CAT_TAIL)与 zh.csv gear.tooltip"
-        },
-        {
-          "type": "process",
-          "text": "与 [[gear.catEars]] 成套搭配;在青楼经营中命中想要猫尾的客人,预算 +10%",
-          "source": "据 zh.csv gear.catTailPlug.description「适合搭配猫耳」与 palm.tooltip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "寐空 梦首次来访固定上架的三件之一,基础价 220 信用;后续来访从全部六件服饰中随机上 3~6 件",
-          "probability": "首访必刷;后续随机(据 GearCatalog.cs RollStock 与 ItemValue)"
-        }
-      ],
-      "related": [
-        "gear.catEars",
-        "merchant",
-        "palm"
-      ],
-      "notes": "「尾巴会随着步伐慢慢摇晃。」(据 zh.csv gear.catTailPlug.flavor)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.catTailPlug.name",
         "description": "loc:zh:gear.catTailPlug.description",
         "flavor": "loc:zh:gear.catTailPlug.flavor",
         "icon": "loc:zh:gear.catTailPlug.name",
-        "notes": "content:items/gear.catTailPlug.md",
-        "price": "content:items/gear.catTailPlug.md",
-        "categories": "content:items/gear.catTailPlug.md",
-        "usage": "content:items/gear.catTailPlug.md",
-        "sources": "content:items/gear.catTailPlug.md",
-        "related": "content:items/gear.catTailPlug.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -296,49 +178,27 @@
       "aliases": [],
       "name": "蕾丝开襟睡袍",
       "mod": "lewd_meme_brothel",
-      "price": 240,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/lace_dress.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "轻薄得几乎遮不住什么的蕾丝睡袍。",
       "flavor": "布料少得很有说服力。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「身体」部位,带【情趣】特征标签",
-          "source": "据 GearCatalog.cs(laceDress=Body/BROTHEL_TRAIT_REVEALING)与 zh.csv gear.tooltip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "寐空 梦来访时随机上架(每次来访从六件服饰中抽 3~6 件),基础价 240 信用;首访固定三件里没有它",
-          "probability": "后续来访随机(据 GearCatalog.cs RollStock 与 ItemValue)"
-        }
-      ],
-      "related": [
-        "gear.maidDress",
-        "merchant",
-        "palm"
-      ],
-      "notes": "「布料少得很有说服力。」(据 zh.csv gear.laceDress.flavor)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.laceDress.name",
         "description": "loc:zh:gear.laceDress.description",
         "flavor": "loc:zh:gear.laceDress.flavor",
         "icon": "loc:zh:gear.laceDress.name",
-        "notes": "content:items/gear.laceDress.md",
-        "price": "content:items/gear.laceDress.md",
-        "categories": "content:items/gear.laceDress.md",
-        "usage": "content:items/gear.laceDress.md",
-        "sources": "content:items/gear.laceDress.md",
-        "related": "content:items/gear.laceDress.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -346,49 +206,27 @@
       "aliases": [],
       "name": "兔耳发饰",
       "mod": "lewd_meme_brothel",
-      "price": 175,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/bunny_ears.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "柔软垂落的兔耳发饰。",
       "flavor": "看起来比猫耳更温顺。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「头饰」部位,带【兔耳】特征标签",
-          "source": "据 GearCatalog.cs(bunnyEars=Head/BROTHEL_TRAIT_BUNNY)与 zh.csv gear.tooltip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "寐空 梦来访时随机上架(每次来访从六件服饰中抽 3~6 件),基础价 175 信用;首访固定三件里没有它",
-          "probability": "后续来访随机(据 GearCatalog.cs RollStock 与 ItemValue)"
-        }
-      ],
-      "related": [
-        "gear.catEars",
-        "merchant",
-        "palm"
-      ],
-      "notes": "「看起来比猫耳更温顺。」(据 zh.csv gear.bunnyEars.flavor)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.bunnyEars.name",
         "description": "loc:zh:gear.bunnyEars.description",
         "flavor": "loc:zh:gear.bunnyEars.flavor",
         "icon": "loc:zh:gear.bunnyEars.name",
-        "notes": "content:items/gear.bunnyEars.md",
-        "price": "content:items/gear.bunnyEars.md",
-        "categories": "content:items/gear.bunnyEars.md",
-        "usage": "content:items/gear.bunnyEars.md",
-        "sources": "content:items/gear.bunnyEars.md",
-        "related": "content:items/gear.bunnyEars.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -396,49 +234,27 @@
       "aliases": [],
       "name": "蕾丝腿环",
       "mod": "lewd_meme_brothel",
-      "price": 150,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/lace_garter.png",
-      "categories": [
-        "服饰"
-      ],
+      "categories": [],
       "tags": [],
       "description": "系在大腿上的蕾丝腿环，能强调腿部线条。",
       "flavor": "轻轻一扯就会松开。",
-      "usage": [
-        {
-          "type": "drag-target",
-          "text": "拖到少女身上直接更换:占据「配件」部位,带【腿环】特征标签",
-          "source": "据 GearCatalog.cs(laceGarter=Accessory/BROTHEL_TRAIT_GARTER)与 zh.csv gear.tooltip"
-        }
-      ],
-      "sources": [
-        {
-          "source": "[[merchant]] 出售",
-          "detail": "寐空 梦来访时随机上架(每次来访从六件服饰中抽 3~6 件),基础价 150 信用;首访固定三件里没有它",
-          "probability": "后续来访随机(据 GearCatalog.cs RollStock 与 ItemValue)"
-        }
-      ],
-      "related": [
-        "gear.catTailPlug",
-        "merchant",
-        "palm"
-      ],
-      "notes": "「轻轻一扯就会松开。」(据 zh.csv gear.laceGarter.flavor)",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:gear.laceGarter.name",
         "description": "loc:zh:gear.laceGarter.description",
         "flavor": "loc:zh:gear.laceGarter.flavor",
         "icon": "loc:zh:gear.laceGarter.name",
-        "notes": "content:items/gear.laceGarter.md",
-        "price": "content:items/gear.laceGarter.md",
-        "categories": "content:items/gear.laceGarter.md",
-        "usage": "content:items/gear.laceGarter.md",
-        "sources": "content:items/gear.laceGarter.md",
-        "related": "content:items/gear.laceGarter.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -446,53 +262,27 @@
       "aliases": [],
       "name": "青楼营业账本",
       "mod": "lewd_meme_brothel",
-      "price": 0,
+      "price": null,
       "shape": [
         null,
         null
       ],
       "icon": "items/lewd_meme_brothel/ledger.png",
-      "categories": [
-        "文件"
-      ],
+      "categories": [],
       "tags": [],
       "description": "记录青楼上一夜接待、过夜费与推销收入的实体账本。",
       "flavor": "纸页间还夹着一点香粉味。",
-      "usage": [
-        {
-          "type": "use",
-          "text": "双击打开账本:第一页「昨夜账目」来客明细(来客/少女/命中/过夜费/推销/收入);第二页「侍奉汇报」是昨夜一位少女的侍奉记录、客人满意度与随机的枕边吐槽",
-          "source": "据 zh.csv ledger.* 与 report.page2.* 词条、PatchLedgerDoubleClick.cs"
-        },
-        {
-          "type": "use",
-          "text": "账本还记录固定服饰商人的来访与成交次数(来访 {0} 次 · 成交 {1} 次)",
-          "source": "据 zh.csv ledger.merchantRole / merchantVisits 与 MerchantService.cs onItemSold"
-        }
-      ],
-      "sources": [
-        {
-          "source": "职业解锁发放",
-          "detail": "解锁青楼职业后自动发到库存/柜台(优先背包,其次后柜台、前柜台);丢失会重新补发",
-          "probability": "必得(据 LedgerService.cs 发放逻辑)"
-        }
-      ],
-      "related": [
-        "palm",
-        "merchant"
-      ],
-      "notes": "占格 1×1,带【不可转售】标签,单击不激活(双击查看)(据 BrothelItemCatalog.cs CreateLedger)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:ledger.name",
         "description": "loc:zh:ledger.description",
         "flavor": "loc:zh:ledger.flavor",
         "icon": "loc:zh:ledger.name",
-        "notes": "content:items/ledger.md",
-        "price": "content:items/ledger.md",
-        "categories": "content:items/ledger.md",
-        "usage": "content:items/ledger.md",
-        "sources": "content:items/ledger.md",
-        "related": "content:items/ledger.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
@@ -508,41 +298,17 @@
       "icon": "items/lewd_meme_brothel/mei_meng.png",
       "categories": [],
       "tags": [],
-      "description": "有着岛国血脉,却没能跟上星际时代,只能在深空里自己讨生活的服饰商人(据 zh.csv ledger.merchantProfile)",
+      "description": null,
       "flavor": null,
-      "usage": [
-        {
-          "type": "sell",
-          "text": "固定服饰商人:解锁青楼职业的次日开始不定期来访,把当批服饰放上柜台直售表卖给你;首次来访固定带 [[gear.maidDress]]、[[gear.catEars]]、[[gear.catTailPlug]] 三件,之后每次随机上架 3~6 件",
-          "source": "据 MerchantService.cs AddStock / GearCatalog.cs RollStock 与 FirstVisitItemIds"
-        },
-        {
-          "type": "sell",
-          "text": "成交台词与砍价对话:「多买两件嘛,姐姐也要吃饭的。」;每次成交计入 [[ledger]] 的来访/成交统计",
-          "source": "据 zh.csv merchant.accept / visit 系列与 MerchantService.cs onItemSold"
-        }
-      ],
-      "sources": [
-        {
-          "source": "到店顾客",
-          "detail": "设定:有着岛国血脉、在深空里自己讨生活的服饰商人;解锁青楼职业当天 +1 日首次来访,之后每隔 4~10 天再来",
-          "probability": "首访必来,复访间隔 4~10 天(据 MerchantSchedule.cs)"
-        }
-      ],
-      "related": [
-        "palm",
-        "ledger",
-        "gear.maidDress"
-      ],
-      "notes": "账本里存着她的台词「可别把姐姐忘了呀~」(据 zh.csv merchant.done / ledger.merchantProfile)。",
+      "usage": [],
+      "sources": [],
+      "related": [],
+      "notes": null,
       "provenance": {
         "name": "loc:zh:merchant.name",
         "icon": "content:items/merchant.md",
-        "description": "content:items/merchant.md",
-        "notes": "content:items/merchant.md",
-        "usage": "content:items/merchant.md",
-        "sources": "content:items/merchant.md",
-        "related": "content:items/merchant.md"
+        "usage": "待补充",
+        "sources": "待补充"
       }
     },
     {
