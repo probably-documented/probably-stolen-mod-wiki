@@ -241,13 +241,15 @@
     document.head.appendChild(style);
   }
 
-  function ItemId({ forID, value, onChange, entry }) {
+  function ItemId({ forID, value, onChange, entry, field }) {
     const [catalog, setCatalog] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     // 当前条目的「所属 mod」决定列出哪些物品
     const mod = entry && typeof entry.getIn === 'function' ? entry.getIn(['data', 'mod']) : null;
+    // The CMS hands a custom control no <label for>: the box is named after the field itself.
+    const label = field && typeof field.get === 'function' ? field.get('label') : null;
 
     useEffect(() => {
       loadItemCatalog().then(setCatalog, (error) => setLoadError(`物品清单没有加载出来：${error.message}`));
@@ -256,6 +258,8 @@
     const items = useMemo(() => L.pickModItems(catalog, mod), [catalog, mod]);
     const shown = useMemo(() => L.searchItems(items, query), [items, query]);
     const current = items.find((item) => item.id === value);
+    // 清单里标着「已有词条」的物品，对一篇已经保存的词条来说就是它自己，不说「会重名」。
+    const status = L.itemStatus(current, { saved: isSaved(entry) });
 
     // 小窗开着的时候按 Esc 只关小窗，不退出编辑页
     const closeRef = useRef(() => {});
@@ -272,7 +276,7 @@
           这一篇的文件名就是物品 ID，保存后不要再改。有导出数据的物品，ID 必须和它一致，这一篇才会接上那件物品。
         </span>
         <div class="tsx-row">
-          <input id=${forID} class="tsx-text" type="text" value=${value ?? ''} spellcheck="false" autocomplete="off"
+          <input id=${forID} class="tsx-text" type="text" aria-label=${label} value=${value ?? ''} spellcheck="false" autocomplete="off"
             onChange=${(event) => onChange(event.target.value)} />
           <button type="button" class="tsx-btn" disabled=${!mod} onClick=${() => { setQuery(''); setOpen(true); }}>
             从本 mod 已导出的物品里选
@@ -280,11 +284,7 @@
         </div>
         ${!mod && html`<span class="tsx-note">先选「所属 mod」，才能列出它的物品。</span>`}
         ${loadError && html`<span class="tsx-error" role="alert">${loadError}</span>`}
-        ${
-          current && html`<span class=${current.taken ? 'tsx-warn' : 'tsx-note'}>
-            ${current.taken ? '这件物品已经有词条了：再建一篇会和它重名。' : `已导出的物品：${current.name ?? current.id}`}
-          </span>`
-        }
+        ${status && html`<span class=${status.warn ? 'tsx-warn' : 'tsx-note'}>${status.text}</span>`}
         ${
           open && html`
             <div class="tsx-overlay" onMouseDown=${(event) => { if (event.target === event.currentTarget) setOpen(false); }}>

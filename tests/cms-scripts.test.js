@@ -150,3 +150,53 @@ test('the pre-save hook drops the two helper keys and touches nothing else', () 
   const untouched = dataOf({ title: '一', body: '' });
   assert.equal(listener.handler({ entry: { get: () => untouched } }), undefined, 'nothing to drop: the hook returns undefined and the entry is left as it is');
 });
+
+// ---------------------------------------------------------------------------
+// The 物品 ID control, found in the browser smoke test of stage 2b
+//
+// It was opened on an entry that was already saved — gear.maidDress's own —
+// and said 「这件物品已经有词条了：再建一篇会和它重名」. To the page being edited
+// that is untrue: it IS that entry. And its input box had no accessible name.
+// ---------------------------------------------------------------------------
+
+/** An object made in the scripts' realm has another prototype: copy it into this one before comparing. */
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
+test('itemStatus: a saved entry is told its item is exported — never that it clashes with itself; a new entry is warned', () => {
+  const { ui } = loadLib();
+  const taken = { id: 'brood_egg', name: '触手卵', taken: true };
+  const free = { id: 'tentacle_body', name: '触手本体', taken: false };
+
+  assert.equal(ui.itemStatus(null, { saved: true }), null, 'nothing typed or picked yet: nothing to say');
+  assert.deepEqual(plain(ui.itemStatus(taken, { saved: true })), { warn: false, text: '已导出的物品：触手卵' },
+    'the entry is this item\'s own entry: the catalog\'s 「已有词条」 is itself');
+  assert.deepEqual(plain(ui.itemStatus(taken, { saved: false })), { warn: true, text: '这件物品已经有词条了：再建一篇会和它重名。' });
+  assert.deepEqual(plain(ui.itemStatus(free, { saved: false })), { warn: false, text: '已导出的物品：触手本体' });
+  assert.deepEqual(plain(ui.itemStatus(free, { saved: true })), { warn: false, text: '已导出的物品：触手本体' });
+  assert.deepEqual(plain(ui.itemStatus({ id: 'ending', name: null, taken: false }, { saved: false })),
+    { warn: false, text: '已导出的物品：ending' }, 'an item the data gives no name is named by its id');
+});
+
+/** What a control's html`` template comes to, with its dynamic parts in place. */
+function flatten(template) {
+  const show = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : Array.isArray(v) ? v.map(show).join('') : v && typeof v === 'object' && 'strings' in v ? flatten(v) : `[${typeof v}]`);
+  return template.strings.reduce((text, part, i) => text + part + (i < template.values.length ? show(template.values[i]) : ''), '');
+}
+
+test('the 物品 ID control gives its input box the field\'s label as its accessible name', () => {
+  const { calls } = loadAdmin();
+  const ItemId = calls.find((call) => call[0] === 'registerFieldType' && call[1] === 'item-id')[2];
+  const out = ItemId({
+    forID: 'c47',
+    value: 'gear.maidDress',
+    onChange: () => {},
+    entry: { getIn: () => 'lewd_meme_brothel', get: () => 'lewd_meme_brothel/items/gear.maidDress.md' },
+    field: { get: (key) => (key === 'label' ? '物品 ID' : undefined) },
+  });
+  // A tagged template: the attribute's name ends a static part, its value is the part that follows.
+  const at = out.strings.findIndex((part) => part.endsWith('aria-label='));
+  assert.ok(at > 0, `the input box carries an aria-label:\n${flatten(out).slice(0, 300)}`);
+  assert.ok(out.strings.slice(0, at).join('').includes('<input'), '…on the input box, not somewhere else');
+  assert.equal(out.values[at], '物品 ID', 'named after the field: the CMS labels its own fields the same way');
+  assert.ok(flatten(out).includes('<input id=c47 '), '…and the box keeps the id the CMS handed it');
+});

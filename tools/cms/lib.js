@@ -788,6 +788,19 @@ window.CmsUi = (() => {
     });
   }
 
+  /**
+   * 「物品 ID」一栏下面那句话：这一栏的值对应清单里的哪件物品、它是什么状态。
+   * 清单里「已有词条」（taken）的物品，对一篇**已经保存**的词条来说就是它自己，不算重名。
+   * @param {{ id: string, name?: string|null, taken: boolean }|undefined|null} item
+   * @param {{ saved: boolean }} entrySaved 这一页是已保存的词条（不是新建）
+   * @returns {{ warn: boolean, text: string }|null} 还没填、或者填的不是已导出的物品时是 null
+   */
+  function itemStatus(item, { saved }) {
+    if (!item) return null;
+    if (item.taken && !saved) return { warn: true, text: '这件物品已经有词条了：再建一篇会和它重名。' };
+    return { warn: false, text: `已导出的物品：${item.name ?? item.id}` };
+  }
+
   return {
     ensureStyle,
     installEscGate,
@@ -805,5 +818,6 @@ window.CmsUi = (() => {
     waitFor,
     pickModItems,
     searchItems,
+    itemStatus,
   };
 })();
