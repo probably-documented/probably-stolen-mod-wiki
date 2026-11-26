@@ -7,7 +7,7 @@
 // 脚本 nav-search.js。搜索在浏览器里做，不发请求：站点上和离线包里是同一套。
 //
 //   mods      全局顺序：有导出数据的照数据的顺序，没有数据的排在后面、按标题。
-//             名称三级回退：数据里的 name → 导航页文件的 title → 目录名。
+//             名称三级回退：导航页文件的 title → 数据里的 name → 目录名（阶段 5 补）。
 //   sections  有 order 的按升序在前，没填的排在后面，都按标题；order 不是数字就当没填。
 
 const fs = require('node:fs/promises');
@@ -120,7 +120,7 @@ async function buildNavSearch({ data, layout, redirects, readFile = defaultReadF
   }
 
   // mod：有导出数据的照数据的顺序；其余的排在后面、按标题。
-  // 名称三级回退：数据里的 name → 导航页文件的 title → 目录名。
+  // 名称三级回退：导航页文件的 title → 数据里的 name → 目录名（阶段 5 补）。
   const exported = new Map((data?.mods ?? []).map((mod) => [mod.id, mod]));
   const pageTitle = new Map(); // mod 的目录名 → 导航页文件的 title（没有文件或没写就是 ''）
   const handWritten = [];
@@ -139,7 +139,7 @@ async function buildNavSearch({ data, layout, redirects, readFile = defaultReadF
     const own = redirects?.get(id);
     return {
       id,
-      name: textOf(exportedMod?.name) || pageTitle.get(id) || id,
+      name: textOf(pageTitle.get(id)) || textOf(exportedMod?.name) || id,
       summary: exportedMod === null ? '' : modOverview(exportedMod.description),
       aliases: own === undefined ? [] : [...own.aliases],
       keywords: own === undefined ? [] : [...own.keywords],

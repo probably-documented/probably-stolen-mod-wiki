@@ -87,8 +87,8 @@ test('buildNavSearch: the mods in one global order — the exported ones as the 
   const model = await buildNavSearch({ data, layout, redirects });
 
   assert.deepEqual(model.mods.slice(0, 2).map((mod) => [mod.id, mod.name]), [
-    ['delta', '丁'], // exported, and the data lists it first
-    ['alpha', '甲'], // exported
+    ['delta', '丁'], // exported, and the data lists it first; no page file of its own, so the data's name
+    ['alpha', '被数据的名字压过'], // exported, but its page's title wins over the name in the data (stage 5)
   ]);
   const handWritten = model.mods.slice(2).map((mod) => mod.id);
   assert.deepEqual(handWritten.slice(0, 2), ['gamma', 'beta'],
@@ -98,20 +98,21 @@ test('buildNavSearch: the mods in one global order — the exported ones as the 
     'sections with an order come first, by that order; those without follow');
 });
 
-test('buildNavSearch: a mod\'s name falls back from the data to its page\'s title to its directory name; its summary is the data\'s description up to the first version line', async (t) => {
+test('buildNavSearch: a mod\'s name falls back from its page\'s title to the data to its directory name; its summary is the data\'s description up to the first version line', async (t) => {
   const { layout, data, redirects } = await treeWith(t);
 
   const model = await buildNavSearch({ data, layout, redirects });
   const by = Object.fromEntries(model.mods.map((mod) => [mod.id, mod]));
 
-  assert.equal(by.alpha.name, '甲', 'a name in the data wins over the page\'s title');
+  assert.equal(by.alpha.name, '被数据的名字压过', 'the page\'s title wins over the name in the data');
   assert.equal(by.alpha.summary, '甲的介绍。');
   assert.equal(by.delta.summary, '丁的介绍。', 'nothing after the first version line');
+  assert.equal(by.delta.name, '丁', 'no page file: the name in the data');
   assert.equal(by.beta.name, '乙', 'no data: the page\'s title');
   assert.equal(by.beta.summary, '', 'no data: no summary');
   assert.equal(by.eps.name, 'eps', 'neither: the directory name');
 
-  // A mod whose data has no name, and one whose description is empty.
+  // A mod whose data has no name at all: the page's title still shows.
   const thin = await buildNavSearch({
     data: { mods: [{ id: 'alpha', name: null, description: null }] }, layout, redirects,
   });
@@ -127,8 +128,8 @@ test('buildNavSearch: aliases and keywords come from the redirects, a section\'s
   const by = Object.fromEntries(model.mods.map((mod) => [mod.id, mod]));
 
   assert.deepEqual(by.alpha, {
-    id: 'alpha', name: '甲', summary: '甲的介绍。', aliases: ['黑市'], keywords: ['交易'], sections: ['one', 'two'],
-  }, 'alpha is in both sections, listed in the sections\' order');
+    id: 'alpha', name: '被数据的名字压过', summary: '甲的介绍。', aliases: ['黑市'], keywords: ['交易'], sections: ['one', 'two'],
+  }, 'alpha is in both sections, listed in the sections\' order; its page title names it');
   assert.deepEqual(by.delta, { id: 'delta', name: '丁', summary: '丁的介绍。', aliases: [], keywords: [], sections: [] });
   assert.deepEqual(by.eps.sections, ['one'], 'a mod that is only named in a section still learns which one');
   assert.deepEqual(model.sections, [
