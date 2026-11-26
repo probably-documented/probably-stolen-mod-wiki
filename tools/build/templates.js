@@ -315,30 +315,47 @@ function modBar(name, href, id) {
 
 /**
  * A section as a box: its title (which folds the box), 「进入分区」, how many
- * mods it holds, its intro, and the bars.
+ * mods it holds, its intro, and the bars — or, in the card mode of a section
+ * page (stage 5, task 2), one card per mod (`cards`).
  * @param {{ title: string, slug: string, intro?: string }} section
  * @param {string[]} bars as modBar makes them
- * @param {{ relRoot?: string, linked?: boolean, collapsible?: boolean }} [options]
+ * @param {{ relRoot?: string, linked?: boolean, collapsible?: boolean, cards?: string[] | null }} [options]
  *   linked false: no 「进入分区」 (the block of the mods in no section, and a
  *   section page, which is that section); collapsible false: the title is
- *   plain text, the box cannot fold (a section page: nothing there folds it)
+ *   plain text, the box cannot fold (a section page: nothing there folds it);
+ *   cards: the cards to show instead of the bars (modCard makes them), null for bars
  */
-function sectionBlock({ title, slug, intro = '' }, bars, { relRoot = '', linked = true, collapsible = true } = {}) {
+function sectionBlock({ title, slug, intro = '' }, bars, { relRoot = '', linked = true, collapsible = true, cards = null } = {}) {
   const heading = collapsible
     ? `<button type="button" class="sec-toggle" aria-expanded="true" aria-controls="bars-${esc(slug)}">${esc(title)}</button>`
     : `<span class="sec-title">${esc(title)}</span>`;
   const link = linked ? `<a class="sec-link" href="${esc(relRoot)}sections/${esc(slug)}.html">进入分区</a>` : '';
+  // The cards sit where the bars would, under the same id: what folds the box hides either.
+  const content = cards === null ? { class: 'mod-bars', items: bars } : { class: 'mod-cards', items: cards };
   return `<section class="sec-block" data-sec="${esc(slug)}">
 <div class="sec-head">
 ${heading}
 ${link}
-<span class="sec-count">${bars.length} 个模组</span>
+<span class="sec-count">${content.items.length} 个模组</span>
 </div>
 ${intro === '' ? '' : `<div class="sec-intro">${esc(intro)}</div>`}
-<div class="mod-bars" id="bars-${esc(slug)}">
-${bars.join('\n')}
+<div class="${content.class}" id="bars-${esc(slug)}">
+${content.items.join('\n')}
 </div>
 </section>`;
+}
+
+/**
+ * 分区页卡片模式下的一张卡(阶段 5 Task 2):一个 mod 一张,旧首页「模组家族」的那种。
+ * 名字链到 mod 页,ID 和版本一行小字,简介(没有就不出),物品数和前置。都是转义过的。
+ * @param {{ name: string, href: string, id: string, version?: string|null, summary?: string, itemCount?: number, prerequisites?: string[] }} card
+ */
+function modCard({ name, href, id, version = null, summary = '', itemCount = 0, prerequisites = [] }) {
+  const prerequisite = prerequisites.length === 0 ? '无前置' : `前置 ${prerequisites.map(esc).join('、')}`;
+  return `<div class="mod-card">
+<h4><a href="${esc(href)}">${esc(name)}</a><span class="ver">${esc(id)}${version == null ? '' : ` · ${esc(version)}`}</span></h4>
+${summary === '' ? '' : `<p>${esc(summary)}</p>\n`}<div class="meta">${esc(itemCount)} 件物品 · ${prerequisite}</div>
+</div>`;
 }
 
 module.exports = {
@@ -355,4 +372,5 @@ module.exports = {
   sectionEntries,
   sectionBlock,
   modBar,
+  modCard,
 };

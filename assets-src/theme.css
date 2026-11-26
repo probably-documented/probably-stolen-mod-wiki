@@ -134,7 +134,7 @@ code{background:var(--dk-edge); border:1px solid var(--dk-line); padding:0 5px; 
 .sec-link{font-size:12px;color:var(--dk-accent)}
 .sec-count{margin-left:auto;font-size:12px;color:var(--dk-faint)}
 .sec-intro{padding:8px 14px 0;font-size:12px;color:var(--dk-muted)}
-.sec-block.is-collapsed .sec-intro,.sec-block.is-collapsed .mod-bars{display:none}
+.sec-block.is-collapsed .sec-intro,.sec-block.is-collapsed .mod-bars,.sec-block.is-collapsed .mod-cards{display:none}
 
 /* 模组条:只放名字,多列排布 */
 .mod-bars{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:12px 14px;max-height:268px;overflow-y:auto}

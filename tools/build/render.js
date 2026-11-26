@@ -25,7 +25,7 @@ const { sitePagesWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
-  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar,
+  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar, modCard,
 } = require('./templates.js');
 
 const MISSING = '<i class="missing">待补充</i>';
@@ -247,17 +247,69 @@ ${intro}
 }
 
 /**
+ * 一个 mod 的版本和前置:有导出数据的用数据里的,没有(或数据里没写)才用它导航页文件里写的。
+ * mod 导航页和分区页的卡片共用这一处,两边的说法不会走样。
+ * @param {object|null} exported 数据里的 mod;纯手写的是 null
+ * @param {object} fm 它导航页文件的开头(没有文件就是 {})
+ * @returns {{ version: string|null, prerequisites: string[] }}
+ */
+function versionAndPrerequisites(exported, fm) {
+  const said = (value) => (typeof value === 'string' ? value.trim() : '');
+  const either = (fromData, fromPage) => (fromData == null || fromData === '' ? fromPage : fromData);
+  return {
+    version: validVersion(either(validVersion(exported?.version), said(fm.version))),
+    prerequisites: (exported?.prerequisites ?? []).length > 0
+      ? exported.prerequisites.map(String)
+      : (Array.isArray(fm.prerequisites) ? fm.prerequisites.map(String) : []),
+  };
+}
+
+/**
+ * 分区页卡片模式下的卡片(阶段 5 Task 2):这个分区的 mod,主页顺序,一个 mod 一张。
+ * 卡上的数字和文字同 mod 页——版本和前置有数据用数据,纯手写的用它导航页文件里写的;
+ * 物品数是「有数据的加纯手写的」;简介是搜索模型里的那一句,超过 90 字截断,没有就不出。
+ * @param {string[]} orderOf buildNavSearch 的 mods(主页顺序)
+ * @param {(id: string) => string} hrefOf 一个 mod 的导航页地址
+ * @param {object|null} content 内容布局(mod 的导航页文件在这里)
+ * @returns {Promise<string[]>}
+ */
+async function sectionCards(data, model, orderOf, slug, hrefOf, content) {
+  const cards = [];
+  for (const mod of (orderOf ?? []).filter((m) => m.sections.includes(slug))) {
+    const indexFile = (content?.mods ?? []).find((m) => m.id === mod.id)?.indexFile ?? null;
+    const raw = indexFile === null ? null : await readOptional(indexFile);
+    const { fm } = splitFrontmatter(raw ?? '');
+    const { version, prerequisites } = versionAndPrerequisites(data.mods?.find((m) => m.id === mod.id) ?? null, fm);
+    cards.push(modCard({
+      name: mod.name,
+      href: hrefOf(mod.id),
+      id: mod.id,
+      version,
+      summary: truncate(mod.summary, 90),
+      itemCount: model.items.filter((it) => it.mod === mod.id).length,
+      prerequisites,
+    }));
+  }
+  return cards;
+}
+
+/**
  * 分区导航页(sections/<slug>.html):标题、入口行(物品图鉴、机制说明,进到这个分区自己的两页)、
- * 本分区的 mod 条(样式同主页;这一页只有它自己,所以方框不折叠)、最后才是介绍正文
+ * 本分区的 mod(样式同主页;这一页只有它自己,所以方框不折叠)、最后才是介绍正文
  * (按 Markdown 渲染,物品内嵌卡可用)。分区块里不放简介行:正文就在下面,不再重复。
+ * 分区文件写了 cards: true 就是卡片模式(阶段 5 Task 2):每个 mod 一张卡(sectionCards),
+ * 别的时候都是条。只有严格的布尔 true 算开。
  * @param {object} section { slug, title, intro, order, file } — file 是分区文件,可以没有
  * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
+ * @param {object|null} content readContentLayout 的结果(卡片模式要读 mod 的导航页文件)
  */
-async function renderSectionPage(data, model, section, mods) {
+async function renderSectionPage(data, model, section, mods, content) {
   const relRoot = '../';
   const raw = section.file == null ? null : await readOptional(section.file);
-  const { body } = splitFrontmatter(raw ?? '');
+  const { fm, body } = splitFrontmatter(raw ?? '');
   const { html } = mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot));
+  const hrefOf = (id) => `${relRoot}mods/${id}.html`;
+  const cards = fm.cards === true ? await sectionCards(data, model, mods, section.slug, hrefOf, content) : null;
 
   return layout({
     title: section.title,
@@ -269,7 +321,7 @@ async function renderSectionPage(data, model, section, mods) {
     ],
     bodyHtml: `<h1 class="page-title">${esc(section.title)}</h1>
 ${sectionEntries(section.slug, relRoot)}
-${sectionBlock({ ...section, intro: '' }, navBars(mods, section.slug, (id) => `${relRoot}mods/${id}.html`), { relRoot, linked: false, collapsible: false })}
+${sectionBlock({ ...section, intro: '' }, navBars(mods, section.slug, hrefOf), { relRoot, linked: false, collapsible: false, cards })}
 ${html}`,
     aboutNav: model.aboutNav,
   });
@@ -585,11 +637,8 @@ async function renderModPage(data, model, { id, exported }, { content, nav }) {
   const said = (value) => (typeof value === 'string' ? value.trim() : '');
   // 数据里有就用数据的,没有才用页面文件里写的。
   const either = (fromData, fromPage) => (fromData == null || fromData === '' ? fromPage : fromData);
-  const version = validVersion(either(validVersion(exported?.version), said(fm.version)));
   const author = either(exported?.author, said(fm.author));
-  const prerequisites = (exported?.prerequisites ?? []).length > 0
-    ? exported.prerequisites.map(String)
-    : (Array.isArray(fm.prerequisites) ? fm.prerequisites.map(String) : []);
+  const { version, prerequisites } = versionAndPrerequisites(exported, fm);
 
   const sections = (nav.sections ?? []).filter((section) => navMod.sections.includes(section.slug));
   const modItems = model.items.filter((it) => it.mod === id);
@@ -765,7 +814,7 @@ async function renderSite(data, options = {}) {
   // One page per section, in the home page's order; its file is where the layout says it is.
   for (const section of nav.sections ?? []) {
     const file = (layout?.sections ?? []).find((page) => page.slug === section.slug)?.file ?? null;
-    out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? []));
+    out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? [], layout));
     // 阶段 5:每个分区自己的物品图鉴页和机制说明页,比分区页深一层。
     out.set(`sections/${section.slug}/items.html`, renderSectionItems(data, model, section, nav.mods ?? []));
     out.set(`sections/${section.slug}/mechanics.html`, renderSectionMechanics(data, model, section, nav.mods ?? []));

@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, cssVars,
-  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar,
+  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar, modCard,
 } = require('../tools/build/templates.js');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'assets-src', 'theme.css');
@@ -424,6 +424,18 @@ test('sectionEntries: 分区页标题下的入口行——物品图鉴、机制�
   assert.equal((sectionEntries('a').match(/<script|<button/g) || []).length, 0, 'plain links: a section page has no script');
 });
 
+test('modCard: 名字链到 mod 页,ID 和版本一行小字;简介没有就不出;物品数和前置;都转义', () => {
+  const full = modCard({ name: '甲 <一>', href: '../mods/a.html', id: 'a', version: '1.2.0', summary: '一句话。', itemCount: 3, prerequisites: ['b', 'c'] });
+  assert.ok(full.startsWith('<div class="mod-card">\n<h4>'));
+  assert.ok(full.includes('<h4><a href="../mods/a.html">甲 &lt;一&gt;</a><span class="ver">a · 1.2.0</span></h4>'));
+  assert.ok(full.includes('<p>一句话。</p>'));
+  assert.ok(full.includes('<div class="meta">3 件物品 · 前置 b、c</div>'));
+  const bare = modCard({ name: '乙', href: '../mods/b.html', id: 'b', summary: '' });
+  assert.ok(bare.includes('<span class="ver">b</span>'), 'no version: the id alone');
+  assert.ok(!bare.includes('<p>'), 'no summary: no line for it');
+  assert.ok(bare.includes('<div class="meta">0 件物品 · 无前置</div>'));
+});
+
 test('sectionBlock: 标题(可折叠)、「进入分区」、计数、简介和 mod 条;linked 为假时没有「进入分区」', () => {
   const bars = [modBar('甲 <一>', 'mods/a.html', 'a'), modBar('乙', 'mods/b.html', 'b')];
   const html = sectionBlock({ title: '分区 <一>', slug: 'a', intro: '一句话简介。' }, bars, { relRoot: '', linked: true });
@@ -446,6 +458,17 @@ test('sectionBlock: 标题(可折叠)、「进入分区」、计数、简介和 
   assert.ok(page.includes('<span class="sec-title">甲</span>'), 'the title is plain text when the block cannot fold');
   assert.ok(!page.includes('sec-toggle') && !page.includes('<button'));
   assert.equal((page.match(/<span class="sec-count">/g) || []).length, 1, 'the count is there all the same');
+
+  // 卡片模式(阶段 5 Task 2):给了 cards 就是一张张卡片,没有条;计数照数;折叠时藏的还是那一个容器
+  const cards = sectionBlock({ title: '分区', slug: 'a', intro: '' }, [], {
+    relRoot: '../', linked: false, collapsible: false, cards: ['<div class="mod-card">一</div>', '<div class="mod-card">二</div>'],
+  });
+  assert.ok(cards.includes('<div class="mod-cards" id="bars-a">'), 'the cards sit where the bars would, under the same id');
+  assert.ok(!cards.includes('mod-bars'));
+  assert.deepEqual([...cards.matchAll(/<div class="mod-card">[^<]*<\/div>/g)].map((m) => m[0]), ['<div class="mod-card">一</div>', '<div class="mod-card">二</div>']);
+  assert.ok(cards.includes('<span class="sec-count">2 个模组</span>'), 'as many as there are cards');
+  const emptyCards = sectionBlock({ title: '分区', slug: 'a', intro: '' }, [], { cards: [] });
+  assert.ok(emptyCards.includes('<div class="mod-cards" id="bars-a">\n\n</div>') && emptyCards.includes('0 个模组'), 'no card: the empty grid, and the count says so');
 });
 
 test('modBar: 链接、data-mod 和转义过的名字', () => {

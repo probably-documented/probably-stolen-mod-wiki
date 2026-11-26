@@ -464,6 +464,53 @@ test('分区页:标题下面是入口行,然后是分区块,最后才是正文;�
   assert.ok(tear.includes('<a href="../sections/tear/mechanics.html">机制说明</a>'));
 });
 
+// ---------- 阶段 5 Task 2:卡片模式 ----------
+
+test('卡片模式:分区文件写 cards: true 时分区块是一张张卡片(自动的:名字、ID 和版本、简介、物品数、前置);没写、false、或写成别的样子都还是条;主页不变', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  // 一个纯手写的 mod(没有导出数据)也放进这个分区:它的一张卡看得出回退规则
+  const nav = { ...NAV, mods: [...NAV.mods, { ...GHOST, sections: ['lewd-meme-series'] }] };
+  const pageOf = async (navUsed, cardsLine) => {
+    fs.writeFileSync(layout.sections[0].file, `---\ntitle: 淫色深空系列\nmods:\n  - lewd_meme\n${cardsLine}---\n\n以《淫色深空》为核心的系列。\n`);
+    return (await renderSite(structuredClone(data), { layout, nav: navUsed })).get('sections/lewd-meme-series.html');
+  };
+
+  const on = await pageOf(nav, 'cards: true\n');
+  assert.ok(on.includes('<div class="mod-cards" id="bars-lewd-meme-series">'), 'the block holds cards');
+  assert.ok(!on.includes('mod-bars') && !on.includes('mod-bar"'), '…and no bars');
+  assert.ok(on.includes('<span class="sec-count">3 个模组</span>'), 'counted all the same');
+  // 有导出数据的 mod:版本和前置取数据里的;简介是搜索模型里的;物品数同 mod 页
+  assert.ok(on.includes(`<h4><a href="../mods/lewd_meme.html">${MODS[0].name}</a><span class="ver">lewd_meme · 1.9.2</span></h4>`));
+  assert.ok(on.includes(`<p>${NAV.mods[0].summary}</p>`));
+  assert.ok(on.includes('<div class="meta">2 件物品 · 无前置</div>'));
+  assert.ok(on.includes(`<h4><a href="../mods/lewd_meme_remake.html">${MODS[1].name}</a><span class="ver">lewd_meme_remake · 1.6.4</span></h4>`));
+  assert.ok(on.includes('<div class="meta">2 件物品 · 前置 lewd_meme</div>'));
+  // 纯手写的 mod:版本和前置取它导航页文件里写的;物品数算上它自己写的那一件;没有简介就不出这一行
+  assert.ok(on.includes('<h4><a href="../mods/ghost_mod.html">幽灵模组</a><span class="ver">ghost_mod · 0.1.0</span></h4>'), 'the version comes from its page file');
+  assert.ok(on.includes('幽灵模组</a><span class="ver">ghost_mod · 0.1.0</span></h4>\n<div class="meta">1 件物品 · 前置 lewd_meme</div>'), 'no summary line; the prerequisites from its page file; its own item counts');
+  // 顺序是主页的顺序;入口行和正文照旧在
+  assert.deepEqual([...on.matchAll(/<a href="\.\.\/mods\/([^"]+)\.html">/g)].map((m) => m[1]), ['lewd_meme', 'lewd_meme_remake', 'ghost_mod']);
+  assert.ok(on.includes('<p class="home-links sec-entries">') && on.includes('<p>以《淫色深空》为核心的系列。</p>'));
+
+  // 简介超过 90 字:截断
+  const wordy = { ...nav, mods: nav.mods.map((m, i) => (i === 0 ? { ...m, summary: '长'.repeat(120) } : m)) };
+  assert.ok((await pageOf(wordy, 'cards: true\n')).includes(`<p>${'长'.repeat(90)}…</p>`));
+
+  // 没写、false、带引号的字符串:都还是条
+  for (const [what, line] of [['not written', ''], ['false', 'cards: false\n'], ['a quoted string', "cards: 'yes'\n"]]) {
+    const off = await pageOf(nav, line);
+    assert.ok(off.includes('<div class="mod-bars" id="bars-lewd-meme-series">'), `${what}: still bars`);
+    assert.ok(!off.includes('mod-card"'), `${what}: no cards`);
+  }
+
+  // 主页不受影响:分区开着卡片,主页上的这个分区块仍是条
+  await pageOf(nav, 'cards: true\n'); // 这一步把分区文件写成 cards: true
+  const home = (await renderSite(structuredClone(data), { layout, nav })).get('index.html');
+  assert.ok(home.includes('<div class="mod-bars" id="bars-lewd-meme-series">'));
+  assert.ok(!home.includes('class="mod-card"'), 'the home page has no cards');
+});
+
 // ---------- ⑤ mod 导航页、物品页和机制页(阶段 3 Task 3) ----------
 
 /** A hand-written mod in the search model, in the 珠泪哀歌 section. */
