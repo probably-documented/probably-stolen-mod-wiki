@@ -113,10 +113,13 @@ const SIDEBAR = Object.freeze(['home', 'sections', '—', 'mods', '—', 'mechan
 /** Every collection with a body, and its field names and widgets, in order. */
 const COLLECTIONS = Object.freeze({
   home: [['title', 'string'], ['body', 'markdown']],
-  sections: [['title', 'string'], ['order', 'number'], ['mods', 'relation'], ['body', 'markdown']],
+  sections: [
+    ['title', 'string'], ['order', 'number'], ['mods', 'relation'], ['cards', 'boolean'],
+    ['items_intro', 'markdown'], ['mechanics_intro', 'markdown'], ['template_starter', 'template-starter'], ['body', 'markdown'],
+  ],
   mods: [
     ['title', 'string'], ['filename_hint', 'filename-hint'], ['summary', 'text'], ['author', 'string'],
-    ['version', 'string'], ['prerequisites', 'list'], ['body', 'markdown'],
+    ['version', 'string'], ['prerequisites', 'list'], ['template_starter', 'template-starter'], ['body', 'markdown'],
   ],
   mechanics: [
     ['title', 'string'], ['filename_hint', 'filename-hint'], ['mod', 'relation'],
@@ -484,14 +487,49 @@ test('templates — a template is filed by category, and the categories are exac
   assert.deepEqual(options('applies_to'), [...ENTRY_TYPES]);
 });
 
-test('both entries with a body get the 「从模板开始」 control, told which kind of entry it is on', async () => {
+test('the entries a template can start get the 「从模板开始」 control, told which kind of entry it is on, right above the body; the other collections get none', async () => {
   const config = await readConfig();
-  for (const [name, appliesTo] of [['mechanics', 'mechanics'], ['items', 'items']]) {
+  for (const [name, appliesTo] of [['mechanics', 'mechanics'], ['items', 'items'], ['sections', 'sections'], ['mods', 'mods']]) {
     const starter = field(collection(config, name), 'template_starter');
     assert.equal(value(starter, 'widget'), 'template-starter');
     assert.equal(unquote(value(starter, 'applies_to')), appliesTo, `${name}: the picker shows the templates for this kind of entry`);
     assert.equal(value(starter, 'required'), 'false', `${name}: it holds no value`);
+    assert.equal(value(starter, 'preview'), 'false', `${name}: not in the preview pane`);
+    assert.deepEqual(fieldsOf(collection(config, name)).slice(-2).map((f) => value(f, 'name')), ['template_starter', 'body'], `${name}: right above the body`);
   }
+  for (const name of ['home', 'redirects', 'site', 'templates']) {
+    assert.equal(field(collection(config, name), 'template_starter'), undefined, `${name}: no starter here`);
+  }
+});
+
+test('分区页的重样式(阶段 5):分区有「把 Mod 显示成卡片」的开关和两个概述,不必填、有中文提示、不进预览;两个分区模板只给分区用', async () => {
+  const config = await readConfig();
+  const sections = collection(config, 'sections');
+  assert.equal(value(field(sections, 'cards'), 'widget'), 'boolean');
+  for (const name of ['cards', 'items_intro', 'mechanics_intro']) {
+    const f = field(sections, name);
+    assert.ok(f, `the sections collection has a ${name} field`);
+    assert.ok(hasChinese(unquote(value(f, 'hint'))), `${name}: a hint in Chinese`);
+    assert.equal(value(f, 'preview'), 'false', `${name}: not in the preview pane`);
+    assert.equal(value(f, 'required'), 'false', `${name}: blank is allowed`);
+  }
+  // 概述和正文一样是富文本,能切回原文;图片落在分区的 images/ 里,写法同正文
+  for (const name of ['items_intro', 'mechanics_intro']) {
+    const f = field(sections, name);
+    assert.equal(value(f, 'widget'), 'markdown');
+    assert.deepEqual(listOf(f, 'modes'), [['rich_text'], ['raw']], `${name}.modes`);
+  }
+  for (const [file, title] of [['section-brief.md', '分区介绍（简版）'], ['section-full.md', '分区介绍（详版）']]) {
+    const { fm } = splitFrontmatter(await readText(path.join(TEMPLATES_DIR, file)));
+    assert.equal(fm.title, title, file);
+    assert.equal(fm.category, 'nav', `${file}: filed with the navigation templates`);
+    assert.deepEqual(fm.applies_to, ['sections'], `${file}: for a section only`);
+  }
+});
+
+test('「淫色深空系列」开着卡片模式:站长的这个分区按重样式显示;其余交给正文和概述', async () => {
+  const { fm } = splitFrontmatter(await readText(path.join(CONTENT_DIR, 'sections', 'lewd-meme-series.md')));
+  assert.equal(fm.cards, true);
 });
 
 test('every relation points at a defined collection and takes its value from the \'{{slug}}\' template tag', async () => {

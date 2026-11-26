@@ -5,7 +5,8 @@
 #
 # 内容按 mod 分目录:
 #   content/home.md                   主站导航页(只有这一个文件)
-#   content/sections/<文件名>.md      分区导航页
+#   content/sections/<文件名>.md      分区导航页;「把 Mod 显示成卡片」和两个概述也记在这个文件里。
+#                                     每个分区另有自动生成的物品图鉴页和机制说明页,没有对应的文件
 #   content/mods/<Mod ID>/_index.md   Mod 导航页;同一个目录下还有它的
 #     mechanics/<文件名>.md           机制词条
 #     items/<物品 ID>.md              物品词条
@@ -132,6 +133,50 @@ collections:
         required: false
         preview: false
         hint: '这个分区包含哪些 mod,只在这里选。一个 mod 可以同时属于几个分区;不属于任何分区的 mod 在首页单独列出。'
+      # 阶段 5:分区页的重样式。打开后,这一页把每个 mod 显示成一张卡片(名字、版本、简介、物品数、前置),
+      # 都是构建从数据里取的;不打开就是一个个 mod 名。
+      - name: cards
+        label: 把 Mod 显示成卡片
+        widget: boolean
+        required: false
+        preview: false
+        hint: '打开后,分区页上的 mod 显示成一张张卡片,带版本、简介和物品数,都是自动的,不用自己写。按功能分类的分区不用开,保持简单就好。'
+      # 两个概述:分别显示在这个分区的物品图鉴页、机制说明页的最上面。不写就没有「概述」这一节。
+      - name: items_intro
+        label: 物品图鉴页的概述
+        widget: markdown
+        required: false
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
+        preview: false
+        hint: '写在分区物品图鉴页最上面的几句话,比如这个分区的物品有什么特点、建议从哪看起。可以不写。图片和链接按分区页的写法写就行,位置会自动对上。'
+      - name: mechanics_intro
+        label: 机制说明页的概述
+        widget: markdown
+        required: false
+        modes:
+          - rich_text
+          - raw
+        editor_components:
+          - image
+          - table
+          - code-block
+        captioned_images: false
+        preview: false
+        hint: '写在分区机制说明页最上面的几句话,比如建议先读哪几篇。可以不写。图片和链接按分区页的写法写就行,位置会自动对上。'
+      # 这一项不存内容:正文上方多一个「从模板开始」按钮。
+      - name: template_starter
+        label: 模板
+        widget: template-starter
+        required: false
+        preview: false
+        applies_to: sections
       # 正文要放在字段的最后一个
       - name: body
         label: 介绍正文
@@ -215,6 +260,13 @@ collections:
         required: false
         preview: false
         hint: '每行一个前置 mod 的 ID,例如 lewd_meme;留空就用数据里的前置关系。'
+      # 这一项不存内容:正文上方多一个「从模板开始」按钮。
+      - name: template_starter
+        label: 模板
+        widget: template-starter
+        required: false
+        preview: false
+        applies_to: mods
       # 正文默认必填:不设 required 的话,只填标题建不出 Mod。
       - name: body
         label: 正文
