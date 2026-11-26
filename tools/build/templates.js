@@ -92,14 +92,18 @@ function itemHref(item, relRoot) {
 // `nav_label` (stage 3, task 5): the last entry of both spots, linking at
 // that page (content/site/<slug>.md → site/<slug>.html). `label` is page data
 // and `slug` a file name — both are escaped where they are rendered (navLinks).
-function aboutNavItem(label, slug) {
-  return { key: 'about', label, href: `site/${slug}.html` };
+// `key` 默认是 'about'(第一个声明的页面);之后的页面由构建入口传入各自唯一的 key,
+// 这样每一项都能单独高亮。
+function aboutNavItem(label, slug, key = 'about') {
+  return { key, label, href: `site/${slug}.html` };
 }
 
 /** The nav in order, with the declared about entry (if any) last. */
+// aboutNav 可以是 null、单个入口,或入口数组(多个站点页面各自声明了 nav_label)。
 function navItems(aboutNav) {
-  if (aboutNav == null) return NAV_ITEMS;
-  return [...NAV_ITEMS.slice(0, ABOUT_SLOT), aboutNav, ...NAV_ITEMS.slice(ABOUT_SLOT)];
+  const declared = aboutNav == null ? [] : [].concat(aboutNav);
+  if (declared.length === 0) return NAV_ITEMS;
+  return [...NAV_ITEMS.slice(0, ABOUT_SLOT), ...declared, ...NAV_ITEMS.slice(ABOUT_SLOT)];
 }
 
 // placement: 'menu-row' | 'site-links'; items flagged onlyIn render in one

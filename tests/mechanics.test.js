@@ -236,10 +236,11 @@ test('sitePagesWithNavLabel: a listed page whose file is gone by the time it is 
     'the page that is there declares; the one that is not is skipped');
 });
 
-test("the repo's own content declares 关于本站 exactly once: content/site/about.md", async () => {
+test("the repo's own content declares 关于本站 once (content/site/about.md); other site pages may add their own entries, but no label twice", async () => {
   const pages = await sitePagesWithNavLabel(await readContentLayout(path.join(__dirname, '..', 'content')));
-  assert.deepEqual(pages.map((p) => p.slug), ['about']);
-  assert.equal(pages[0].navLabel, '关于本站');
+  assert.deepEqual(pages.filter((p) => p.navLabel === '关于本站').map((p) => p.slug), ['about']);
+  const labels = pages.map((p) => p.navLabel);
+  assert.equal(new Set(labels).size, labels.length, `a nav_label is used twice: ${labels.join('、')}`);
   // …and no mechanic page does any more
   const layout = await readContentLayout(path.join(__dirname, '..', 'content'));
   for (const page of layout.mods.flatMap((mod) => mod.mechanics)) {

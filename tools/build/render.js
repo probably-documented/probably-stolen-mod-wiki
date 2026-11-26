@@ -163,7 +163,11 @@ function buildSiteModel(data, nav = null, about = null) {
   // 顶部导航的「关于本站」由站点页面自己声明:content/site/<文件名>.md 的 frontmatter
   // `nav_label`(mechanics.js 的 sitePagesWithNavLabel 读出来,阶段 3 Task 5)。
   // 没有页面声明 → null → 导航没有这一项;构建入口保证最多一页声明。
-  const aboutNav = about == null ? null : aboutNavItem(about.navLabel, about.slug);
+  // about 可以是 null、单个页面,或页面数组(每个声明了 nav_label 的站点页面一项)。
+  // 第一项的 key 是 'about',其余是 `site-<slug>`;只有一项时 aboutNav 就是那一项本身。
+  const aboutPages = about == null ? [] : [].concat(about);
+  const aboutNavs = aboutPages.map((p, i) => aboutNavItem(p.navLabel, p.slug, i === 0 ? 'about' : `site-${p.slug}`));
+  const aboutNav = aboutNavs.length === 0 ? null : aboutNavs.length === 1 ? aboutNavs[0] : aboutNavs;
   return { mods, modsById, items, lookup, aboutNav, nameOf };
 }
 
@@ -223,7 +227,7 @@ async function renderHomePage(data, model, content, nav) {
 
   const entries = [
     ['离线包下载', RELEASES_URL],
-    ...(model.aboutNav == null ? [] : [[model.aboutNav.label, model.aboutNav.href]]),
+    ...[].concat(model.aboutNav ?? []).map((nav) => [nav.label, nav.href]),
     ['更新日志', 'changelog.html'],
   ].map(([label, href]) => `<a href="${esc(href)}">${esc(label)}</a>`).join('');
 
@@ -458,12 +462,13 @@ async function renderSitePage(data, model, page, about) {
   const { fm, body } = splitFrontmatter(raw ?? '');
   const title = typeof fm.title === 'string' && fm.title.trim() !== '' ? fm.title.trim() : page.slug;
   const { html } = mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot));
-  const declared = about !== null && about.slug === page.slug;
+  // 这一页自己声明了顶栏入口 → 高亮它;没声明的站点页面不高亮任何项。
+  const ownNav = [].concat(model.aboutNav ?? []).find((nav) => nav.href === `site/${page.slug}.html`);
 
   return layout({
     title,
     relRoot,
-    activeNav: declared ? 'about' : null,
+    activeNav: ownNav ? ownNav.key : null,
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
       { text: title },
@@ -812,7 +817,7 @@ async function renderSite(data, options = {}) {
   const nav = options.nav ?? { mods: [], sections: [] };
   // The site page that declares the top nav's about entry: the first in file-name order. The
   // build entry refuses more than one long before it gets here.
-  const about = (await sitePagesWithNavLabel(layout))[0] ?? null;
+  const about = await sitePagesWithNavLabel(layout);
   const model = buildSiteModel(data, nav, about);
   // A mod's name for a page that belongs to it: the one the search model shows (see buildSiteModel).
   const modNameOf = (id) => model.nameOf(id);
