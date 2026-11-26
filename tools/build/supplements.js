@@ -12,6 +12,7 @@
 //   - price：数字（或非空数字字符串）才覆盖；
 //   - shape：两个有限数字的数组才覆盖；
 //   - categories / tags / usage / sources / related / aliases：非空数组才覆盖。
+//   - title：非空时就是物品在站上的名字（纯手写的物品靠它起名）。
 // 覆盖过的字段在 provenance 里记成 `content:items/<文件名>`（与离线的
 // `content:items/<fileName>` 标签一致；改它，每一个物品页的「数据来源」表都会变）。
 
@@ -51,15 +52,22 @@ async function readSupplements(layout) {
  */
 function applySupplement(item, frontmatter, fileName) {
   const label = `content:items/${fileName}`;
+  // 「数据来源」说的是哪个字段盖住了游戏数据。纯手写物品没有游戏数据可盖,词条里写的
+  // 字段就是它的全部内容,不记这张表。
+  const fromData = !item.handwritten;
   const set = (field, value) => {
     item[field] = value;
-    item.provenance = { ...(item.provenance ?? {}), [field]: label };
+    if (fromData) item.provenance = { ...(item.provenance ?? {}), [field]: label };
   };
 
   for (const field of SCALAR_FIELDS) {
     const value = frontmatter[field];
     if (typeof value === 'string' && value !== '') set(field, value);
   }
+  // 标题:填了就是物品在站上的名字(纯手写的物品靠它;有数据的物品留空就用数据里的名称)。
+  // 填的正好是数据里已有的名字时什么也没盖住,来源照旧是游戏文本。
+  const title = typeof frontmatter.title === 'string' ? frontmatter.title.trim() : '';
+  if (title !== '' && title !== item.name) set('name', title);
 
   const price = frontmatter.price;
   if (typeof price === 'number' && Number.isFinite(price)) {
@@ -102,4 +110,48 @@ async function mergeSupplements(data, layout, warn = console.warn) {
   }
 }
 
-module.exports = { readSupplements, mergeSupplements, applySupplement };
+/**
+ * 纯手写物品(阶段 3 Task 3):对不上任何已导出物品的词条,本身就是一件物品。
+ * 把它们追加到 data.items 的末尾 — 名称是词条的 title,没填就是文件名;其余字段都是
+ * 「什么都没有」,词条里手写的描述等字段随后由 mergeSupplements 填上(所以先调这个)。
+ * @param {object} data 载入的模型(它的 items 会被追加)
+ * @param {object|null} layout readContentLayout 的结果
+ * @returns {Promise<number>} 追加了几件
+ */
+async function addHandwrittenItems(data, layout) {
+  const exported = (data.items ?? []).map((item) => item.id);
+  const added = [];
+  for (const mod of layout?.mods ?? []) {
+    for (const entry of mod.items) {
+      // A file name that differs from an id by case only still names its exported item.
+      if (resolveItemId(entry.id, exported) !== null) continue;
+      const { fm } = splitFrontmatter(await fs.readFile(entry.file, 'utf8'));
+      const title = typeof fm.title === 'string' ? fm.title.trim() : '';
+      added.push({
+        id: entry.id,
+        aliases: [],
+        name: title === '' ? entry.id : title,
+        mod: mod.id,
+        // The mark that tells a hand-written item from an exported one: no 「数据来源」 table and
+        // no 「适用于…」 line on its page, and it is not offered in the CMS's list of exported items.
+        handwritten: true,
+        price: null,
+        shape: null,
+        icon: null,
+        categories: [],
+        tags: [],
+        description: null,
+        flavor: null,
+        usage: [],
+        sources: [],
+        related: [],
+        notes: null,
+        provenance: {},
+      });
+    }
+  }
+  data.items = [...(data.items ?? []), ...added];
+  return added.length;
+}
+
+module.exports = { readSupplements, mergeSupplements, applySupplement, addHandwrittenItems };

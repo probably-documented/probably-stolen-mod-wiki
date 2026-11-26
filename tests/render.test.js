@@ -14,7 +14,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { renderSite, firstParagraphExcerpt } = require('../tools/build/render.js');
+const { renderSite, renderNavSearchJs, firstParagraphExcerpt } = require('../tools/build/render.js');
+const { addHandwrittenItems, mergeSupplements } = require('../tools/build/supplements.js');
 
 const MODS = [
   { id: 'lewd_meme', name: '淫色深空:可能是触手', version: '1.9.2', author: 'tentacle', prerequisites: [], description: '家族主模组。苗床与触手本体。\n【1.9.2】修复苗床产出。', itemCount: 2 },
@@ -469,7 +470,129 @@ test('分区页:标题、介绍正文(物品内嵌卡可用)、本分区的 mod 
   assert.equal((html.match(/<script\b/g) || []).length, 0);
   // 一个分区里一个 mod 都没有:照常渲染,提示是空的
   const tear = out.get('sections/tear.html');
-  assert.equal((tear.match(/class="mod-bar"/g) || []).length, 1);
+  assert.equal((tear.match(/class="mod-bar"/g) || []).length, 1, '珠泪哀歌 holds one mod: 暗流交易');
+});
+
+// ---------- ⑤ mod 导航页、物品页和机制页(阶段 3 Task 3) ----------
+
+/** A hand-written mod in the search model, in the 珠泪哀歌 section. */
+const GHOST = { id: 'ghost_mod', name: '幽灵模组', summary: '', aliases: [], keywords: [], sections: ['tear'] };
+const NAV_WITH_GHOST = { ...NAV, mods: [...NAV.mods, GHOST] };
+
+/** homeTree plus two mod folders: a page file for an exported mod, and a hand-written mod with an item entry of its own. */
+async function modTree(t) {
+  const layout = await homeTree(t);
+  const root = path.dirname(layout.home);
+  const put = (rel, text) => {
+    const file = path.join(root, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    return file;
+  };
+  const folder = (id, indexFile, items) => ({ id, dir: path.join(root, 'mods', id), indexFile, redirectsFile: null, items, mechanics: [], nestedIndexFiles: [] });
+  layout.mods = [
+    folder('lewd_meme_remake', put('mods/lewd_meme_remake/_index.md', "---\ntitle: 暗流交易\nsummary: ''\nauthor: ''\nversion: ''\nprerequisites: []\n---\n\n**暗流交易**的介绍正文。\n"), []),
+    folder('ghost_mod', put('mods/ghost_mod/_index.md', "---\ntitle: 幽灵模组\nauthor: 某人\nversion: 0.1.0\nprerequisites:\n  - lewd_meme\n---\n\n幽灵模组的介绍。它有一件 [[thing]]。\n"), [
+      { id: 'thing', file: put('mods/ghost_mod/items/thing.md', '---\nitem_id: thing\nmod: ghost_mod\ntitle: 东西\ndescription: 一把没人导出过的东西。\n---\n') },
+    ]),
+  ];
+  return layout;
+}
+
+/** What the build entry does to the data before rendering: the hand-written items, then the entries. */
+async function prepared(layout) {
+  const data = structuredClone(FIXTURE);
+  await addHandwrittenItems(data, layout);
+  await mergeSupplements(data, layout, () => {});
+  return data;
+}
+
+const WINDOW = (name) => (code) => JSON.parse(code.slice(`window.${name} = `.length).replace(/;\s*$/, ''));
+
+test('mod 导航页:模组介绍、所属分区、物品图鉴、机制说明和玩法指南、更新日志;面包屑是「首页、mod 名」', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  data.mechanics[1].mod = 'lewd_meme_remake'; // 桶装系统 is this mod's page
+  const html = (await renderSite(data, { layout, nav: NAV_WITH_GHOST })).get('mods/lewd_meme_remake.html');
+
+  assert.ok(html.includes('<h1 class="page-title">暗流交易</h1>'));
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 暗流交易</div>'), 'no section in the breadcrumb: a mod may be in several');
+  // 模组介绍:名字,一行小字,然后是导航页文件的正文
+  const intro = html.slice(html.indexOf('<h1 class="page-title">'), html.indexOf('<h2 class="sec">'));
+  assert.ok(intro.includes('<code>lewd_meme_remake</code>') && intro.includes('1.6.4') && intro.includes('remake') && intro.includes('lewd_meme'),
+    'the small print — id, version, author, prerequisites — from the data for an exported mod');
+  assert.ok(intro.includes('<strong>暗流交易</strong>的介绍正文。'), 'the body of the mod page file, as Markdown');
+  // …then the four titled blocks, in this order
+  const heads = [...html.matchAll(/<h2 class="sec">([^<]*)/g)].map((m) => m[1]);
+  assert.deepEqual(heads, ['所属分区', '物品图鉴(2 件)', '机制说明和玩法指南', '更新日志']);
+  // 所属分区:由反查得到
+  const sections = html.slice(html.indexOf('<h2 class="sec">所属分区</h2>'), html.indexOf('<h2 class="sec">物品图鉴'));
+  assert.ok(sections.includes('<a href="../sections/lewd-meme-series.html">淫色深空系列</a>'));
+  assert.ok(sections.includes('<a href="../sections/tear.html">珠泪哀歌</a>'));
+  // 物品图鉴:这个 mod 的全部物品,别人的不在
+  const items = html.slice(html.indexOf('<h2 class="sec">物品图鉴'), html.indexOf('<h2 class="sec">机制说明'));
+  assert.ok(items.includes('href="../item/milk_barrel.html"') && items.includes('href="../item/milk_rich.html"'));
+  assert.ok(!items.includes('href="../item/wondrous_milk.html"'));
+  // 机制说明和玩法指南:这个 mod 的机制页,标题加摘要
+  const mechanics = html.slice(html.indexOf('<h2 class="sec">机制说明'), html.indexOf('<h2 class="sec">更新日志'));
+  assert.ok(mechanics.includes('<a href="../mechanics/barrel-system.html">桶装系统</a>'));
+  assert.ok(mechanics.includes('桶上限 1000 次'), 'the first paragraph, as the excerpt');
+  assert.ok(!mechanics.includes('night-settlement.html'), 'not a page of another mod');
+  // 更新日志:这个 mod 自己的
+  const changelog = html.slice(html.indexOf('<h2 class="sec">更新日志'));
+  assert.ok(changelog.includes('v1.6.4') && changelog.includes('新增疲劳与估值机制'));
+  assert.ok(!changelog.includes('修复苗床产出'), "another mod's entry is not here");
+});
+
+test('纯手写 mod(没有导出数据)的导航页照常渲染:名字、作者、版本、前置来自导航页文件;它的物品在物品图鉴里,能被 [[物品ID]] 引用', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  const html = (await renderSite(data, { layout, nav: NAV_WITH_GHOST })).get('mods/ghost_mod.html');
+
+  assert.ok(html.includes('<h1 class="page-title">幽灵模组</h1>'));
+  const intro = html.slice(html.indexOf('<h1 class="page-title">'), html.indexOf('<h2 class="sec">'));
+  assert.ok(intro.includes('某人') && intro.includes('0.1.0') && intro.includes('lewd_meme'), 'author, version and prerequisites as the page file gives them');
+  assert.ok(intro.includes('幽灵模组的介绍。它有一件 '), 'the body');
+  assert.ok(intro.includes('href="../item/thing.html"'), '[[thing]] in the body is a link to the hand-written item');
+  assert.ok(html.includes('<h2 class="sec">物品图鉴(1 件)</h2>'));
+  assert.ok(html.includes('<a href="../sections/tear.html">珠泪哀歌</a>'), 'the section it was found in');
+  // 没有机制页、没有更新日志:两块照常在,写着还没有
+  const quiet = 'font-size:13px;color:var(--dk-muted)';
+  assert.ok(html.includes(`<h2 class="sec">机制说明和玩法指南</h2>\n<p style="${quiet}">还没有机制页。</p>`));
+  assert.ok(html.includes(`<h2 class="sec">更新日志</h2>\n<p style="${quiet}">还没有更新记录。</p>`));
+});
+
+test('纯手写物品的页面是完整的:名字来自词条的标题,词条里写的字段都在;没有「数据来源」表,也没有「适用于…」那一行;data.js 里也有它', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  const out = await renderSite(data, { layout, nav: NAV_WITH_GHOST });
+  const html = out.get('item/thing.html');
+
+  assert.ok(html.includes('<h1 class="page-title">东西</h1>'));
+  assert.ok(html.includes('一把没人导出过的东西。'));
+  assert.ok(html.includes('<a href="../mods/ghost_mod.html">幽灵模组</a>'), 'the infobox names its mod — by the mod page\'s title — and links the page');
+  assert.ok(!html.includes('数据来源'), 'nothing was taken from the game files: no such table');
+  assert.ok(!html.includes('适用于 '), 'and no line about the data baseline');
+  assert.ok(html.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; <a href="../mods/ghost_mod.html">幽灵模组</a> &gt; 东西</div>'));
+  assert.deepEqual(WINDOW('WIKI_DATA')(out.get('data.js')).items.map((it) => it.id), [...ITEMS.map((it) => it.id), 'thing'], 'in data.js too, after the exported ones');
+});
+
+test('物品页和机制页:面包屑是「首页、mod 名、本页」;物品页底部的「相关页面」是所属 mod 的导航页和它的机制页', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  data.mechanics[1].mod = 'lewd_meme_remake';
+  const out = await renderSite(data, { layout, nav: NAV_WITH_GHOST });
+
+  const milk = out.get('item/milk_rich.html');
+  assert.ok(milk.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; <a href="../mods/lewd_meme_remake.html">暗流交易</a> &gt; 浓郁乳汁</div>'));
+  const related = milk.slice(milk.indexOf('<h2 class="sec">相关页面</h2>'), milk.indexOf('class="clear"'));
+  assert.ok(related.includes('<a href="../mods/lewd_meme_remake.html">暗流交易</a>'), "the mod's own page, by name");
+  assert.ok(related.includes('<a href="../mechanics/barrel-system.html">桶装系统</a>'), "and this mod's mechanic pages");
+  assert.ok(!related.includes('night-settlement.html'), "not another mod's");
+  assert.ok(!related.includes('mechanics.html'), 'the all-site index is gone from here');
+
+  const mech = out.get('mechanics/barrel-system.html');
+  assert.ok(mech.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; <a href="../mods/lewd_meme_remake.html">暗流交易</a> &gt; 桶装系统</div>'));
 });
 
 // ---------- ⑤ 机制页 ----------
@@ -523,21 +646,8 @@ test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)
 
 // ---------- mods 页 / changelog / search / install-compat ----------
 
-test('mods/<modId>.html:信息表、物品清单、changelog 节选', async () => {
-  const out = await buildFixture({ layout: null });
-  const html = out.get('mods/lewd_meme_remake.html');
-  assert.ok(html.includes('<h1 class="page-title">暗流交易</h1>'));
-  assert.ok(html.includes('<th>项目</th>'));
-  assert.ok(html.includes('<code>lewd_meme_remake</code>'));
-  assert.ok(html.includes('1.6.4'));
-  assert.ok(html.includes('前置'));
-  // 物品清单(该 mod 全部卡片,relRoot ../)
-  assert.ok(html.includes('href="../item/milk_barrel.html"'));
-  assert.ok(html.includes('href="../item/milk_rich.html"'));
-  assert.ok(!html.includes('href="../item/wondrous_milk.html"'), '不混入其他 mod 物品');
-  // changelog 节选
-  assert.ok(html.includes('新增疲劳与估值机制'));
-});
+// (The mod page of the old home — 信息表, 物品清单, changelog 节选 — gave way in stage 3, task 3, to the
+// mod's own navigation page: see ⑤ below. Until that task the build was checked here; its cases live on there.)
 
 test('changelog.html:按 mod 分组、版本号+文本、无日期字段', async () => {
   const out = await buildFixture({ layout: null });
@@ -638,7 +748,8 @@ test('A6 — about 页的高亮与改动前一致:active 的是「机制说明�
   assert.equal((page.match(/class="active"/g) || []).length, 2, 'exactly the two nav spots, one highlighted entry each');
   assert.ok(page.includes('<a href="../mechanics/barrel-system.html">桶装指南</a>'), 'the about entry is on its own page and is NOT highlighted');
   assert.match(page, /<h1 class="page-title">桶装系统<\/h1>/, 'it is still the mechanic page it always was');
-  assert.ok(page.includes('<a href="../mechanics.html">机制说明</a> &gt; 桶装系统'), 'breadcrumb: 首页 &gt; 机制说明 &gt; 标题');
+  // 阶段 3:面包屑是「首页、所属 mod、本页」;夹具里的这一页不属于任何 mod,所以只有「首页、本页」。
+  assert.ok(page.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; 桶装系统</div>'), 'breadcrumb: 首页 &gt; 标题');
 });
 
 test('firstParagraphExcerpt: strips what the rich-text editor writes back, exactly like the text that was written', () => {

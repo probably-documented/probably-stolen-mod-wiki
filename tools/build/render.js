@@ -140,12 +140,14 @@ function multiLine(text) {
 // Site model helpers
 // ---------------------------------------------------------------------------
 
-function buildSiteModel(data) {
+function buildSiteModel(data, nav = null) {
   const mods = data.mods ?? [];
   const modsById = new Map(mods.map((m) => [m.id, m]));
+  // A hand-written mod's name lives in its page file; the search model (nav) carries it.
+  const navNames = new Map((nav?.mods ?? []).map((m) => [m.id, m.name]));
   const items = (data.items ?? []).map((it) => ({
     ...it,
-    modName: modsById.get(it.mod)?.name ?? null,
+    modName: modsById.get(it.mod)?.name ?? navNames.get(it.mod) ?? null,
     // M1:infobox「适用版本」接线为所属 mod 的版本(item 自身无 version 字段)。
     version: validVersion(modsById.get(it.mod)?.version),
   }));
@@ -386,16 +388,23 @@ function renderItemPage(data, model, item, mdBody) {
     .join('\n');
   const relatedHtml = relatedCards === '' ? `<p>${MISSING}</p>` : `<div class="item-grid">\n${relatedCards}\n</div>`;
 
-  const mechLinks = (data.mechanics ?? [])
-    .map((m) => `<li><a href="${relRoot}mechanics/${esc(m.slug)}.html">${esc(m.title)}</a></li>`)
-    .join('\n');
-
+  // 相关页面(阶段 3 Task 3):所属 mod 的导航页,和这个 mod 自己的机制页 — 不再是全站的机制索引。
   const mod = model.modsById.get(item.mod);
-  const updated = `适用于 ${mod?.name == null ? esc(item.mod ?? '') : esc(mod.name)} ${mod?.version == null ? '' : esc(mod.version)}(数据基线 ${esc(data.baseline?.date ?? '')})`;
+  const modName = item.modName ?? item.mod;
+  // A hand-written item was taken from no game file: there is no data baseline to cite, so no 「适用于…」 line.
+  const fromData = !item.handwritten;
+  const updated = fromData
+    ? `<div class="updated">适用于 ${esc(modName ?? '')} ${mod?.version == null ? '' : esc(mod.version)}(数据基线 ${esc(data.baseline?.date ?? '')})</div>\n`
+    : '';
+  const pageLinks = [
+    ...(item.mod == null ? [] : [`<li><a href="${relRoot}mods/${esc(item.mod)}.html">${esc(modName)}</a> —— 这个 mod 的导航页</li>`]),
+    ...(data.mechanics ?? [])
+      .filter((m) => m.mod === item.mod)
+      .map((m) => `<li><a href="${relRoot}mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></li>`),
+  ].join('\n');
 
   const body = `<h1 class="page-title">${item.name == null ? esc(item.id) : esc(item.name)}</h1>
-<div class="updated">${updated}</div>
-${infobox(item, relRoot)}
+${updated}${infobox(item, relRoot)}
 <h2 class="sec">概述</h2>
 ${desc}
 ${noteBox}
@@ -408,19 +417,19 @@ ${detailHtml}
 <h2 class="sec">相关物品</h2>
 ${relatedHtml}
 <h2 class="sec">相关页面</h2>
-<ul style="font-size:13.5px">
-<li><a href="${relRoot}mechanics.html">全部机制索引</a> —— 机制说明与玩法指南</li>
-${mechLinks}
-</ul>
+${pageLinks === '' ? `<p>${MISSING}</p>` : `<ul style="font-size:13.5px">
+${pageLinks}
+</ul>`}
 <div class="clear"></div>`;
 
   return layout({
     title: item.name == null ? item.id : item.name,
     relRoot,
     activeNav: 'items',
+    // 首页、所属 mod、本页。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
-      { text: '物品图鉴', href: `${relRoot}items.html` },
+      ...(item.mod == null ? [] : [{ text: modName, href: `${relRoot}mods/${esc(item.mod)}.html` }]),
       { text: item.name == null ? item.id : item.name },
     ],
     bodyHtml: body,
@@ -440,11 +449,12 @@ ${items}
 </div>`;
 }
 
-function renderMechanicPage(data, model, mech) {
+function renderMechanicPage(data, model, mech, modName = null) {
   const relRoot = '../';
   const { fm, body } = stripTitleBlock(mech.source);
   const title = fm.title ?? mech.title ?? mech.slug;
   const { html, toc } = mdToHtml(body, model.lookup, (it) => itemInline(it, relRoot));
+
   // 这一页来自哪个文件:布局里的机制页带 mod(mergeMechanicsContent);数据里的条目没有文件。
   const extractedFrom = mech.mod == null
     ? ''
@@ -454,9 +464,10 @@ function renderMechanicPage(data, model, mech) {
     title,
     relRoot,
     activeNav: 'mechanics',
+    // 首页、所属 mod、本页。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
-      { text: '机制说明', href: `${relRoot}mechanics.html` },
+      ...(mech.mod == null ? [] : [{ text: modName ?? mech.mod, href: `${relRoot}mods/${esc(mech.mod)}.html` }]),
       { text: title },
     ],
     bodyHtml: `<h1 class="page-title">${esc(title)}</h1>
@@ -491,47 +502,79 @@ ${cardsHtml}`,
   });
 }
 
-function renderModPage(data, model, mod) {
+/**
+ * mod 导航页(mods/<id>.html),阶段 3 Task 3。地址不变,内容是这个 mod 自己的:
+ * 模组介绍(名字、一行小字、导航页文件的正文)、所属分区、物品图鉴(有数据的加纯手写的)、
+ * 机制说明和玩法指南(这个 mod 的机制页,标题加摘要)、更新日志(这个 mod 自己的)。
+ * 有导出数据的 mod:版本、作者、前置以数据为准;没有的(纯手写):用导航页文件里写的。
+ * @param {{ id: string, exported: object|null }} entry exported 是数据里的 mod,纯手写的是 null
+ * @param {{ content: object|null, nav: object }} where content 是内容布局,nav 是主页搜索模型
+ */
+async function renderModPage(data, model, { id, exported }, { content, nav }) {
   const relRoot = '../';
-  const { lookup } = model;
-  const modItems = model.items.filter((it) => it.mod === mod.id);
-  const prereq = (mod.prerequisites ?? []).length === 0 ? '无前置' : mod.prerequisites.join('、');
+  const quiet = 'font-size:13px;color:var(--dk-muted)';
+  const blank = (text) => `<p style="${quiet}">${text}</p>`;
+  const navMod = (nav.mods ?? []).find((m) => m.id === id) ?? { name: id, sections: [] };
+  const name = navMod.name || id;
 
-  const version = validVersion(mod.version);
+  // 导航页文件的文件头和正文。
+  const indexFile = (content?.mods ?? []).find((m) => m.id === id)?.indexFile ?? null;
+  const raw = indexFile === null ? null : await readOptional(indexFile);
+  const { fm, body } = splitFrontmatter(raw ?? '');
+  const said = (value) => (typeof value === 'string' ? value.trim() : '');
+  // 数据里有就用数据的,没有才用页面文件里写的。
+  const either = (fromData, fromPage) => (fromData == null || fromData === '' ? fromPage : fromData);
+  const version = validVersion(either(validVersion(exported?.version), said(fm.version)));
+  const author = either(exported?.author, said(fm.author));
+  const prerequisites = (exported?.prerequisites ?? []).length > 0
+    ? exported.prerequisites.map(String)
+    : (Array.isArray(fm.prerequisites) ? fm.prerequisites.map(String) : []);
 
-  const infoRows = [
-    ['名称', mod.name == null ? MISSING : esc(mod.name)],
-    ['模组 ID', `<code>${esc(mod.id)}</code>`],
-    ['版本', mod.version == null ? MISSING : esc(mod.version)],
-    ['作者', mod.author == null || mod.author === '' ? MISSING : esc(mod.author)],
-    ['前置', esc(prereq)],
-    ['概述', mod.description == null ? MISSING : multiLine(modOverview(mod.description))],
-  ];
+  const sections = (nav.sections ?? []).filter((section) => navMod.sections.includes(section.slug));
+  const modItems = model.items.filter((it) => it.mod === id);
+  const modMechanics = (data.mechanics ?? []).filter((m) => m.mod === id);
+  const entries = (data.changelog ?? []).filter((c) => c.mod === id);
 
-  const grid = modItems.length === 0
-    ? '<p style="font-size:13px;color:var(--dk-muted)">该模组暂无物品条目。</p>'
-    : `<div class="item-grid">\n${modItems.map((it) => itemCard(it, relRoot)).join('\n')}\n</div>`;
+  const facts = [
+    `<code>${esc(id)}</code>`,
+    version == null ? null : `版本 ${esc(version)}`,
+    author === '' ? null : `作者 ${esc(author)}`,
+    prerequisites.length === 0 ? null : `前置 ${prerequisites.map(esc).join('、')}`,
+  ].filter(Boolean).join(' · ');
 
-  const entries = (data.changelog ?? []).filter((c) => c.mod === mod.id);
-  const changelogHtml = entries.length === 0 ? '' : `<h2 class="sec">更新日志节选</h2>
-${entries.map((c) => `<h3 class="sub">v${esc(c.version)}</h3>\n<p style="font-size:13px">${multiLine(c.text ?? '')}</p>`).join('\n')}`;
+  const bodyHtml = `<h1 class="page-title">${esc(name)}</h1>
+<div class="updated">${facts}</div>
+${mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot)).html}
+<h2 class="sec">所属分区</h2>
+${sections.length === 0 ? blank('不属于任何分区。') : `<ul style="font-size:13.5px">
+${sections.map((section) => `<li><a href="${relRoot}sections/${esc(section.slug)}.html">${esc(section.title)}</a></li>`).join('\n')}
+</ul>`}
+<h2 class="sec">物品图鉴(${esc(modItems.length)} 件)</h2>
+${modItems.length === 0 ? blank('还没有物品。') : `<div class="item-grid">
+${modItems.map((it) => itemCard(it, relRoot)).join('\n')}
+</div>`}
+<h2 class="sec">机制说明和玩法指南</h2>
+${modMechanics.length === 0 ? blank('还没有机制页。') : `<div class="mod-cards">
+${modMechanics.map((m) => `<div class="mod-card">
+<h4><a href="${relRoot}mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
+<p>${esc(firstParagraphExcerpt(m.source ?? '', model.lookup))}</p>
+</div>`).join('\n')}
+</div>`}
+<h2 class="sec">更新日志</h2>
+${entries.length === 0 ? blank('还没有更新记录。') : entries.map((c) => `<h3 class="sub">v${esc(c.version)}</h3>
+<p style="${quiet}">${multiLine(c.text ?? '')}</p>`).join('\n')}
+<div class="clear"></div>`;
 
   return layout({
-    title: mod.name == null ? mod.id : mod.name,
+    title: name,
     relRoot,
     activeNav: 'mods',
+    // 首页、mod 名:一个 mod 可以属于几个分区,面包屑里不放分区。
     breadcrumb: [
       { text: '首页', href: `${relRoot}index.html` },
-      { text: '模组介绍', href: `${relRoot}index.html#mod-family` },
-      { text: mod.name == null ? mod.id : mod.name },
+      { text: name },
     ],
-    bodyHtml: `<h1 class="page-title">${mod.name == null ? esc(mod.id) : esc(mod.name)}</h1>
-<div class="updated">${version == null ? '' : `版本 ${esc(version)} · `}数据基线 ${esc(data.baseline?.date ?? '')}</div>
-<h2 class="sec">模组信息</h2>
-${renderWikiTable(['项目', '内容'], infoRows)}
-<h2 class="sec">物品清单(${esc(modItems.length)} 件)</h2>
-${grid}
-${changelogHtml}`,
+    bodyHtml,
     aboutNav: model.aboutNav,
   });
 }
@@ -635,7 +678,9 @@ async function renderSite(data, options = {}) {
   // is still a home page, with nothing to list or to search.
   const layout = options.layout ?? null;
   const nav = options.nav ?? { mods: [], sections: [] };
-  const model = buildSiteModel(data);
+  const model = buildSiteModel(data, nav);
+  // A mod's name for a page that belongs to it: the data's, or — for a hand-written mod — the search model's.
+  const modNameOf = (id) => model.modsById.get(id)?.name ?? (nav.mods ?? []).find((m) => m.id === id)?.name ?? null;
   const out = new Map();
 
   out.set('index.html', await renderHomePage(data, model, layout, nav));
@@ -645,18 +690,18 @@ async function renderSite(data, options = {}) {
   out.set('search.html', renderSearch(data, model));
   out.set('data.js', renderDataJs(data, model));
 
+  // Every mod with a page: the exported ones, then the hand-written ones — a folder and a page
+  // file of their own, no data yet.
   for (const mod of model.mods) {
-    out.set(`mods/${mod.id}.html`, renderModPage(data, model, mod));
+    out.set(`mods/${mod.id}.html`, await renderModPage(data, model, { id: mod.id, exported: mod }, { content: layout, nav }));
   }
-  // A mod that has a folder in the content tree but no exported data yet (hand-written) is on
-  // the home page all the same, so it gets a page too — what renderModPage makes of a mod with
-  // a name only. Its full page is task 3's (renderModPage is redone there).
   for (const mod of nav.mods ?? []) {
-    if (!model.modsById.has(mod.id)) out.set(`mods/${mod.id}.html`, renderModPage(data, model, { id: mod.id, name: mod.name }));
+    if (model.modsById.has(mod.id)) continue;
+    out.set(`mods/${mod.id}.html`, await renderModPage(data, model, { id: mod.id, exported: null }, { content: layout, nav }));
   }
 
   for (const mech of data.mechanics ?? []) {
-    out.set(`mechanics/${mech.slug}.html`, renderMechanicPage(data, model, mech));
+    out.set(`mechanics/${mech.slug}.html`, renderMechanicPage(data, model, mech, modNameOf(mech.mod)));
   }
 
   // One page per section, in the home page's order; its file is where the layout says it is.

@@ -92,6 +92,21 @@ test('the pages of every mod are checked, and the findings come out by file', as
   assert.deepEqual(rows.map((r) => r.file), ['mods/alpha/items/aaa.md', 'mods/zeta/mechanics/zzz.md']);
 });
 
+test('the pages a contributor writes outside the mods are checked too: the home page, a section, a mod page, a site page', async (t) => {
+  const contentDir = await tmpDir(t, 'outside-mods');
+  await put(contentDir, 'home.md', '---\ntitle: 首页\n---\n\n| A |\n| --- |\n| 1 | 2 |\n'); // the wide row is line 7
+  await put(contentDir, 'sections/s.md', '---\ntitle: 分区\n---\n\n| A |\n| --- |\n| 1 | 2 |\n'); // line 7
+  await put(contentDir, 'mods/alpha/_index.md', "---\ntitle: 甲\nsummary: ''\n---\n\n| A |\n| --- |\n| 1 | 2 |\n"); // line 8
+  await put(contentDir, 'site/about.md', '---\ntitle: 关于\n---\n\n| A |\n| --- |\n| 1 | 2 |\n'); // line 7
+  await put(contentDir, 'mods/alpha/mechanics/fits.md', '---\nmod: alpha\n---\n\n| A |\n| --- |\n| 1 |\n');
+
+  const rows = await findWideTableRows(await readContentLayout(contentDir), contentDir);
+
+  assert.deepEqual(rows.map((r) => [r.file, r.line]), [
+    ['home.md', 7], ['mods/alpha/_index.md', 8], ['sections/s.md', 7], ['site/about.md', 7],
+  ], 'by file: the front matter lines of each count, and a table that fits is not reported');
+});
+
 test('the report names each file and line in Chinese, ordered by file name then line, and ends with the hint', () => {
   const report = formatWideTableRows([
     { file: 'mods/alpha/mechanics/foo.md', line: 12, headerCells: 2, rowCells: 3 },

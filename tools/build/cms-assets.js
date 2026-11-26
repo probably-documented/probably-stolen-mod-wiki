@@ -91,12 +91,12 @@ async function readTemplates(repoRoot) {
   return { categories: TEMPLATE_CATEGORIES, templates };
 }
 
-/** 物品清单:顺序跟数据;taken 是这件物品已经有词条(文件名只差大小写也算)。 */
+/** 物品清单:顺序跟数据;taken 是这件物品已经有词条(文件名只差大小写也算)。纯手写物品不是「已导出的」。 */
 function itemCatalog(layout, data) {
   const entryNames = new Set((layout?.mods ?? []).flatMap((mod) => mod.items.map((entry) => entry.id)));
   const entryNamesLower = new Set([...entryNames].map((name) => name.toLowerCase()));
   const hasEntry = (id) => entryNames.has(id) || entryNamesLower.has(id.toLowerCase());
-  const items = data?.items ?? [];
+  const items = (data?.items ?? []).filter((item) => !item.handwritten);
   return {
     mods: (data?.mods ?? []).map((mod) => ({
       id: mod.id,

@@ -45,8 +45,9 @@ const byFileThenLine = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a
 
 /**
  * Every table row, among the pages a contributor edits, that has more cells
- * than its header: the mechanic pages and the item entries of the content
- * layout (tools/build/content-layout.js). An empty layout has nothing to check.
+ * than its header: the home page, the section pages, each mod's own page, its
+ * mechanic pages and item entries, and the site pages — everything the layout
+ * lists (tools/build/content-layout.js). An empty layout has nothing to check.
  * @param {object|null} layout readContentLayout 的结果
  * @param {string|null} contentDir 只用来算出相对路径(报告里显示用)
  * @returns {Promise<Array<{ file: string, line: number, headerCells: number, rowCells: number }>>}
@@ -55,11 +56,19 @@ const byFileThenLine = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a
  */
 async function findWideTableRows(layout, contentDir) {
   const found = [];
-  for (const mod of layout?.mods ?? []) {
-    for (const page of [...mod.mechanics, ...mod.items]) {
-      const text = await fs.readFile(page.file, 'utf8');
-      for (const row of wideRowsOf(text)) found.push({ file: toPosix(path.relative(contentDir ?? 'content', page.file)), ...row });
-    }
+  const pages = [
+    ...(layout?.home == null ? [] : [layout.home]),
+    ...(layout?.sections ?? []).map((page) => page.file),
+    ...(layout?.mods ?? []).flatMap((mod) => [
+      ...(mod.indexFile === null ? [] : [mod.indexFile]),
+      ...mod.mechanics.map((page) => page.file),
+      ...mod.items.map((entry) => entry.file),
+    ]),
+    ...(layout?.site ?? []).map((page) => page.file),
+  ];
+  for (const file of pages) {
+    const text = await fs.readFile(file, 'utf8');
+    for (const row of wideRowsOf(text)) found.push({ file: toPosix(path.relative(contentDir ?? 'content', file)), ...row });
   }
   return found.sort(byFileThenLine);
 }

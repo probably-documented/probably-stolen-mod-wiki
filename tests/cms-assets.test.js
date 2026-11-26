@@ -89,6 +89,25 @@ test("items-by-mod.json follows the data order, a mod with no items included, an
   });
 });
 
+test("items-by-mod.json offers the exported items only: a hand-written item (one the build made from an entry that names no exported item) is not there to pick", async (t) => {
+  const { repoRoot, distDir } = await fakeRepo(t);
+  const data = structuredClone(FIXTURE_DATA);
+  // What addHandwrittenItems appends to the data for such an entry.
+  data.items.push({ id: 'thing', name: '东西', mod: 'lewd_meme_remake', handwritten: true, price: null, provenance: {} });
+  const result = await writeCmsAssets({ repoRoot, distDir, layout: await readContentLayout(null), data, warn: noop });
+
+  const { mods } = await readJson(adminFile(distDir, 'items-by-mod.json'));
+  assert.deepEqual(mods.map((mod) => [mod.id, mod.items.map((item) => item.id)]), [
+    ['lewd_meme', ['wondrous_milk', 'tentacle_body']],
+    ['lewd_meme_remake', ['milk_barrel', 'milk_rich']],
+    ['claude.lewdMemeBrood', ['brood_egg']],
+    ['lewd_meme_brothel', ['palm_brothel']],
+    ['lewd_meme_legacy_content', []],
+    ['dui_mian_lan_qiu_ji_tearl', ['tear_merchant']],
+  ], 'the exported items and nothing of the build\'s own making');
+  assert.equal(result.items, FIXTURE_DATA.items.length);
+});
+
 test('a missing script, a template without one of its keys, or one of an unknown category stops and names the file', async (t) => {
   const noLib = await fakeRepo(t);
   await fs.rm(path.join(noLib.repoRoot, 'tools/cms/lib.js'));

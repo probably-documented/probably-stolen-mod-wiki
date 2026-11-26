@@ -759,12 +759,13 @@ test('buildSkeleton throws and sets exitCode 1 when a required asset is missing'
 // fails, says what the lint says, and the previous dist survives it.
 // ---------------------------------------------------------------------------
 
-test('an item entry that is no exported item → the build fails (exitCode 1), names the file, and keeps the previous dist', async (t) => {
+test('a hand-written item entry with no title → the build fails (exitCode 1), names the file, says to fill in the title, and keeps the previous dist', async (t) => {
   const distDir = await tmpDir(t, 'lint-fail');
   await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
   const before = await snapshotTree(distDir);
   const contentDir = await tmpDir(t, 'lint-fail-content');
-  // One legal entry (the repo's own fixture entry) next to an id nobody exported.
+  // One legal entry (the repo's own fixture entry) next to an entry that names no exported item
+  // and gives its item no title — the one thing a hand-written item has to do.
   const legal = await writeItemEntry(contentDir, FIXTURE_ITEM_ID);
   await fs.copyFile(fixtureEntry(FIXTURE_ITEM_ID), legal);
   const fake = await writeItemEntry(contentDir, 'fake_id', [], '按标题生成的 slug,不是真实物品。\n');
@@ -776,11 +777,28 @@ test('an item entry that is no exported item → the build fails (exitCode 1), n
   assert.equal(exitCode, 1);
   assert.match(err.message, /^\[content\] FAIL — 发现 1 处问题:/);
   assert.ok(err.message.includes(`  1. 文件:${toPosix(fake)}`), `the offending file, by its real path:\n${err.message}`);
-  assert.match(err.message, /不是任何一件已导出物品的 ID/);
+  assert.match(err.message, /没有填标题/);
+  assert.match(err.message, /「标题」/, 'says which box to fill in');
   assert.doesNotMatch(err.message, new RegExp(`\\b${FIXTURE_ITEM_ID}\\b`), 'the legal entry is not listed as a violation');
   assert.doesNotMatch(err.message, /\[audit\]/, 'fails at the lint, long before the audit');
   // Ruling 4(a): the lint is a pre-rm check — the previous dist is untouched.
   assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched');
+});
+
+test('a hand-written item entry with a title builds: the item gets a page of its own, with no table of sources', async (t) => {
+  const distDir = await tmpDir(t, 'handwritten-ok');
+  const contentDir = await tmpDir(t, 'handwritten-ok-content');
+  await writeItemEntry(contentDir, 'made_up_thing', ["title: '自己起的名字'"], '一把没人导出过的东西。\n');
+
+  const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+
+  const page = await fs.readFile(path.join(distDir, 'item', 'made_up_thing.html'), 'utf8');
+  assert.ok(page.includes('<h1 class="page-title">自己起的名字</h1>'), 'named by its title');
+  assert.ok(page.includes('一把没人导出过的东西。'), "the entry's body is the item's 详解");
+  assert.ok(!page.includes('数据来源'), 'nothing was taken from the game files');
+  assert.ok(!page.includes('适用于 '), 'no data baseline to cite');
+  assert.equal(result.pages, await countRenderedFiles(distDir));
 });
 
 test('buildSkeleton with contentDir: null has no content to lint and builds as before', async (t) => {
@@ -808,7 +826,7 @@ test('the content lint finds problems → the build fails (exitCode 1) with the 
   assert.equal(exitCode, 1);
   // The report is the lint's own, to the character: the build adds nothing and reformats nothing.
   const layout = await readContentLayout(contentDir);
-  assert.equal(err.message, formatContentIssues(await lintContent({ layout, data: structuredClone(FIXTURE_DATA) })));
+  assert.equal(err.message, formatContentIssues(await lintContent({ layout, data: structuredClone(FIXTURE_DATA), handwrittenItems: true })));
   assert.ok(!contentDir.endsWith('content') && toPosix(contentDir) !== 'content', 'sanity: this content dir is NOT the default "content"');
   const lines = err.message.split('\n');
   assert.equal(lines.length, 8, err.message);
@@ -1723,6 +1741,34 @@ test('修复轮 4·C1 — 贡献者在直通 HTML 块里写了不允许的标签
     const page = (await fs.readFile(path.join(distDir, 'mechanics', 'install-compat.html'), 'utf8')).split('\n');
     assert.ok(page[at - 1].includes(tag), `line ${at}: ${page[at - 1]}`);
   }
+});
+
+test('a violation on a page written outside the mods is reported against that file: the home page, a section page, a mod page', async (t) => {
+  // (A site page is reported the same way; site pages are rendered from stage 3, task 5 on, and join this test there.)
+  const distDir = await tmpDir(t, 'audit-outside-mods');
+  const contentDir = await tmpDir(t, 'audit-outside-mods-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  const bad = '\n```html\n<div onclick="alert(1)">点我</div>\n```\n';
+  const home = path.join(contentDir, 'home.md');
+  const section = path.join(contentDir, 'sections', 'series.md');
+  const modPage = path.join(contentDir, 'mods', FIXTURE_MOD, '_index.md');
+  await fs.writeFile(home, `---\ntitle: 首页\n---\n${bad}`);
+  await fs.mkdir(path.dirname(section));
+  await fs.writeFile(section, `---\ntitle: 分区\nmods:\n  - ${FIXTURE_MOD}\n---\n${bad}`);
+  await fs.writeFile(modPage, `---\ntitle: 甲\n---\n${bad}`);
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the audit violations to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  assert.match(err.message, /^\[audit\] FAIL — 发现 3 处不允许的写法:/);
+  const entries = err.message.split('\n').filter((line) => /^\s+\d+\. 文件:/.test(line));
+  for (const [generated, source] of [['index.html', home], [`mods/${FIXTURE_MOD}.html`, modPage], ['sections/series.html', section]]) {
+    assert.ok(entries.some((line) => line.includes(`文件:${toPosix(source)}(生成页面 ${generated} 第`)),
+      `${generated} should be reported against its file:\n${err.message}`);
+  }
+  assert.equal(entries.length, 3, 'one entry per page');
 });
 
 test('source shown in a code block is text: the build passes, and neither the audit nor the dangling-reference check reads a link or a script in it', async (t) => {

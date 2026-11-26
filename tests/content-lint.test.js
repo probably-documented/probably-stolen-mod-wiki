@@ -32,9 +32,9 @@ const filesOf = (files) => async (file) => {
 
 const codes = (issues) => issues.map((i) => i.code);
 
-test('ISSUE_ORDER is the sixteen checks, A to P, and NAME_RE is what the CMS accepts for a file name', () => {
-  assert.equal(ISSUE_ORDER.length, 16);
-  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMNOP'].sort());
+test('ISSUE_ORDER is the seventeen checks, A to Q, and NAME_RE is what the CMS accepts for a file name', () => {
+  assert.equal(ISSUE_ORDER.length, 17);
+  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMNOPQ'].sort());
   for (const ok of ['barrel-system', 'a.b', 'A_B', '中文.别名', 'a..b', 'gear.maidDress', '_index']) assert.match(ok, NAME_RE, ok);
   for (const bad of ['a b', 'a/b', 'a~b', 'a#b', 'a\\b']) assert.doesNotMatch(bad, NAME_RE, bad);
 });
@@ -146,14 +146,34 @@ test('I, J, K — a mod named in a file that does not exist as a directory', asy
   for (const issue of issues) assert.match(issue.problem, /ghost/);
 });
 
-test('L — an item entry whose file name is no exported item, until hand-written items are allowed', async () => {
+test('L — an item entry whose file name is no exported item, until hand-written items are allowed (then it is Q that asks for a title)', async () => {
   const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'made_up')] })] });
   const files = { 'c/mods/alpha/items/made_up.md': fm('item_id: made_up\nmod: alpha') };
   const data = { items: [{ id: 'egg', mod: 'alpha' }] };
   const issues = await lintContent({ layout, data, readFile: filesOf(files) });
   assert.deepEqual(codes(issues), ['L']);
   assert.match(issues[0].fix, /真实物品的 ID/);
-  assert.deepEqual(await lintContent({ layout, data, handwrittenItems: true, readFile: filesOf(files) }), []);
+  // Once hand-written items are allowed the file name is fine, but the entry names no item in the data: it has to name itself.
+  const allowed = await lintContent({ layout, data, handwrittenItems: true, readFile: filesOf(files) });
+  assert.deepEqual(codes(allowed), ['Q'], 'not L any more: Q');
+});
+
+test('Q — a hand-written item entry (no exported item behind it) has to give the item a title; one that does is clean', async () => {
+  const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'made_up'), item('alpha', 'named'), item('alpha', 'egg')] })] });
+  const files = {
+    'c/mods/alpha/items/made_up.md': fm('item_id: made_up\nmod: alpha'), // no title at all
+    'c/mods/alpha/items/named.md': fm("item_id: named\nmod: alpha\ntitle: '自己起的名字'"),
+    'c/mods/alpha/items/egg.md': fm("item_id: egg\nmod: alpha"), // an exported item: its title is optional
+  };
+  const data = { items: [{ id: 'egg', mod: 'alpha' }] };
+
+  const issues = await lintContent({ layout, data, handwrittenItems: true, readFile: filesOf(files) });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [['c/mods/alpha/items/made_up.md', 'Q']]);
+  assert.match(issues[0].problem, /「made_up」[\s\S]*标题/, 'names the entry and the missing title');
+  assert.match(issues[0].fix, /标题/, 'says which box to fill');
+  // An exported item whose entry says no title is not asked for one, and before hand-written items are allowed Q keeps quiet.
+  assert.deepEqual(codes(await lintContent({ layout, data, readFile: filesOf(files) })).filter((c) => c === 'Q'), []);
 });
 
 test('M — an item entry filed under a mod the item does not belong to', async () => {
@@ -244,7 +264,12 @@ test('P — a hand-written item (no exported item behind it) is held to the same
 
   const issues = await lintContent({ layout, data: { items: [] }, handwrittenItems: true, readFile: filesOf(files) });
 
-  assert.deepEqual(issues.map((i) => [i.file, i.code]), [['c/mods/alpha/items/other.md', 'P']]);
+  // P first by file order (made_up.md < other.md); made_up says no title, so Q follows it.
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [
+    ['c/mods/alpha/items/made_up.md', 'Q'],
+    ['c/mods/alpha/items/other.md', 'P'],
+    ['c/mods/alpha/items/other.md', 'Q'],
+  ]);
 });
 
 test('N — two images that would be published to the same place: every source file is listed', async (t) => {

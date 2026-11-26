@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readSupplements, mergeSupplements } = require('../tools/build/supplements.js');
+const { readSupplements, mergeSupplements, addHandwrittenItems } = require('../tools/build/supplements.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 function tmpDir(t, label) {
@@ -177,4 +177,84 @@ test('shape:块列表的两个数字覆盖数据里的尺寸', async (t) => {
   const data = structuredClone(FIXTURE_DATA);
   await mergeSupplements(data, layout, () => {});
   assert.deepEqual(itemOf(data, 'wondrous_milk').shape, [4, 5]);
+});
+
+// ---------- 阶段 3 Task 3:纯手写物品 ----------
+
+/** A mod folder of the layout, built by hand. */
+const modDir = (contentDir, id, items, indexFile = null) => ({
+  id, dir: path.join(contentDir, 'mods', id), indexFile, redirectsFile: null, items, mechanics: [], nestedIndexFiles: [],
+});
+
+test('addHandwrittenItems: an entry that names no exported item becomes an item of its own, in the mod of its folder', async (t) => {
+  const contentDir = tmpDir(t, 'handwritten');
+  const exported = writeEntry(contentDir, 'lewd_meme_remake', 'milk_barrel', ["title: '桶'"]); // an exported item: not added again
+  const thing = writeEntry(contentDir, 'ghost_mod', 'thing', ["title: '东西'", "description: '一把没人导出过的东西。'"]);
+  const nameless = writeEntry(contentDir, 'ghost_mod', 'nameless', ["title: ''"]);
+  const layout = { ...layoutWith(contentDir, []), mods: [modDir(contentDir, 'lewd_meme_remake', [exported]), modDir(contentDir, 'ghost_mod', [thing, nameless])] };
+  const data = structuredClone(FIXTURE_DATA);
+
+  const added = await addHandwrittenItems(data, layout);
+
+  assert.equal(added, 2);
+  assert.equal(data.items.filter((it) => it.id === 'milk_barrel').length, 1, 'an exported item is left alone');
+  const [byThing, byNameless] = ['thing', 'nameless'].map((id) => data.items.find((it) => it.id === id));
+  assert.deepEqual(
+    (({ id, name, price, shape, icon, aliases, categories, tags, provenance }) => ({ id, name, price, shape, icon, aliases, categories, tags, provenance }))(byThing),
+    { id: 'thing', name: '东西', price: null, shape: null, icon: null, aliases: [], categories: [], tags: [], provenance: {} },
+  );
+  assert.equal(byNameless.name, 'nameless', 'no title: named by its file');
+  assert.equal(byThing.mod, 'ghost_mod', 'the mod is the folder it is in');
+  assert.equal(byNameless.mod, 'ghost_mod');
+  // The mark that tells a hand-written item from an exported one, wherever it matters.
+  assert.equal(byThing.handwritten, true);
+  assert.equal(byNameless.handwritten, true);
+  assert.equal(data.items.find((it) => it.id === 'milk_barrel').handwritten, undefined, 'an exported item carries no such mark');
+  // 一个只差大小写的文件名仍然是那件已导出的物品,不是新物品
+  const cased = tmpDir(t, 'handwritten-case');
+  const lower = writeEntry(cased, MOD, 'gear.maiddress', ["title: '不该多出来'"]);
+  const twin = structuredClone(FIXTURE_DATA);
+  twin.items.push({ id: 'gear.maidDress', mod: MOD, name: '女仆装', provenance: {} });
+  assert.equal(await addHandwrittenItems(twin, { ...layoutWith(cased, []), mods: [modDir(cased, MOD, [lower])] }), 0);
+  assert.equal(twin.items.length, FIXTURE_DATA.items.length + 1, 'only the item that was pushed in');
+  // 没有内容树、或者什么都不缺:什么都不加
+  assert.equal(await addHandwrittenItems({ items: [{ id: 'egg' }] }, null), 0);
+  const nothing = structuredClone(FIXTURE_DATA);
+  assert.equal(await addHandwrittenItems(nothing, { mods: [] }), 0);
+  assert.deepEqual(nothing.items, structuredClone(FIXTURE_DATA).items);
+});
+
+test('a hand-written item takes the rest of its entry too: add it first, then merge — and nothing warns that it names no item', async (t) => {
+  const contentDir = tmpDir(t, 'handwritten-merge');
+  const thing = writeEntry(contentDir, 'ghost_mod', 'thing', ["title: '东西'", "description: '一把没人导出过的东西。'", 'related:', '  - milk_barrel']);
+  const layout = { ...layoutWith(contentDir, []), mods: [modDir(contentDir, 'ghost_mod', [thing])] };
+  const data = structuredClone(FIXTURE_DATA);
+  await addHandwrittenItems(data, layout);
+  const warnings = [];
+  await mergeSupplements(data, layout, (line) => warnings.push(line));
+
+  const item = data.items.find((it) => it.id === 'thing');
+  assert.equal(item.description, '一把没人导出过的东西。');
+  assert.deepEqual(item.related, ['milk_barrel']);
+  assert.deepEqual(warnings, [], 'the item is there by the time the entries are merged');
+});
+
+test('title: a non-empty title in the entry overwrites the name of an exported item; an empty one does not', async (t) => {
+  const titled = tmpDir(t, 'title');
+  const data = structuredClone(FIXTURE_DATA);
+  await mergeSupplements(data, layoutWith(titled, [writeEntry(titled, MOD, 'wondrous_milk', ["title: '好喝的乳汁'"])]), () => {});
+  assert.equal(itemOf(data, 'wondrous_milk').name, '好喝的乳汁');
+  assert.equal(itemOf(data, 'wondrous_milk').provenance.name, 'content:items/wondrous_milk.md');
+
+  const blank = tmpDir(t, 'title-blank');
+  const untouched = structuredClone(FIXTURE_DATA);
+  await mergeSupplements(untouched, layoutWith(blank, [writeEntry(blank, MOD, 'wondrous_milk', ["title: ''"])]), () => {});
+  assert.equal(itemOf(untouched, 'wondrous_milk').name, milkBefore.name);
+
+  // A title that is the name the data already gives covers nothing: the name stays where it came from.
+  const same = tmpDir(t, 'title-same');
+  const kept = structuredClone(FIXTURE_DATA);
+  await mergeSupplements(kept, layoutWith(same, [writeEntry(same, MOD, 'wondrous_milk', [`title: ${milkBefore.name}`])]), () => {});
+  assert.equal(itemOf(kept, 'wondrous_milk').name, milkBefore.name);
+  assert.equal(itemOf(kept, 'wondrous_milk').provenance.name, milkBefore.provenance.name, 'still the game text, not the entry');
 });

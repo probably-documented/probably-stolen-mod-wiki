@@ -19,6 +19,7 @@
 //   N  两张图片会发到同一个位置
 //   O  两份物品词条指向同一件物品
 //   P  物品词条开头的 item_id 不是它自己的文件名(或没写)
+//   Q  纯手写物品的词条(对不上任何已导出的物品)没有填 title:物品得有个名字
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -33,7 +34,7 @@ const NAME_RE = /^[A-Za-z0-9._\-\u4e00-\u9fff]+$/;
 const REDIRECTS_MOD_RE = /^mod:[ \t]*(.*?)[ \t]*$/m;
 
 /** 检查的先后。报告里同一个文件的问题按这个顺序排。 */
-const ISSUE_ORDER = Object.freeze([...'ABCDEFGHIJKLMNOP']);
+const ISSUE_ORDER = Object.freeze([...'ABCDEFGHIJKLMNOPQ']);
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
@@ -61,10 +62,10 @@ const defaultReadFile = (file) => fs.readFile(file, 'utf8');
 
 /**
  * 一篇词条开头的 `mod:`:没写、写的不是已有的 Mod、写的是别的 Mod 目录。
- * @returns {Promise<{ code: string, problem: string, fix: string }|null>} 不带 `file`
+ * 只看传进来的文件头 — 每个文件的文件头只读一次,几处检查共用。
+ * @returns {{ code: string, problem: string, fix: string }|null} 不带 `file`
  */
-async function entryModIssues({ file, mod, modIds, what, code, readFile }) {
-  const fm = splitFrontmatter(await readFile(file)).fm;
+function modIssue(fm, { mod, modIds, what, code }) {
   const said = fm.mod == null ? '' : String(fm.mod).trim();
   const modLine = `\`mod: ${mod.id}\``;
   if (said === '') {
@@ -91,6 +92,20 @@ async function entryModIssues({ file, mod, modIds, what, code, readFile }) {
   return null;
 }
 
+/**
+ * 纯手写物品的词条(对不上任何已导出的物品)要给物品起个名字:它的 title 就是物品在站上的名称。
+ * @returns {{ code: string, problem: string, fix: string }|null} 不带 `file`
+ */
+function handwrittenTitleIssue(entry, fm) {
+  const { title } = fm;
+  if (typeof title === 'string' && title.trim() !== '') return null;
+  return {
+    code: 'Q',
+    problem: `物品「${entry.id}」不是任何一件已导出的物品,这一篇也没有填标题`,
+    fix: `这是一件纯手写的物品,得有个名字:在 CMS 里打开这一篇,把「标题」填上,再保存。`,
+  };
+}
+
 async function redirectsIssues(mod, modIds, readFile) {
   const file = mod.redirectsFile;
   const text = await readFile(file);
@@ -109,10 +124,10 @@ async function redirectsIssues(mod, modIds, readFile) {
 /**
  * 物品词条开头的 `item_id` 必须是它自己的文件名。CMS 保存时按「物品 ID」这一栏给文件
  * 命名:两处不一致,下次保存文件就被改名——悄悄换成别的物品。没写也算不一致。
- * @returns {Promise<{ code: string, problem: string, fix: string }|null>} 不带 `file`
+ * @returns {{ code: string, problem: string, fix: string }|null} 不带 `file`
  */
-async function itemIdFieldIssue(entry, readFile) {
-  const { item_id } = splitFrontmatter(await readFile(entry.file)).fm;
+function itemIdFieldIssue(entry, fm) {
+  const { item_id } = fm;
   const said = typeof item_id === 'string' ? item_id.trim() : '';
   if (said === entry.id) return null;
   return {
@@ -143,10 +158,7 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
 
   for (const mod of layout.mods) {
     for (const page of mod.mechanics) {
-      add(page.file, await entryModIssues({ file: page.file, mod, modIds, what: '机制页', code: 'A', readFile }));
-    }
-    for (const entry of mod.items) {
-      add(entry.file, await entryModIssues({ file: entry.file, mod, modIds, what: '物品词条', code: 'B', readFile }));
+      add(page.file, modIssue(splitFrontmatter(await readFile(page.file)).fm, { mod, modIds, what: '机制页', code: 'A' }));
     }
     if (mod.redirectsFile !== null) add(mod.redirectsFile, await redirectsIssues(mod, modIds, readFile));
     for (const file of mod.nestedIndexFiles) {
@@ -227,11 +239,17 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
   const entriesOfItem = new Map(); // 真实物品 ID → 指向它的词条(跨 mod)
   for (const mod of layout.mods) {
     for (const entry of mod.items) {
-      add(entry.file, await itemIdFieldIssue(entry, readFile));
+      // The entry's front matter is read once and shared by everything that asks about it.
+      const fm = splitFrontmatter(await readFile(entry.file)).fm;
+      add(entry.file, modIssue(fm, { mod, modIds, what: '物品词条', code: 'B' }));
+      add(entry.file, itemIdFieldIssue(entry, fm));
       // A file name that differs from the id by case only still names its item (resolveItemId).
       const realId = resolveItemId(entry.id, itemIds);
       if (realId === null) {
-        if (!handwrittenItems) {
+        if (handwrittenItems) {
+          // A hand-written item: the file name is its own to choose, but the item needs a name.
+          add(entry.file, handwrittenTitleIssue(entry, fm));
+        } else {
           add(entry.file, {
             code: 'L',
             problem: `这一篇的文件名「${entry.id}」不是任何一件已导出物品的 ID`,

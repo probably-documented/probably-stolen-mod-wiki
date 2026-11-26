@@ -365,7 +365,7 @@ collections:
         widget: string
         required: false
         preview: false
-        hint: '物品页的大标题;留空就用游戏数据里的名字。'
+        hint: '物品在站上的名字。有导出数据的物品可以留空,留空就用游戏数据里的名称;数据里还没有的新物品必须填,否则网站不会更新。'
       # 以下都是手写层:填了就覆盖数据里的同名字段,留空则用数据里的值。
       - name: description
         label: 描述
