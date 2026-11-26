@@ -511,6 +511,36 @@ test('卡片模式:分区文件写 cards: true 时分区块是一张张卡片(�
   assert.ok(!home.includes('class="mod-card"'), 'the home page has no cards');
 });
 
+// ---------- 阶段 5 Task 5:两个概述 ----------
+
+test('概述:分区的 items_intro 显示在物品图鉴页、mechanics_intro 显示在机制说明页;空的不出这一节;分区页上不显示', async (t) => {
+  const layout = await homeTree(t);
+  fs.writeFileSync(layout.sections[0].file, [
+    '---', 'title: 淫色深空系列', 'mods:', '  - lewd_meme', "items_intro: '先看 [[wondrous_milk]]。'", "mechanics_intro: '从夜间结算读起。'",
+    '---', '', '以《淫色深空》为核心的系列。', '',
+  ].join('\n'));
+  const out = await renderSite(structuredClone(FIXTURE), { layout, nav: NAV });
+
+  const items = out.get('sections/lewd-meme-series/items.html');
+  assert.ok(items.includes('<h2 class="sec">概述</h2>\n<p>先看 '), 'the items page shows the items introduction');
+  assert.ok(items.includes('href="../../item/wondrous_milk.html"'), 'an inline card in it is two levels up');
+  assert.ok(items.indexOf('<div class="updated">') < items.indexOf('<h2 class="sec">概述</h2>') && items.indexOf('<h2 class="sec">概述</h2>') < items.indexOf('<div id="section-items">'),
+    '小字,概述,然后才是筛选和物品');
+  const mechanics = out.get('sections/lewd-meme-series/mechanics.html');
+  assert.ok(mechanics.includes('<h2 class="sec">概述</h2>\n<p>从夜间结算读起。</p>'), 'the mechanics page shows the other one');
+  assert.ok(!mechanics.includes('先看 ') && !items.includes('从夜间结算读起'), 'each page shows its own only');
+  // 分区页上不显示
+  const page = out.get('sections/lewd-meme-series.html');
+  assert.ok(!page.includes('先看 ') && !page.includes('从夜间结算读起') && !page.includes('概述'), 'the section page shows neither');
+
+  // 没写的(珠泪哀歌):不出这一节
+  assert.ok(!out.get('sections/tear/items.html').includes('概述') && !out.get('sections/tear/mechanics.html').includes('概述'));
+  // CMS 写出的空值也不出:'' 和 |-(空块)
+  fs.writeFileSync(layout.sections[1].file, "---\ntitle: 珠泪哀歌\nmods:\n  - lewd_meme_remake\nitems_intro: ''\nmechanics_intro: |-\n  \n---\n");
+  const blank = await renderSite(structuredClone(FIXTURE), { layout, nav: NAV });
+  assert.ok(!blank.get('sections/tear/items.html').includes('概述') && !blank.get('sections/tear/mechanics.html').includes('概述'));
+});
+
 // ---------- ⑤ mod 导航页、物品页和机制页(阶段 3 Task 3) ----------
 
 /** A hand-written mod in the search model, in the 珠泪哀歌 section. */

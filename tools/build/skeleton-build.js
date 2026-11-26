@@ -273,6 +273,8 @@ async function copyAssets(assetsDir, distDir) {
  * Everything is looked up in the layout, so the path printed is the real one:
  *   index.html               ← home.md (the body above the entries)
  *   sections/<slug>.html     ← sections/<slug>.md
+ *   sections/<slug>/items.html, sections/<slug>/mechanics.html
+ *                            ← sections/<slug>.md too (the two introductions)
  *   mods/<modId>.html        ← mods/<modId>/_index.md
  *   mechanics/<slug>.html    ← the mechanic page of that slug, mods/<modId>/mechanics/<slug>.md
  *   item/<id>.html           ← the item entry that names that item, mods/<modId>/items/<物品ID>.md
@@ -289,6 +291,9 @@ function editableSourceOf(distFile, layout, items) {
   if (file === 'index.html') return layout?.home == null ? null : toPosix(layout.home);
   const section = /^sections\/([^/]+)\.html$/.exec(file);
   if (section !== null) return shown(pageOf(layout?.sections ?? [], section[1]));
+  //    The section's two galleries (stage 5): what a contributor wrote on them is in the section file.
+  const galleries = /^sections\/([^/]+)\/(?:items|mechanics)\.html$/.exec(file);
+  if (galleries !== null) return shown(pageOf(layout?.sections ?? [], galleries[1]));
   const site = /^site\/([^/]+)\.html$/.exec(file);
   if (site !== null) return shown(pageOf(layout?.site ?? [], site[1]));
   const modPage = /^mods\/([^/]+)\.html$/.exec(file);

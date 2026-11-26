@@ -714,6 +714,55 @@ test('每个分区自动生成一页物品图鉴:sections/<slug>/items.html,卡�
   assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
 });
 
+// 阶段 5 Task 5 — 分区的两个概述:写在分区页的深度,显示在深一层的两页上。
+
+test('分区的概述:概述里的图片和站内链接是按分区页的深度写的,到物品图鉴页上地址都上去了,不断链;分区页上不显示', async (t) => {
+  const distDir = await tmpDir(t, 'section-intro');
+  const contentDir = await tmpDir(t, 'section-intro-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  await fs.mkdir(path.join(contentDir, 'sections', 'images'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'sections', 'images', 'one.png'), PNG_1PX);
+  await fs.writeFile(path.join(contentDir, 'sections', 'series.md'), [
+    '---', 'title: 淫色深空系列', 'mods:', '  - lewd_meme',
+    "items_intro: '一张图 ![图](images/one.png),一个站内链接 [安装](../mechanics/install-compat.html)。'",
+    "mechanics_intro: '先读安装说明。'", '---', '', '正文。', '',
+  ].join('\n'));
+
+  const { exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+  const items = await fs.readFile(path.join(distDir, 'sections', 'series', 'items.html'), 'utf8');
+  assert.ok(items.includes('<img src="../images/one.png"'), 'the image sits in sections/images/: one level up from here');
+  assert.ok(items.includes('<a href="../../mechanics/install-compat.html">安装</a>'), 'a link written for the section page: two levels up from here');
+  assert.ok(items.includes('<h2 class="sec">概述</h2>'));
+  const mechanics = await fs.readFile(path.join(distDir, 'sections', 'series', 'mechanics.html'), 'utf8');
+  assert.ok(mechanics.includes('<h2 class="sec">概述</h2>') && mechanics.includes('先读安装说明。'));
+  const page = await fs.readFile(path.join(distDir, 'sections', 'series.html'), 'utf8');
+  assert.ok(!page.includes('先读安装说明') && !page.includes('一张图'), 'the section page shows neither');
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
+});
+
+test('概述写错了,报告指向分区文件:一张不存在的图是断链,一个 onclick 是审计违规,页面是分区自己的那一页', async (t) => {
+  const contentDir = await tmpDir(t, 'section-intro-bad');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  const file = path.join(contentDir, 'sections', 'series.md');
+  const source = toPosix(file);
+
+  await fs.writeFile(file, "---\ntitle: 淫色深空系列\nmods:\n  - lewd_meme\nitems_intro: |-\n  ![没有的图](images/nope.png)\n---\n");
+  const brokenDist = await tmpDir(t, 'section-intro-broken');
+  const broken = await capturingExitCode(() => build({ distDir: brokenDist, contentDir, warn: noop }));
+  assert.equal(broken.exitCode, 1);
+  assert.match(broken.err.message, /^\[links\] FAIL/);
+  // 从 sections/series/ 出发,../images/nope.png 指向 sections/images/nope.png:提升后的地址,解析出来就是它在站里的位置
+  assert.ok(broken.err.message.includes(`sections/series/items.html → sections/images/nope.png(编辑 ${source})`), broken.err.message);
+
+  await fs.writeFile(file, "---\ntitle: 淫色深空系列\nmods:\n  - lewd_meme\nitems_intro: |-\n  ```html\n  <div onclick=\"alert(1)\">点我</div>\n  ```\n---\n");
+  const auditedDist = await tmpDir(t, 'section-intro-audited');
+  const audited = await capturingExitCode(() => build({ distDir: auditedDist, contentDir, warn: noop }));
+  assert.equal(audited.exitCode, 1);
+  assert.match(audited.err.message, /^\[audit\] FAIL/);
+  assert.ok(audited.err.message.includes(`文件:${source}(生成页面 sections/series/items.html 第`), audited.err.message);
+});
+
 test('dist never references a file it does not ship (html href/src + css url) — and the build itself now checks it', async (t) => {
   const distDir = await tmpDir(t, 'dangling');
   // A clean build passing IS the check passing: since task 5b B a dangling

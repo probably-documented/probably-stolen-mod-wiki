@@ -19,7 +19,7 @@
 
 const fs = require('node:fs/promises');
 
-const { mdToHtml, restoreItemLinks } = require('./markdown.js');
+const { mdToHtml, restoreItemLinks, liftRelativeUrls } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
 const { sitePagesWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
@@ -293,6 +293,29 @@ async function sectionCards(data, model, orderOf, slug, hrefOf, content) {
   return cards;
 }
 
+/** 分区文件的开头和正文;没有文件、或者读不到,都是空的。分区页和它的两页共用。 */
+async function readSection(section) {
+  const raw = section?.file == null ? null : await readOptional(section.file);
+  const { fm, body } = splitFrontmatter(raw ?? '');
+  return { fm, body };
+}
+
+/**
+ * 分区级两页的「概述」(阶段 5 Task 5):分区文件的 items_intro / mechanics_intro,按 Markdown 渲染,
+ * 写了才出这一节。它是按分区页的深度写的,放到深一层的页面上,相对地址提升一级;
+ * 物品内嵌卡由构建生成,直接用对的深度。
+ * @param {object} section { slug, title, file } — file 是分区文件
+ * @param {string} key items_intro 或 mechanics_intro
+ * @returns {Promise<string>} 没写就是空串
+ */
+async function sectionIntro(section, key, relRoot, model) {
+  const { fm } = await readSection(section);
+  const text = typeof fm[key] === 'string' ? fm[key] : '';
+  if (text.trim() === '') return '';
+  const { html } = mdToHtml(text, model.lookup, (it) => itemCard(it, relRoot));
+  return `<h2 class="sec">概述</h2>\n${liftRelativeUrls(html)}\n`;
+}
+
 /**
  * 分区导航页(sections/<slug>.html):标题、入口行(物品图鉴、机制说明,进到这个分区自己的两页)、
  * 本分区的 mod(样式同主页;这一页只有它自己,所以方框不折叠)、最后才是介绍正文
@@ -305,8 +328,7 @@ async function sectionCards(data, model, orderOf, slug, hrefOf, content) {
  */
 async function renderSectionPage(data, model, section, mods, content) {
   const relRoot = '../';
-  const raw = section.file == null ? null : await readOptional(section.file);
-  const { fm, body } = splitFrontmatter(raw ?? '');
+  const { fm, body } = await readSection(section);
   const { html } = mdToHtml(body, model.lookup, (it) => itemCard(it, relRoot));
   const hrefOf = (id) => `${relRoot}mods/${id}.html`;
   const cards = fm.cards === true ? await sectionCards(data, model, mods, section.slug, hrefOf, content) : null;
@@ -332,11 +354,12 @@ ${html}`,
  * 能按品类和来源筛选(assets-src/js/item-filter.js,只在 #section-items 里动)。品类是这个分区的物品
  * 有过的品类(数据里的加词条里写的),来源就是物品的 mod——都是自动的,编辑者什么都不用做。
  * 比别的页面深一层,地址前缀都是 ../../。
- * @param {object} section buildNavSearch 的分区({ slug, title })
+ * @param {object} section { slug, title, file } — file 是分区文件,概述从那里读
  * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
  */
-function renderSectionItems(data, model, section, mods) {
+async function renderSectionItems(data, model, section, mods) {
   const relRoot = '../../';
+  const intro = await sectionIntro(section, 'items_intro', relRoot, model);
   const sectionMods = (mods ?? []).filter((mod) => mod.sections.includes(section.slug));
   const itemsOf = (id) => model.items.filter((it) => it.mod === id);
   const total = sectionMods.reduce((n, mod) => n + itemsOf(mod.id).length, 0);
@@ -373,7 +396,7 @@ ${items.map((it) => itemCard(it, relRoot)).join('\n')}
     ],
     bodyHtml: `<h1 class="page-title">物品图鉴</h1>
 <div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · ${sectionMods.length} 个模组 · 共 ${total} 件物品</div>
-<div id="section-items">
+${intro}<div id="section-items">
 ${filter}
 ${parts}
 </div>
@@ -385,11 +408,12 @@ ${parts}
 /**
  * 分区级机制说明页(sections/<slug>/mechanics.html,阶段 5 Task 3):这个分区各个 mod 的机制页,
  * 按 mod 分组,卡片同 mod 页。自动生成,编辑者不用建。比别的页面深一层,地址前缀都是 ../../。
- * @param {object} section buildNavSearch 的分区({ slug, title })
+ * @param {object} section { slug, title, file } — file 是分区文件,概述从那里读
  * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
  */
-function renderSectionMechanics(data, model, section, mods) {
+async function renderSectionMechanics(data, model, section, mods) {
   const relRoot = '../../';
+  const intro = await sectionIntro(section, 'mechanics_intro', relRoot, model);
   const groups = (mods ?? [])
     .filter((mod) => mod.sections.includes(section.slug))
     .map((mod) => ({ mod, pages: (data.mechanics ?? []).filter((m) => m.mod === mod.id) }))
@@ -408,7 +432,7 @@ function renderSectionMechanics(data, model, section, mods) {
     ],
     bodyHtml: `<h1 class="page-title">机制说明</h1>
 <div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · ${groups.length} 个 mod 有机制页 · 共 ${total} 篇</div>
-${groups.length === 0 ? blank('这个分区还没有机制页。') : groups.map(({ mod, pages }) => `<h2 class="sec">${esc(mod.name)}</h2>
+${intro}${groups.length === 0 ? blank('这个分区还没有机制页。') : groups.map(({ mod, pages }) => `<h2 class="sec">${esc(mod.name)}</h2>
 ${mechanicCards(pages, relRoot, model.lookup)}`).join('\n')}`,
     aboutNav: model.aboutNav,
   });
@@ -814,10 +838,11 @@ async function renderSite(data, options = {}) {
   // One page per section, in the home page's order; its file is where the layout says it is.
   for (const section of nav.sections ?? []) {
     const file = (layout?.sections ?? []).find((page) => page.slug === section.slug)?.file ?? null;
-    out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? [], layout));
+    const ofTree = { ...section, file }; // 分区文件在这棵内容树里;可以没有
+    out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, ofTree, nav.mods ?? [], layout));
     // 阶段 5:每个分区自己的物品图鉴页和机制说明页,比分区页深一层。
-    out.set(`sections/${section.slug}/items.html`, renderSectionItems(data, model, section, nav.mods ?? []));
-    out.set(`sections/${section.slug}/mechanics.html`, renderSectionMechanics(data, model, section, nav.mods ?? []));
+    out.set(`sections/${section.slug}/items.html`, await renderSectionItems(data, model, ofTree, nav.mods ?? []));
+    out.set(`sections/${section.slug}/mechanics.html`, await renderSectionMechanics(data, model, ofTree, nav.mods ?? []));
   }
   out.set('nav-search.js', renderNavSearchJs(nav));
 

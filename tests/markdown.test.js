@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { mdToHtml } = require('../tools/build/markdown.js');
+const { mdToHtml, liftRelativeUrls } = require('../tools/build/markdown.js');
 
 // Ruled signature: mdToHtml(mdText, lookup, renderInline) -> {html, toc}
 // T6 never owns the card template; renderInline is injected by the caller.
@@ -634,4 +634,32 @@ test('a table row with more cells than its header is reported in warnings; the t
   assert.deepEqual(wide.warnings, [{ line: 3, headerCells: 2, rowCells: 3 }]);
   assert.equal((wide.html.match(/<td>/g) ?? []).length, 2);
   assert.deepEqual(mdToHtml(['| A |', '| --- |', '| 1 |'].join('\n'), ctx.lookup, ctx.renderInline).warnings, []);
+});
+
+// ---------- 阶段 5 Task 5:相对地址提升一级 ----------
+//
+// 分区的概述是按分区页的深度写的(图片 images/x.png、站内链接 ../mechanics/y.html),
+// 却显示在比它深一层或两层的页面上。渲染完把相对地址加上前缀。
+
+test('liftRelativeUrls: 相对地址加上前缀;锚点、根相对、协议相对、带协议的不动;空地址不动;前缀是参数', () => {
+  const html = '<a href="../mechanics/a.html">x</a><img src="images/p.png" alt=""/><a href="#锚">y</a><a href="/root">z</a>'
+    + '<img src="//host/x.png" alt=""/><a href="https://e.example/">w</a><a href="mailto:a@b.c">m</a><a href="">空</a>';
+  assert.equal(liftRelativeUrls(html),
+    '<a href="../../mechanics/a.html">x</a><img src="../images/p.png" alt=""/><a href="#锚">y</a><a href="/root">z</a>'
+    + '<img src="//host/x.png" alt=""/><a href="https://e.example/">w</a><a href="mailto:a@b.c">m</a><a href="">空</a>');
+  assert.equal(liftRelativeUrls(html, '../../').includes('<a href="../../../mechanics/a.html">x</a>'), true);
+});
+
+test('liftRelativeUrls: mdToHtml 的真实输出——直通块(html)里的链接是真的链接,提升;围栏代码块和行内代码里展示的不动', () => {
+  const { html } = mdToHtml([
+    '```html', '<a href="../mechanics/a.html">直通</a>', '```', '',
+    '```xml', '<a href="../mechanics/b.html">展示</a>', '```', '',
+    '行内 `<a href="../mechanics/c.html">x</a>`',
+  ].join('\n'), () => null);
+  // 代码里的尖括号被转义成了 &lt; &gt;,引号却没有——href="../…" 和真属性长得一样,所以要先跳过代码再改
+  assert.ok(html.includes('href="../mechanics/b.html"&gt;展示') && html.includes('href="../mechanics/c.html"&gt;x'), html);
+  const out = liftRelativeUrls(html);
+  assert.ok(out.includes('<a href="../../mechanics/a.html">直通</a>'), 'the passthrough block is real markup');
+  assert.ok(out.includes('href="../mechanics/b.html"&gt;展示') && !out.includes('../../mechanics/b.html'), 'shown in a code block: left alone');
+  assert.ok(out.includes('href="../mechanics/c.html"&gt;x') && !out.includes('../../mechanics/c.html'), 'shown inline: left alone');
 });

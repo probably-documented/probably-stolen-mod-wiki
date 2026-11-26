@@ -492,4 +492,23 @@ function mdToHtml(mdText, lookup, renderInlineCard) {
   return { html: blocks.join('\n'), toc, warnings };
 }
 
-module.exports = { mdToHtml, restoreItemLinks };
+/**
+ * 把一段已渲染的 HTML 里的相对地址加上前缀(阶段 5 Task 5)。分区的概述是按分区页的深度写的
+ * (图片 images/x.png、站内链接 ../mechanics/y.html),却显示在深一层的页面上。
+ * 只动地址属性(href、src)里以相对路径开头的值:#锚点、/根相对、//协议相对、带协议的和空的不动。
+ * 代码块(<pre>)和行内代码(<code>)里面不动:那是给人看的文本,而且引号没有被转义,
+ * 和真属性长得一样——所以先把它们挪开,改完再放回去。
+ * @param {string} html
+ * @param {string} [prefix]
+ * @returns {string}
+ */
+function liftRelativeUrls(html, prefix = '../') {
+  const code = [];
+  const parked = String(html ?? '').replace(/<pre>[\s\S]*?<\/pre>|<code>[\s\S]*?<\/code>/g, (match) => `\u0000${code.push(match) - 1}\u0000`);
+  const lifted = parked.replace(/\b(href|src)="([^"]*)"/g, (match, attr, value) => (
+    value === '' || /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#)/i.test(value) ? match : `${attr}="${prefix}${value}"`
+  ));
+  return lifted.replace(/\u0000(\d+)\u0000/g, (_, index) => code[Number(index)]);
+}
+
+module.exports = { mdToHtml, restoreItemLinks, liftRelativeUrls };
