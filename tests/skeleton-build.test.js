@@ -885,8 +885,21 @@ test('what the CMS writes passes the build: a mechanic page with an uploaded ima
   await fs.mkdir(withRedirects);
   await fs.writeFile(path.join(withRedirects, 'redirects.yaml'), 'mod: lewd_meme_remake\naliases:\n  - 暗流\nkeywords: []\n');
 
+  // A section page once it has been saved: the relation is the mods' directory names, and the
+  // number field that was left alone is written as null (the pages sort it last).
+  const sections = path.join(contentDir, 'sections');
+  await fs.mkdir(sections);
+  await fs.writeFile(path.join(sections, 'smoke-section.md'),
+    `---\ntitle: 冒烟分区\norder: null\nmods:\n  - ${FIXTURE_MOD}\n  - smoke-Mod.X\n---\n\n分区的介绍正文。\n`);
+
+  // A site page created from its title: the file is named after it, nav_label is written blank.
+  await fs.mkdir(path.join(contentDir, 'site'));
+  await fs.writeFile(path.join(contentDir, 'site', '冒烟站点页.md'), "---\ntitle: 冒烟站点页\nnav_label: ''\n---\n\n这是一页不属于任何 mod 的站点页面。\n");
+
   const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
   assert.equal(exitCode, before, err && err.message);
+  // …and the content lint, run on its own, has nothing to say about any of them either.
+  assert.deepEqual(await lintContent({ layout: await readContentLayout(contentDir), data: structuredClone(FIXTURE_DATA) }), []);
 
   // The mod's image is published to both places its pages look, and the page keeps the reference as
   // the CMS wrote it — the build finds the file behind the encoded name.
