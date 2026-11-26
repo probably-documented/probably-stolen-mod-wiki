@@ -469,6 +469,51 @@ async function prepared(layout) {
 
 const WINDOW = (name) => (code) => JSON.parse(code.slice(`window.${name} = `.length).replace(/;\s*$/, ''));
 
+/** A page's address prefix: one `../` per directory of its path (a section's galleries sit two deep). */
+const relPrefix = (rel) => '../'.repeat(rel.split('/').length - 1);
+
+// ---------- 阶段 5 Task 3:分区级机制说明页(自动生成) ----------
+
+test('分区级机制说明页 sections/<slug>/mechanics.html:每个分区一页;按 mod 分组的卡片,同 mod 页;地址都上两级', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  data.mechanics = [
+    { slug: 'night-settlement', title: '夜间结算与疲劳', mod: 'lewd_meme', source: '# 夜间结算与疲劳\n\n介绍每晚的产出。\n\n## 结算顺序\n\n正文。' },
+    { slug: 'barrel-system', title: '桶装系统', mod: 'lewd_meme', source: '# 桶装系统\n\n桶上限 1000 次。' },
+    { slug: 'orphan', title: '不属于任何 mod 的页', mod: null, source: '# 不属于任何 mod 的页\n\n正文。' },
+  ];
+  const out = await renderSite(data, { layout, nav: NAV });
+  for (const section of NAV.sections) assert.ok(out.has(`sections/${section.slug}/mechanics.html`), `sections/${section.slug}/mechanics.html`);
+  assert.ok(!out.has('sections/nope/mechanics.html'));
+
+  const html = out.get('sections/lewd-meme-series/mechanics.html');
+  assert.ok(html.includes('<title>淫色深空系列 · 机制说明 · '), 'the section is named in the title, the kind of page after it');
+  assert.ok(html.includes('<h1 class="page-title">机制说明</h1>'));
+  assert.ok(html.includes('<div class="crumb"><a href="../../index.html">首页</a> &gt; <a href="../lewd-meme-series.html">淫色深空系列</a> &gt; 机制说明</div>'),
+    'the way back: home, then the section page one level up');
+  // 两级:整页没有一个「上一层」的地址
+  assert.ok(html.includes('href="../../css/theme.css"'));
+  for (const must of ['<a href="../../index.html">首页</a>', '<a href="../../changelog.html">更新日志</a>', '<a href="../../search.html">物品检索器</a>']) {
+    assert.ok(html.includes(must), must);
+  }
+  assert.ok(!/href="\.\.\/(?:index|changelog|search)\.html"/.test(html));
+  assert.equal((html.match(/<a [^>]*class="active">首页<\/a>/g) || []).length, 2, 'the home entry is the highlighted one, in both nav spots');
+  // 小字,然后按 mod 分组:每个有机制页的 mod 一个小标题,下面是它的卡片
+  assert.ok(html.includes('<div class="updated">数据基线 2026-11-18 · 1 个 mod 有机制页 · 共 2 篇</div>'));
+  assert.deepEqual(
+    [...html.matchAll(/<h2 class="sec">([^<]*)<\/h2>|<h4><a href="([^"]+)">([^<]*)<\/a><\/h4>|<p>(介绍每晚的产出。|桶上限 1000 次。)<\/p>/g)]
+      .map((m) => m[1] ?? (m[2] !== undefined ? `${m[3]} → ${m[2]}` : `摘要:${m[4]}`)),
+    [MODS[0].name, `夜间结算与疲劳 → ../../mechanics/night-settlement.html`, '摘要:介绍每晚的产出。', `桶装系统 → ../../mechanics/barrel-system.html`, '摘要:桶上限 1000 次。'],
+  );
+  assert.ok(!html.includes('mechanics/orphan.html'), 'a page that belongs to no mod is in no section');
+  assert.equal((html.match(/<script\b/g) || []).length, 0);
+
+  // 分区里的 mod 一篇机制页都没有:照常出一页
+  const tear = out.get('sections/tear/mechanics.html');
+  assert.ok(tear.includes('这个分区还没有机制页。'), '珠泪哀歌 holds 暗流交易 only, which has no mechanic page here');
+  assert.ok(!tear.includes('mechanics/night-settlement.html'));
+});
+
 test('mod 导航页:模组介绍、所属分区、物品图鉴、机制说明和玩法指南、更新日志;面包屑是「首页、mod 名」', async (t) => {
   const layout = await modTree(t);
   const data = await prepared(layout);
@@ -597,7 +642,7 @@ test('每页均有面包屑与返回首页链接;导航目标已接线', async (
     if (rel === 'data.js' || rel === 'nav-search.js') continue;
     assert.ok(html.includes('class="crumb"'), `${rel} 缺面包屑`);
     assert.ok(/<a href="[^"]*index\.html"/.test(html), `${rel} 缺返回首页链接`);
-    assert.ok(html.includes('href="' + (rel.includes('/') ? '../' : '') + 'css/theme.css'), rel);
+    assert.ok(html.includes('href="' + relPrefix(rel) + 'css/theme.css'), rel);
   }
   // NAV 占位全部接线:不再有 href="#"
   const index = out.get('index.html');
@@ -708,7 +753,7 @@ test('A1 — a site page that declares nav_label becomes the top nav\'s about en
   const out = await renderSite(structuredClone(FIXTURE), { layout: await siteWith(t, 'nav_label: 桶装指南', undefined, 'help') });
   for (const [rel, html] of out) {
     if (rel === 'data.js' || rel === 'nav-search.js') continue;
-    const prefix = rel.includes('/') ? '../' : '';
+    const prefix = relPrefix(rel);
     for (const spot of ['menu-row', 'ps-site__links']) {
       const anchors = navAnchors(html, spot);
       assert.deepEqual(texts(anchors), ['首页', '更新日志', '物品检索器', '桶装指南'], `${rel} ${spot}: the about entry is the last one`);

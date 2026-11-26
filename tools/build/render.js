@@ -270,6 +270,38 @@ ${sectionBlock(section, navBars(mods, section.slug, (id) => `${relRoot}mods/${id
   });
 }
 
+/**
+ * 分区级机制说明页(sections/<slug>/mechanics.html,阶段 5 Task 3):这个分区各个 mod 的机制页,
+ * 按 mod 分组,卡片同 mod 页。自动生成,编辑者不用建。比别的页面深一层,地址前缀都是 ../../。
+ * @param {object} section buildNavSearch 的分区({ slug, title })
+ * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
+ */
+function renderSectionMechanics(data, model, section, mods) {
+  const relRoot = '../../';
+  const groups = (mods ?? [])
+    .filter((mod) => mod.sections.includes(section.slug))
+    .map((mod) => ({ mod, pages: (data.mechanics ?? []).filter((m) => m.mod === mod.id) }))
+    .filter(({ pages }) => pages.length > 0);
+  const total = groups.reduce((n, { pages }) => n + pages.length, 0);
+
+  return layout({
+    title: `${section.title} · 机制说明`,
+    relRoot,
+    activeNav: 'home',
+    // 首页、分区页(上一层)、本页。
+    breadcrumb: [
+      { text: '首页', href: `${relRoot}index.html` },
+      { text: section.title, href: `../${section.slug}.html` },
+      { text: '机制说明' },
+    ],
+    bodyHtml: `<h1 class="page-title">机制说明</h1>
+<div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · ${groups.length} 个 mod 有机制页 · 共 ${total} 篇</div>
+${groups.length === 0 ? blank('这个分区还没有机制页。') : groups.map(({ mod, pages }) => `<h2 class="sec">${esc(mod.name)}</h2>
+${mechanicCards(pages, relRoot, model.lookup)}`).join('\n')}`,
+    aboutNav: model.aboutNav,
+  });
+}
+
 /** dist/nav-search.js:主页搜索的数据,一个赋值语句,和 data.js 一样。 */
 function renderNavSearchJs(nav) {
   return `window.NAV_SEARCH = ${JSON.stringify(nav ?? {})};\n`;
@@ -453,6 +485,26 @@ ${html}`,
   return page;
 }
 
+const QUIET = 'font-size:13px;color:var(--dk-muted)';
+
+/** A line in the quiet small print: what a block says when there is nothing to list. */
+const blank = (text) => `<p style="${QUIET}">${text}</p>`;
+
+/**
+ * 机制页的卡片:标题链到机制页,首段做摘要。mod 导航页和分区的机制说明页共用这一段。
+ * @param {object[]} pages data.mechanics 里的条目
+ * @param {string} relRoot 页面的地址前缀
+ * @param {(id: string) => object|null} lookup 物品内嵌卡用
+ */
+function mechanicCards(pages, relRoot, lookup) {
+  return `<div class="mod-cards">
+${pages.map((m) => `<div class="mod-card">
+<h4><a href="${relRoot}mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
+<p>${esc(firstParagraphExcerpt(m.source ?? '', lookup))}</p>
+</div>`).join('\n')}
+</div>`;
+}
+
 /**
  * mod 导航页(mods/<id>.html),阶段 3 Task 3。地址不变,内容是这个 mod 自己的:
  * 模组介绍(名字、一行小字、导航页文件的正文)、所属分区、物品图鉴(有数据的加纯手写的)、
@@ -463,8 +515,6 @@ ${html}`,
  */
 async function renderModPage(data, model, { id, exported }, { content, nav }) {
   const relRoot = '../';
-  const quiet = 'font-size:13px;color:var(--dk-muted)';
-  const blank = (text) => `<p style="${quiet}">${text}</p>`;
   const navMod = (nav.mods ?? []).find((m) => m.id === id) ?? { name: id, sections: [] };
   const name = navMod.name || id;
 
@@ -505,15 +555,10 @@ ${modItems.length === 0 ? blank('还没有物品。') : `<div class="item-grid">
 ${modItems.map((it) => itemCard(it, relRoot)).join('\n')}
 </div>`}
 <h2 class="sec">机制说明和玩法指南</h2>
-${modMechanics.length === 0 ? blank('还没有机制页。') : `<div class="mod-cards">
-${modMechanics.map((m) => `<div class="mod-card">
-<h4><a href="${relRoot}mechanics/${esc(m.slug)}.html">${esc(m.title ?? m.slug)}</a></h4>
-<p>${esc(firstParagraphExcerpt(m.source ?? '', model.lookup))}</p>
-</div>`).join('\n')}
-</div>`}
+${modMechanics.length === 0 ? blank('还没有机制页。') : mechanicCards(modMechanics, relRoot, model.lookup)}
 <h2 class="sec">更新日志</h2>
 ${entries.length === 0 ? blank('还没有更新记录。') : entries.map((c) => `<h3 class="sub">v${esc(c.version)}</h3>
-<p style="${quiet}">${multiLine(c.text ?? '')}</p>`).join('\n')}
+<p style="${QUIET}">${multiLine(c.text ?? '')}</p>`).join('\n')}
 <div class="clear"></div>`;
 
   return layout({
@@ -661,6 +706,8 @@ async function renderSite(data, options = {}) {
   for (const section of nav.sections ?? []) {
     const file = (layout?.sections ?? []).find((page) => page.slug === section.slug)?.file ?? null;
     out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? []));
+    // 阶段 5:每个分区自己的机制说明页,比分区页深一层。
+    out.set(`sections/${section.slug}/mechanics.html`, renderSectionMechanics(data, model, section, nav.mods ?? []));
   }
   out.set('nav-search.js', renderNavSearchJs(nav));
 

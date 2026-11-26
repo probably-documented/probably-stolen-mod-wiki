@@ -217,6 +217,12 @@ async function countRenderedFiles(distDir) {
   return files.filter((f) => /\.html$/i.test(f) || ['data.js', 'nav-search.js'].includes(toPosix(path.relative(distDir, f)))).length;
 }
 
+/**
+ * A page's address prefix: one `../` per directory it sits below dist. Counted, not guessed
+ * from "is there a slash": a section's galleries sit two directories deep (stage 5).
+ */
+const relPrefix = (distDir, file) => '../'.repeat(path.relative(distDir, file).split(path.sep).length - 1);
+
 // The dangling-reference check is the build's own (tools/build/dangling-refs.js,
 // task 5b B) — these tests reuse it, there is no second implementation here.
 // Its own unit tests live in tests/dangling-refs.test.js.
@@ -408,7 +414,7 @@ test('A1 — the 关于本站 a site page declares is the last entry of both nav
   assert.ok(page.includes('<h1 class="page-title">关于本站</h1>'), 'the site page is rendered');
   for (const file of (await listFiles(distDir)).filter((f) => /\.html$/i.test(f))) {
     const html = await fs.readFile(file, 'utf8');
-    const prefix = path.relative(distDir, file).includes(path.sep) ? '../' : '';
+    const prefix = relPrefix(distDir, file);
     for (const spot of ['menu-row', 'ps-site__links']) {
       const inner = html.split(`class="${spot}"`)[1].split('</div>')[0];
       // The entry is highlighted on the page it leads to (checked right below), plain everywhere else.
@@ -669,6 +675,25 @@ test('declared item icons degrade to the 无图 fallback (dropMissingIcons; no t
   for (const it of declared) {
     assert.ok(drops.some((m) => m.includes(`icon dropped: ${it.icon} (`)), `drop warning for ${it.icon}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 阶段 5(分区页与分区级页面)Task 3 — 每个分区自动生成一页机制说明。
+// 夹具的分区 content/sections/series.md 列了 lewd_meme,它的机制页是 install-compat。
+// ---------------------------------------------------------------------------
+
+test('每个分区自动生成一页机制说明:sections/<slug>/mechanics.html,地址上两级,列的是这个分区的 mod 的机制页,零悬空引用', async (t) => {
+  const distDir = await tmpDir(t, 'section-mechanics');
+  const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir: REPO_CONTENT, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+
+  const html = await fs.readFile(path.join(distDir, 'sections', 'series', 'mechanics.html'), 'utf8');
+  assert.ok(html.includes('<title>淫色深空系列 · 机制说明 · '), 'the fixture section, titled by its file');
+  assert.ok(html.includes('<a href="../series.html">淫色深空系列</a>'), 'back to the section page, one level up');
+  assert.ok(html.includes('<a href="../../mechanics/install-compat.html">安装与兼容性</a>'), "the mechanic page of the section's mod, two levels up");
+  assert.ok(html.includes('href="../../css/theme.css"'));
+  assert.equal(await countRenderedFiles(distDir), result.pages, 'counted like every other page');
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
 });
 
 test('dist never references a file it does not ship (html href/src + css url) — and the build itself now checks it', async (t) => {
@@ -975,7 +1000,7 @@ test('what the CMS writes passes the build: a mechanic page with an uploaded ima
   // A section page once it has been saved: the relation is the mods' directory names, and the
   // number field that was left alone is written as null (the pages sort it last).
   const sections = path.join(contentDir, 'sections');
-  await fs.mkdir(sections);
+  await fs.mkdir(sections, { recursive: true }); // the fixture has a section of its own now
   await fs.writeFile(path.join(sections, 'smoke-section.md'),
     `---\ntitle: 冒烟分区\norder: null\nmods:\n  - ${FIXTURE_MOD}\n  - smoke-Mod.X\n---\n\n分区的介绍正文。\n`);
 
@@ -1822,7 +1847,7 @@ test('a violation on a page written outside the mods is reported against that fi
   const modPage = path.join(contentDir, 'mods', FIXTURE_MOD, '_index.md');
   const sitePage = siteIn(contentDir, 'about'); // the fixture's own site page, the one that declares 关于本站
   await fs.writeFile(home, `---\ntitle: 首页\n---\n${bad}`);
-  await fs.mkdir(path.dirname(section));
+  await fs.mkdir(path.dirname(section), { recursive: true }); // the fixture has sections/ of its own now
   await fs.writeFile(section, `---\ntitle: 分区\nmods:\n  - ${FIXTURE_MOD}\n---\n${bad}`);
   await fs.writeFile(modPage, `---\ntitle: 甲\n---\n${bad}`);
   await fs.appendFile(sitePage, bad);
