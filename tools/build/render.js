@@ -660,4 +660,4 @@ async function renderSite(data, options = {}) {
   return out;
 }
 
-module.exports = { renderSite, firstParagraphExcerpt };
+module.exports = { renderSite, firstParagraphExcerpt, modOverview };
