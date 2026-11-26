@@ -299,6 +299,15 @@ ${boxes}
 <div class="nav-results" id="nav-results" hidden></div>`;
 }
 
+/**
+ * 分区页标题下的入口行(阶段 5 Task 1):「物品图鉴」「机制说明」,进到这个分区自己的两个
+ * 自动页面(sections/<slug>/items.html、mechanics.html)。样式同主页底部的三个入口。
+ * 普通链接:分区页没有脚本。slug 是文件名,转义后再进地址。
+ */
+function sectionEntries(slug, relRoot = '') {
+  return `<p class="home-links sec-entries"><a href="${esc(relRoot)}sections/${esc(slug)}/items.html">物品图鉴</a><a href="${esc(relRoot)}sections/${esc(slug)}/mechanics.html">机制说明</a></p>`;
+}
+
 /** A mod's bar on the home page: the name, and where it leads. */
 function modBar(name, href, id) {
   return `<a class="mod-bar" href="${esc(href)}" data-mod="${esc(id)}" title="${esc(name)}">${esc(name)}</a>`;
@@ -343,6 +352,7 @@ module.exports = {
   navLinks,
   aboutNavItem,
   homeSearchRow,
+  sectionEntries,
   sectionBlock,
   modBar,
 };

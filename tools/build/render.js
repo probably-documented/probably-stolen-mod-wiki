@@ -25,7 +25,7 @@ const { sitePagesWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
-  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionBlock, modBar,
+  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar,
 } = require('./templates.js');
 
 const MISSING = '<i class="missing">待补充</i>';
@@ -247,8 +247,9 @@ ${intro}
 }
 
 /**
- * 分区导航页(sections/<slug>.html):标题、介绍正文(按 Markdown 渲染,物品内嵌卡可用)、
- * 本分区的 mod 条,样式同主页。这一页只有它自己,所以方框不折叠,也不搜索。
+ * 分区导航页(sections/<slug>.html):标题、入口行(物品图鉴、机制说明,进到这个分区自己的两页)、
+ * 本分区的 mod 条(样式同主页;这一页只有它自己,所以方框不折叠)、最后才是介绍正文
+ * (按 Markdown 渲染,物品内嵌卡可用)。分区块里不放简介行:正文就在下面,不再重复。
  * @param {object} section { slug, title, intro, order, file } — file 是分区文件,可以没有
  * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
  */
@@ -267,8 +268,9 @@ async function renderSectionPage(data, model, section, mods) {
       { text: section.title },
     ],
     bodyHtml: `<h1 class="page-title">${esc(section.title)}</h1>
-${html}
-${sectionBlock(section, navBars(mods, section.slug, (id) => `${relRoot}mods/${id}.html`), { relRoot, linked: false, collapsible: false })}`,
+${sectionEntries(section.slug, relRoot)}
+${sectionBlock({ ...section, intro: '' }, navBars(mods, section.slug, (id) => `${relRoot}mods/${id}.html`), { relRoot, linked: false, collapsible: false })}
+${html}`,
     aboutNav: model.aboutNav,
   });
 }

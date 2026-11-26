@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, cssVars,
-  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionBlock, modBar,
+  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar,
 } = require('../tools/build/templates.js');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'assets-src', 'theme.css');
@@ -411,6 +411,17 @@ test('homeSearchRow: 搜索栏、默认收起的「限定范围」和它的下�
   // 没有分区:面板里没有复选框,搜索照常
   const bare = homeSearchRow([], { relRoot: '' });
   assert.ok(bare.includes('id="nav-q"') && !bare.includes('type="checkbox"'));
+});
+
+test('sectionEntries: 分区页标题下的入口行——物品图鉴、机制说明,地址在 sections/<slug>/ 下,带前缀,slug 转义', () => {
+  const html = sectionEntries('a <一>', '../');
+  assert.ok(html.startsWith('<p class="home-links sec-entries">') && html.endsWith('</p>'), "one row, in the style of the home page's entries");
+  assert.deepEqual([...html.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]), [
+    ['../sections/a &lt;一&gt;/items.html', '物品图鉴'],
+    ['../sections/a &lt;一&gt;/mechanics.html', '机制说明'],
+  ]);
+  assert.ok(sectionEntries('a').includes('href="sections/a/items.html"'), 'at the root there is no prefix');
+  assert.equal((sectionEntries('a').match(/<script|<button/g) || []).length, 0, 'plain links: a section page has no script');
 });
 
 test('sectionBlock: 标题(可折叠)、「进入分区」、计数、简介和 mod 条;linked 为假时没有「进入分区」', () => {

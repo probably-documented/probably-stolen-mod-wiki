@@ -433,6 +433,37 @@ test('分区页:标题、介绍正文(物品内嵌卡可用)、本分区的 mod 
   assert.equal((tear.match(/class="mod-bar"/g) || []).length, 1, '珠泪哀歌 holds one mod: 暗流交易');
 });
 
+test('分区页:标题下面是入口行,然后是分区块,最后才是正文;分区块里不再重复简介;轻的分区也有入口;主页不变', async (t) => {
+  const layout = await homeTree(t);
+  const out = await renderSite(structuredClone(FIXTURE), { layout, nav: NAV });
+  const html = out.get('sections/lewd-meme-series.html');
+  const at = (needle) => html.indexOf(needle);
+  const title = at('<h1 class="page-title">淫色深空系列</h1>');
+  const entries = at('<p class="home-links sec-entries">');
+  const block = at('<section class="sec-block" data-sec="lewd-meme-series">');
+  const body = at('<p>以《淫色深空》为核心的系列。</p>');
+  assert.ok(title !== -1 && title < entries, 'the entries come right under the title');
+  assert.ok(entries < block, '…and above the block');
+  assert.ok(block < body, 'the body follows the block');
+  assert.deepEqual([...html.slice(entries, block).matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]), [
+    ['../sections/lewd-meme-series/items.html', '物品图鉴'],
+    ['../sections/lewd-meme-series/mechanics.html', '机制说明'],
+  ], 'two entries, leading into this section');
+  assert.equal((html.match(/class="sec-intro"/g) || []).length, 0, 'the block does not repeat the intro: the body is right below it');
+  assert.equal((html.match(/<script\b/g) || []).length, 0, 'still a page without a script');
+
+  // 主页上的同一个分区块:简介行照旧,没有入口行
+  const home = out.get('index.html');
+  const series = home.slice(home.indexOf('data-sec="lewd-meme-series"'), home.indexOf('data-sec="tear"'));
+  assert.ok(series.includes('<div class="sec-intro">以《淫色深空》为核心的系列。</div>'), 'the home page keeps its intro line');
+  assert.ok(!home.includes('sec-entries'), 'and has no entries row');
+
+  // 轻的分区(没有正文、没开卡片)也有入口
+  const tear = out.get('sections/tear.html');
+  assert.ok(tear.includes('<a href="../sections/tear/items.html">物品图鉴</a>'));
+  assert.ok(tear.includes('<a href="../sections/tear/mechanics.html">机制说明</a>'));
+});
+
 // ---------- ⑤ mod 导航页、物品页和机制页(阶段 3 Task 3) ----------
 
 /** A hand-written mod in the search model, in the 珠泪哀歌 section. */

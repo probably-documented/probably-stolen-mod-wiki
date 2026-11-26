@@ -149,6 +149,8 @@ code{background:var(--dk-edge); border:1px solid var(--dk-line); padding:0 5px; 
 .home-foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--dk-line)}
 .home-foot p{font-size:13.5px;color:var(--dk-muted)}
 .home-links{display:flex;flex-wrap:wrap;gap:10px}
+/* 分区页标题下的入口行(物品图鉴、机制说明):同主页底部的入口,上面留一点,下面贴着分区块 */
+.home-links.sec-entries{margin:14px 0 4px}
 .home-links a{display:inline-flex;align-items:center;min-height:36px;padding:0 16px;background:var(--dk-bg);border:1px solid var(--dk-line);color:var(--dk-text)}
 .home-links a:hover{border-color:var(--dk-accent);color:var(--dk-accent-2);text-decoration:none}
 
