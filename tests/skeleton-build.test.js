@@ -85,6 +85,7 @@ const EXPECTED_ASSETS = [
   ['theme.css', 'css/theme.css'], // layout: <link rel="stylesheet" href="…css/theme.css">
   ['search.js', 'assets/js/search.js'], // search.html: <script src="assets/js/search.js">
   ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2)
+  ['js/item-filter.js', 'assets/js/item-filter.js'], // a section's item gallery: <script src="../../assets/js/item-filter.js"> (stage 5, task 4)
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'], // layout: .ps-site__emblem <img src>
   ['bwiki/bg.png', 'assets/bwiki/bg.png'], // theme.css: body background url(../assets/bwiki/bg.png)
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'], // theme.css @font-face
@@ -696,6 +697,23 @@ test('每个分区自动生成一页机制说明:sections/<slug>/mechanics.html,
   assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
 });
 
+// 阶段 5 Task 4 — 每个分区自动生成一页物品图鉴,带筛选。
+
+test('每个分区自动生成一页物品图鉴:sections/<slug>/items.html,卡片地址上两级,筛选脚本随站点发出;资源表里有它;零悬空引用', async (t) => {
+  const distDir = await tmpDir(t, 'section-items');
+  const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir: REPO_CONTENT, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+
+  const html = await fs.readFile(path.join(distDir, 'sections', 'series', 'items.html'), 'utf8');
+  assert.ok(html.includes('<title>淫色深空系列 · 物品图鉴 · '), 'the fixture section, titled by its file');
+  assert.ok(html.includes('<a href="../series.html">淫色深空系列</a>'), 'back to the section page, one level up');
+  assert.ok(/<a class="item-card" data-mod="lewd_meme"[^>]*href="\.\.\/\.\.\/item\/wondrous_milk\.html">/.test(html), "a card of the section's mod, two levels up");
+  assert.deepEqual([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]), ['../../assets/js/item-filter.js'], 'the filter is the one script of the page');
+  assert.ok((await fs.stat(path.join(distDir, 'assets', 'js', 'item-filter.js'))).isFile(), 'and the site ships it');
+  assert.equal(await countRenderedFiles(distDir), result.pages, 'counted like every other page');
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
+});
+
 test('dist never references a file it does not ship (html href/src + css url) — and the build itself now checks it', async (t) => {
   const distDir = await tmpDir(t, 'dangling');
   // A clean build passing IS the check passing: since task 5b B a dangling
@@ -1113,7 +1131,7 @@ test('buildSkeleton removes the old dist with fs.rm retries (maxRetries / retryD
 //        missing; permission/disk/target failures propagate unchanged
 // ---------------------------------------------------------------------------
 
-test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 8 sources, checked before rm dist', async (t) => {
+test('buildSkeleton keeps the previous dist when a required asset source is missing — every one of the 9 sources, checked before rm dist', async (t) => {
   const base = await tmpDir(t, 'asset-precheck');
   let i = 0;
   for (const [src, dest] of EXPECTED_ASSETS) {

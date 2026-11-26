@@ -93,7 +93,8 @@ const RETRY = Object.freeze({ maxRetries: 3, retryDelay: 100 });
 /**
  * Repo-shipped static assets → dist path. Each dest is exactly the path the
  * rendered pages or theme.css reference (templates.js layout, render.js
- * search.html + index.html, theme.css @font-face + body background): dist
+ * search.html + index.html + a section's items.html, theme.css @font-face +
+ * body background): dist
  * must ship every file it points at (rulings A + B). Every entry is required
  * — the pages reference it, so a missing one is a dangling reference, never a
  * graceful degradation. The scripts are files because the audit refuses
@@ -103,6 +104,7 @@ const ASSET_MAP = Object.freeze([
   ['theme.css', 'css/theme.css'],
   ['search.js', 'assets/js/search.js'],
   ['js/nav-home.js', 'assets/js/nav-home.js'], // index.html: <script src="assets/js/nav-home.js"> (stage 3, task 2)
+  ['js/item-filter.js', 'assets/js/item-filter.js'], // a section's item gallery: <script src="../../assets/js/item-filter.js"> (stage 5, task 4)
   ['bwiki/emblem.jpg', 'assets/bwiki/emblem.jpg'],
   ['bwiki/bg.png', 'assets/bwiki/bg.png'],
   ['bwiki/fonts/PSNotoSansSC.woff2', 'assets/fonts/PSNotoSansSC.woff2'],

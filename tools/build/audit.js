@@ -130,10 +130,15 @@ const path = require('node:path');
  *   nav-search.js, assets/js/nav-home.js
  *                                    render.js renderHomePage → index.html
  *                                    (stage 3, task 2: the home page search)
+ *   assets/js/item-filter.js        render.js renderSectionItems →
+ *                                    sections/<slug>/items.html (stage 5, task 4).
+ *                                    That page sits two directories deep, so
+ *                                    what it writes is the value listed here:
+ *                                    the list holds exact values, prefixes and all.
  * templates.js emits no <script> at all. Exact values, as written.
  */
 const ALLOWED_SCRIPT_SRC = Object.freeze([
-  'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+  'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js', '../../assets/js/item-filter.js',
 ]);
 
 /**

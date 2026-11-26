@@ -192,6 +192,11 @@ p{margin:8px 0}
 .item-card .pr{display:block; font-size:11px; color:var(--dk-metal); margin-top:2px}
 .item-inline{display:inline-flex; align-items:center; gap:5px; background:var(--dk-bg); border:1px solid var(--dk-line); padding:1px 8px 1px 3px; font-size:12px; vertical-align:middle}
 .item-inline img{width:20px; height:20px; object-fit:contain; image-rendering:pixelated}
+/* 分区物品图鉴的筛选:标签是按钮(键盘能操作),外观借 .item-inline;选中靠 class,不靠脚本改内联颜色 */
+button.item-chip{font-family:inherit; line-height:inherit; cursor:pointer; margin:0 6px 4px 0}
+button.item-chip:hover, button.item-chip.is-on{border-color:var(--dk-accent); color:var(--dk-accent)}
+.filter-row{font-size:13px; margin:6px 0}
+.filter-status{font-size:12px; color:var(--dk-muted); margin-bottom:8px}
 
 /* ===== 表格 ===== */
 table.wiki-table{border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; background:var(--dk-bg)}

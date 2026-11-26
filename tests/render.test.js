@@ -514,6 +514,82 @@ test('分区级机制说明页 sections/<slug>/mechanics.html:每个分区一页
   assert.ok(!tear.includes('mechanics/night-settlement.html'));
 });
 
+// ---------- 阶段 5 Task 4:分区级物品图鉴页(自动生成,可筛选) ----------
+
+/** A page's chips for one dimension, as [value, pressed, label]. The pressed one carries the class too: the page looks right before any script runs. */
+const chipsOf = (html, dim) => [...html.matchAll(new RegExp(`<button type="button" class="item-inline item-chip( is-on)?" data-${dim}="([^"]*)" aria-pressed="([^"]*)">([^<]*)</button>`, 'g'))]
+  .map((m) => [m[2], m[3], m[4]]);
+
+test('分区级物品图鉴页 sections/<slug>/items.html:按 mod 分节的卡片,品类和来源两组筛选标签,唯一的脚本是筛选;卡片不带隐藏样式', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  const out = await renderSite(data, { layout, nav: NAV });
+  for (const section of NAV.sections) assert.ok(out.has(`sections/${section.slug}/items.html`), `sections/${section.slug}/items.html`);
+  assert.ok(!out.has('sections/nope/items.html'));
+
+  const html = out.get('sections/lewd-meme-series/items.html');
+  assert.ok(html.includes('<title>淫色深空系列 · 物品图鉴 · '), 'the section is named in the title, the kind of page after it');
+  assert.ok(html.includes('<h1 class="page-title">物品图鉴</h1>'));
+  assert.ok(html.includes('<div class="crumb"><a href="../../index.html">首页</a> &gt; <a href="../lewd-meme-series.html">淫色深空系列</a> &gt; 物品图鉴</div>'));
+  assert.ok(html.includes('<div class="updated">数据基线 2026-11-18 · 2 个模组 · 共 4 件物品</div>'));
+  assert.ok(html.includes('href="../../css/theme.css"'));
+  assert.ok(!/href="\.\.\/(?:index|changelog|search)\.html"/.test(html), 'the whole page is two levels deep');
+  assert.equal((html.match(/<a [^>]*class="active">首页<\/a>/g) || []).length, 2, 'the home entry is the highlighted one, in both nav spots');
+
+  // 筛选:品类是「全部」加这个分区的物品有过的品类(中文排序);来源是「全部模组」加分区的每个 mod。「全部」一开始就是按下态
+  assert.deepEqual(chipsOf(html, 'category'), [['', 'true', '全部'], ['工具', 'false', '工具'], ['容器', 'false', '容器'], ['食物', 'false', '食物'], ['饮料', 'false', '饮料']]);
+  assert.deepEqual(chipsOf(html, 'mod'), [['', 'true', '全部模组'], ['lewd_meme', 'false', MODS[0].name], ['lewd_meme_remake', 'false', MODS[1].name]]);
+  assert.ok(html.includes('<div class="filter-status" id="item-filter-status"></div>'), 'where the script says how many are left');
+  assert.ok(html.includes('<div id="section-items">'), 'the script only touches what is inside this');
+
+  // 每个 mod 一节:小标题带版本,一行简介,然后是卡片,地址上两级
+  assert.deepEqual([...html.matchAll(/<section data-mod="([^"]+)">\n<h2 class="sec">([^<]*)<\/h2>/g)].map((m) => [m[1], m[2]]), [
+    ['lewd_meme', `${MODS[0].name}(1.9.2)`], ['lewd_meme_remake', `${MODS[1].name}(1.6.4)`],
+  ], 'the mods of this section, in the order of the home page');
+  assert.ok(html.includes(`<p style="font-size:13px;color:var(--dk-muted)">${NAV.mods[0].summary}</p>`), 'a line with the mod\'s summary');
+  assert.ok(html.includes('<a class="item-card" data-mod="lewd_meme" data-category="饮料 食物" href="../../item/wondrous_milk.html">'), 'a card carries what the filter reads');
+  assert.ok(html.includes('src="../../assets/items/lewd_meme/item_milk.png"'));
+
+  // 唯一的脚本是筛选;不跑脚本也看得全:没有卡片带隐藏样式
+  assert.deepEqual([...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]), ['../../assets/js/item-filter.js']);
+  assert.ok(!/<a class="item-card"[^>]*style=/.test(html));
+  assert.ok(!/<a class="item-card"[^>]*\shidden/.test(html));
+});
+
+test('分区级物品图鉴页:没有物品的 mod 留一节提示;同一个 mod 属于两个分区时两页都有它;一件物品都没有的分区照常出一页,没有筛选', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  // 掌上青楼有物品,旧版互动一件都没有:把两个都放进淫色深空系列
+  const inSeries = (id) => ({ ...NAV.mods.find((m) => m.id === id), sections: ['lewd-meme-series'] });
+  const series = [
+    ...NAV.mods.filter((m) => m.sections.includes('lewd-meme-series')),
+    inSeries('lewd_meme_brothel'),
+    inSeries('lewd_meme_legacy_content'),
+  ];
+  const out = await renderSite(data, { layout, nav: { ...NAV, mods: series } });
+
+  const html = out.get('sections/lewd-meme-series/items.html');
+  assert.ok(html.includes('<div class="updated">数据基线 2026-11-18 · 4 个模组 · 共 5 件物品</div>'));
+  assert.ok(html.includes('<section data-mod="lewd_meme_legacy_content">') && html.includes('该模组暂无物品条目。'),
+    'a mod with no item keeps its section, with a line saying so');
+  assert.ok(html.includes('<a class="item-card" data-mod="lewd_meme_brothel" href="../../item/palm_brothel.html">'), 'a card with no category of its own');
+  assert.deepEqual(chipsOf(html, 'mod').map(([value]) => value), ['', 'lewd_meme', 'lewd_meme_remake', 'lewd_meme_brothel', 'lewd_meme_legacy_content'], 'every mod of the section is a source, with items or not');
+
+  // 暗流交易同属淫色深空系列和珠泪哀歌:两页都列出它,卡片地址都对
+  const tear = out.get('sections/tear/items.html');
+  assert.ok(tear.includes('<section data-mod="lewd_meme_remake">') && tear.includes('href="../../item/milk_barrel.html"'));
+  assert.ok(html.includes('<section data-mod="lewd_meme_remake">') && html.includes('href="../../item/milk_barrel.html"'));
+  assert.ok(!tear.includes('item/wondrous_milk.html'), '…and 珠泪哀歌 lists nothing of the main mod');
+
+  // 珠泪哀歌只留旧版互动:一件物品都没有
+  const emptyNav = { ...NAV, mods: NAV.mods.map((m) => (m.id === 'lewd_meme_legacy_content' ? { ...m, sections: ['tear'] } : { ...m, sections: m.sections.filter((s) => s !== 'tear') })) };
+  const empty = (await renderSite(data, { layout, nav: emptyNav })).get('sections/tear/items.html');
+  assert.ok(empty.includes('<h1 class="page-title">物品图鉴</h1>'), 'the page is there all the same');
+  assert.ok(empty.includes('共 0 件物品'));
+  assert.ok(!empty.includes('筛选') && !chipsOf(empty, 'category').length, 'nothing to filter: no filter');
+  assert.ok(empty.includes('该模组暂无物品条目。'));
+});
+
 test('mod 导航页:模组介绍、所属分区、物品图鉴、机制说明和玩法指南、更新日志;面包屑是「首页、mod 名」', async (t) => {
   const layout = await modTree(t);
   const data = await prepared(layout);

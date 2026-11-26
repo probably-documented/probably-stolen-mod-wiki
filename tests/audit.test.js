@@ -391,7 +391,7 @@ test('A4 — <script src>: only the scripts the first-party templates load are a
       '<script src="assets/js/search.js"></script>',
       '<script src="nav-search.js"></script>',
       '<script src="assets/js/nav-home.js"></script>',
-      '<script src="assets/js/item-filter.js"></script>', // a script the site used to ship (until stage 3): no longer on the list
+      '<script src="assets/js/item-filter.js"></script>', // no page writes it without the prefix: the gallery page sits two directories deep
       '<script src="evil.js"></script>',
       '<script src="./data.js"></script>',
       '<script src="assets/js/other.js"></script>',
@@ -415,7 +415,7 @@ test('A4 — <script src>: only the scripts the first-party templates load are a
 
 test('A4 — the allowed <script src> list is exactly what the first-party templates write', () => {
   assert.deepEqual([...auditModule.ALLOWED_SCRIPT_SRC], [
-    'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js',
+    'assets/js/search.js', 'data.js', 'nav-search.js', 'assets/js/nav-home.js', '../../assets/js/item-filter.js',
   ]);
 });
 

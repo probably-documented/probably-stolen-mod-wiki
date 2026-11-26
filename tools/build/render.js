@@ -185,6 +185,9 @@ const RELEASES_URL = 'https://github.com/probably-documented/probably-stolen-mod
 /** 「不属于任何分区的 mod」那一块的 data-sec。 */
 const NO_SECTION = '__none';
 
+/** 中文排序,同 nav-search.js 的 byTitle:分区物品图鉴里品类标签的先后。 */
+const byTitle = (a, b) => a.localeCompare(b, 'zh-Hans-CN');
+
 /** 一个分区在主页顺序下的 mod 条;NO_SECTION 时是不属于任何分区的 mod。 */
 function navBars(mods, slug, hrefOf) {
   return mods
@@ -266,6 +269,61 @@ async function renderSectionPage(data, model, section, mods) {
     bodyHtml: `<h1 class="page-title">${esc(section.title)}</h1>
 ${html}
 ${sectionBlock(section, navBars(mods, section.slug, (id) => `${relRoot}mods/${id}.html`), { relRoot, linked: false, collapsible: false })}`,
+    aboutNav: model.aboutNav,
+  });
+}
+
+/**
+ * 分区级物品图鉴页(sections/<slug>/items.html,阶段 5 Task 4):这个分区所有 mod 的物品,按 mod 分节,
+ * 能按品类和来源筛选(assets-src/js/item-filter.js,只在 #section-items 里动)。品类是这个分区的物品
+ * 有过的品类(数据里的加词条里写的),来源就是物品的 mod——都是自动的,编辑者什么都不用做。
+ * 比别的页面深一层,地址前缀都是 ../../。
+ * @param {object} section buildNavSearch 的分区({ slug, title })
+ * @param {object[]} mods buildNavSearch 的 mods(主页顺序)
+ */
+function renderSectionItems(data, model, section, mods) {
+  const relRoot = '../../';
+  const sectionMods = (mods ?? []).filter((mod) => mod.sections.includes(section.slug));
+  const itemsOf = (id) => model.items.filter((it) => it.mod === id);
+  const total = sectionMods.reduce((n, mod) => n + itemsOf(mod.id).length, 0);
+  const categories = [...new Set(sectionMods.flatMap((mod) => itemsOf(mod.id).flatMap((it) => it.categories ?? [])))].sort(byTitle);
+  const chip = (dim, value, label, on) => `<button type="button" class="item-inline item-chip${on ? ' is-on' : ''}" data-${dim}="${esc(value)}" aria-pressed="${on ? 'true' : 'false'}">${esc(label)}</button>`;
+
+  const parts = sectionMods.map((mod) => {
+    const items = itemsOf(mod.id);
+    const version = validVersion(data.mods?.find((m) => m.id === mod.id)?.version);
+    return `<section data-mod="${esc(mod.id)}">
+<h2 class="sec">${esc(mod.name)}${version == null ? '' : `(${esc(version)})`}</h2>
+${mod.summary ? `<p style="${QUIET}">${esc(truncate(mod.summary, 120))}</p>` : ''}
+${items.length === 0 ? blank('该模组暂无物品条目。') : `<div class="item-grid">
+${items.map((it) => itemCard(it, relRoot)).join('\n')}
+</div>`}
+</section>`;
+  }).join('\n');
+
+  // 一件物品都没有就没有可筛的:不出「筛选」这一节。
+  const filter = categories.length === 0 ? '' : `<h2 class="sec">筛选</h2>
+<p class="filter-row">品类:${chip('category', '', '全部', true)}${categories.map((c) => chip('category', c, c, false)).join('')}</p>
+<p class="filter-row">来源:${chip('mod', '', '全部模组', true)}${sectionMods.map((mod) => chip('mod', mod.id, mod.name, false)).join('')}</p>
+<div class="filter-status" id="item-filter-status"></div>`;
+
+  return layout({
+    title: `${section.title} · 物品图鉴`,
+    relRoot,
+    activeNav: 'home',
+    // 首页、分区页(上一层)、本页。
+    breadcrumb: [
+      { text: '首页', href: `${relRoot}index.html` },
+      { text: section.title, href: `../${section.slug}.html` },
+      { text: '物品图鉴' },
+    ],
+    bodyHtml: `<h1 class="page-title">物品图鉴</h1>
+<div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · ${sectionMods.length} 个模组 · 共 ${total} 件物品</div>
+<div id="section-items">
+${filter}
+${parts}
+</div>
+<script src="${relRoot}assets/js/item-filter.js"></script>`,
     aboutNav: model.aboutNav,
   });
 }
@@ -706,7 +764,8 @@ async function renderSite(data, options = {}) {
   for (const section of nav.sections ?? []) {
     const file = (layout?.sections ?? []).find((page) => page.slug === section.slug)?.file ?? null;
     out.set(`sections/${section.slug}.html`, await renderSectionPage(data, model, { ...section, file }, nav.mods ?? []));
-    // 阶段 5:每个分区自己的机制说明页,比分区页深一层。
+    // 阶段 5:每个分区自己的物品图鉴页和机制说明页,比分区页深一层。
+    out.set(`sections/${section.slug}/items.html`, renderSectionItems(data, model, section, nav.mods ?? []));
     out.set(`sections/${section.slug}/mechanics.html`, renderSectionMechanics(data, model, section, nav.mods ?? []));
   }
   out.set('nav-search.js', renderNavSearchJs(nav));
