@@ -717,18 +717,20 @@ async function buildSkeleton({
     const nav = await buildNavSearch({ data: payload, layout, redirects: await readRedirects(layout) });
 
     //    The top-nav about entry is declared by a site page (frontmatter
-    //    `nav_label`, stage 3 task 5). Exactly one page may declare it: two
-    //    would be two 关于本站 entries. Known right now, before rm dist.
+    //    `nav_label`, stage 3 task 5). Several pages may declare one, but
+    //    two pages may not share a label. Known right now, before rm dist.
     const aboutPages = await sitePagesWithNavLabel(layout);
-    if (aboutPages.length > 1) {
-      // Heading, the pages, then the hint as the last line — the shape of
-      // every contributor-facing report.
-      const files = aboutPages.map((page) => `  ${toPosix(page.file)}(nav_label: ${page.navLabel})`);
+    // 允许多个站点页面各有一个顶栏入口,但两个页面不能用同一个名字(顶栏上会出现两个一模一样的入口)。
+    const byLabel = new Map();
+    for (const page of aboutPages) byLabel.set(page.navLabel, [...(byLabel.get(page.navLabel) ?? []), page]);
+    const dup = [...byLabel.entries()].find(([, pages]) => pages.length > 1);
+    if (dup) {
+      const [label, pages] = dup;
       throw new BuildError(
-        `[nav] FAIL — ${aboutPages.length} 个站点页面都设置了 nav_label,顶部导航只能有一个这样的入口`
-        + `(${aboutPages.map((page) => page.slug).join('、')})。\n`
-        + files.join('\n')
-        + '\n提示:请只保留其中一个页面的 nav_label;其余文件请打开,把开头 frontmatter 里的 `nav_label` 这一行删掉。');
+        `[nav] FAIL — ${pages.length} 个站点页面的 nav_label 都是「${label}」,顶部导航会出现重复的入口`
+        + `(${pages.map((page) => page.slug).join('、')})。\n`
+        + pages.map((page) => `  ${toPosix(page.file)}(nav_label: ${page.navLabel})`).join('\n')
+        + '\n提示:请给其中一个页面换一个不同的 nav_label;不想让它出现在顶部导航,就删掉那一行。');
     }
 
     // 2. Render — before rm, so a failed build keeps the previous dist.

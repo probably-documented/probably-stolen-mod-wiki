@@ -600,7 +600,7 @@ collections:
         widget: string
         preview: false
         required: false
-        hint: '留空。全站最多一页填写;填写的页面会出现在顶部导航,显示的就是这里填的名字——目前是「关于本站」那一页。'
+        hint: '想让这一页出现在顶部导航就填;显示的就是这里填的名字,不同页面的名字不能重复。不想出现在顶栏就留空。'
       # 正文要放在字段的最后一个
       - name: body
         label: 正文

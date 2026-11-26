@@ -474,3 +474,12 @@ test('sectionBlock: 标题(可折叠)、「进入分区」、计数、简介和 
 test('modBar: 链接、data-mod 和转义过的名字', () => {
   assert.equal(modBar('a & b', 'mods/x.html', 'x'), '<a class="mod-bar" href="mods/x.html" data-mod="x" title="a &amp; b">a &amp; b</a>');
 });
+
+test('navLinks: aboutNav 可以是数组 → 多个站点页面各有一项,按顺序排在固定入口之后,各自独立高亮', () => {
+  const navs = [aboutNavItem('关于本站', 'about'), aboutNavItem('安装攻略', 'install-guide', 'site-install-guide')];
+  const html = navLinks('', 'site-install-guide', 'menu-row', navs);
+  const labels = [...html.matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]);
+  assert.deepEqual(labels, [...NAV_ITEMS.map((it) => it.label), '关于本站', '安装攻略']);
+  assert.match(html, /<a href="site\/install-guide\.html" class="active">安装攻略<\/a>/);
+  assert.doesNotMatch(html, /about\.html" class="active"/);
+});

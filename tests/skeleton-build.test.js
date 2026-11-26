@@ -1707,7 +1707,7 @@ test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(�
   const distDir = await tmpDir(t, 'nav-format');
   const contentDir = await tmpDir(t, 'nav-format-content');
   await writeSitePage(contentDir, 'first.md', ['title: 第一页', 'nav_label: 关于本站']);
-  await writeSitePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 桶装指南']);
+  await writeSitePage(contentDir, 'second.md', ['title: 第二页', 'nav_label: 关于本站']);
 
   const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
 
@@ -1716,9 +1716,9 @@ test('nav_label 冲突的报告也以提示结尾:标题 → 文件 → 提示(�
   assert.equal(exitCode, 1);
   const lines = err.message.split('\n');
   assert.equal(lines.length, 4, err.message);
-  assert.match(lines[0], /^\[nav\] FAIL — 2 个站点页面都设置了 nav_label,顶部导航只能有一个这样的入口\(first、second\)。$/);
+  assert.match(lines[0], /^\[nav\] FAIL — 2 个站点页面的 nav_label 都是「关于本站」,顶部导航会出现重复的入口\(first、second\)。$/);
   assert.equal(lines[1], `  ${toPosix(siteIn(contentDir, 'first'))}(nav_label: 关于本站)`);
-  assert.equal(lines[2], `  ${toPosix(siteIn(contentDir, 'second'))}(nav_label: 桶装指南)`);
+  assert.equal(lines[2], `  ${toPosix(siteIn(contentDir, 'second'))}(nav_label: 关于本站)`);
   assert.match(lines[3], /^提示:.*nav_label.*[\u4e00-\u9fff]。$/, 'the report ENDS with the hint');
 });
 
