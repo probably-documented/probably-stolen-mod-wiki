@@ -17,6 +17,8 @@
 //   L  物品词条的文件名不是任何一件已导出物品的 ID(允许纯手写物品之后不再报)
 //   M  物品词条放在了这件物品不属于的 Mod 目录下
 //   N  两张图片会发到同一个位置
+//   O  两份物品词条指向同一件物品
+//   P  物品词条开头的 item_id 不是它自己的文件名(或没写)
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -31,7 +33,7 @@ const NAME_RE = /^[A-Za-z0-9._\-\u4e00-\u9fff]+$/;
 const REDIRECTS_MOD_RE = /^mod:[ \t]*(.*?)[ \t]*$/m;
 
 /** 检查的先后。报告里同一个文件的问题按这个顺序排。 */
-const ISSUE_ORDER = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']);
+const ISSUE_ORDER = Object.freeze([...'ABCDEFGHIJKLMNOP']);
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
@@ -59,7 +61,7 @@ const defaultReadFile = (file) => fs.readFile(file, 'utf8');
 
 /**
  * 一篇词条开头的 `mod:`:没写、写的不是已有的 Mod、写的是别的 Mod 目录。
- * @returns {Promise<Array<{ code: string, problem: string, fix: string }>>} 不带 `file`
+ * @returns {Promise<{ code: string, problem: string, fix: string }|null>} 不带 `file`
  */
 async function entryModIssues({ file, mod, modIds, what, code, readFile }) {
   const fm = splitFrontmatter(await readFile(file)).fm;
@@ -102,6 +104,25 @@ async function redirectsIssues(mod, modIds, readFile) {
     return { code: 'K', problem: `重定向文件里写的 Mod ${said} 不存在`, fix: `把开头那一行写成 ${modLine}。` };
   }
   return { code: 'C', problem: `重定向文件写在 ${mod.id} 的目录下,但开头的 mod: 写的是 ${said}`, fix: `把开头那一行写成 ${modLine}。` };
+}
+
+/**
+ * 物品词条开头的 `item_id` 必须是它自己的文件名。CMS 保存时按「物品 ID」这一栏给文件
+ * 命名:两处不一致,下次保存文件就被改名——悄悄换成别的物品。没写也算不一致。
+ * @returns {Promise<{ code: string, problem: string, fix: string }|null>} 不带 `file`
+ */
+async function itemIdFieldIssue(entry, readFile) {
+  const { item_id } = splitFrontmatter(await readFile(entry.file)).fm;
+  const said = typeof item_id === 'string' ? item_id.trim() : '';
+  if (said === entry.id) return null;
+  return {
+    code: 'P',
+    problem: said === ''
+      ? `这一篇的文件名是「${entry.id}」,但开头没有写 item_id`
+      : `这一篇的文件名是「${entry.id}」,开头写的 item_id 却是「${said}」,两处不一致`,
+    fix: '文件名和开头的 item_id 必须是同一个物品 ID。在 CMS 里打开这一篇,把「物品 ID」一栏改成这一篇实际写的那件物品,再保存:'
+      + 'CMS 保存时会按这一栏给文件命名,两处不一致的话,下次保存文件会被悄悄改名,换成别的物品。',
+  };
 }
 
 /**
@@ -203,9 +224,11 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
   const items = data?.items ?? [];
   const itemIds = items.map((it) => it.id);
   const modOfItem = new Map(items.map((it) => [it.id, it.mod]));
+  const entriesOfItem = new Map(); // 真实物品 ID → 指向它的词条(跨 mod)
   for (const mod of layout.mods) {
     for (const entry of mod.items) {
-      // A file name the CMS lowercased still names its item (resolveItemId).
+      add(entry.file, await itemIdFieldIssue(entry, readFile));
+      // A file name that differs from the id by case only still names its item (resolveItemId).
       const realId = resolveItemId(entry.id, itemIds);
       if (realId === null) {
         if (!handwrittenItems) {
@@ -217,6 +240,8 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
         }
         continue;
       }
+      if (!entriesOfItem.has(realId)) entriesOfItem.set(realId, []);
+      entriesOfItem.get(realId).push(entry.file);
       const owner = modOfItem.get(realId);
       if (owner != null && owner !== mod.id) {
         add(entry.file, {
@@ -225,6 +250,16 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
           fix: `把这一篇移到 content/mods/${owner}/items/ 下。`,
         });
       }
+    }
+  }
+  for (const [realId, files] of entriesOfItem) {
+    if (files.length < 2) continue;
+    for (const file of files) {
+      add(file, {
+        code: 'O',
+        problem: `物品「${realId}」有 ${files.length} 份词条:${files.map((f) => path.basename(f)).join('、')}。同一个物品只能有一份词条,多出来的会互相覆盖`,
+        fix: '只保留一份:在 CMS 里打开不需要的那几篇,把它们删掉。',
+      });
     }
   }
 

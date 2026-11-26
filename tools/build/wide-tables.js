@@ -18,23 +18,9 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { mdToHtml } = require('./markdown.js');
-const { PAGE_FOLDERS } = require('./content-images.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 
 const toPosix = (p) => p.split(path.sep).join('/');
-const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
-
-/** Every .md file directly under dir, sorted — and none when there is no such directory. */
-async function listMdFiles(dir) {
-  let entries;
-  try {
-    entries = await fs.readdir(dir);
-  } catch (err) {
-    if (isMissing(err)) return [];
-    throw err;
-  }
-  return entries.filter((name) => /\.md$/i.test(name)).sort();
-}
 
 /**
  * The table rows of one page's text that are wider than their header, with
@@ -59,19 +45,20 @@ const byFileThenLine = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a
 
 /**
  * Every table row, among the pages a contributor edits, that has more cells
- * than its header.
- * @param {string} contentDir
+ * than its header: the mechanic pages and the item entries of the content
+ * layout (tools/build/content-layout.js). An empty layout has nothing to check.
+ * @param {object|null} layout readContentLayout 的结果
+ * @param {string|null} contentDir 只用来算出相对路径(报告里显示用)
  * @returns {Promise<Array<{ file: string, line: number, headerCells: number, rowCells: number }>>}
  *   file is relative to contentDir (POSIX separators) and line is the row's
  *   own line in that file, from 1; ordered by file, then by line.
  */
-async function findWideTableRows(contentDir) {
+async function findWideTableRows(layout, contentDir) {
   const found = [];
-  for (const [folder] of PAGE_FOLDERS) {
-    const dir = path.join(contentDir, folder);
-    for (const name of await listMdFiles(dir)) {
-      const text = await fs.readFile(path.join(dir, name), 'utf8');
-      for (const row of wideRowsOf(text)) found.push({ file: `${folder}/${name}`, ...row });
+  for (const mod of layout?.mods ?? []) {
+    for (const page of [...mod.mechanics, ...mod.items]) {
+      const text = await fs.readFile(page.file, 'utf8');
+      for (const row of wideRowsOf(text)) found.push({ file: toPosix(path.relative(contentDir ?? 'content', page.file)), ...row });
     }
   }
   return found.sort(byFileThenLine);

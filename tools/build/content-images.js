@@ -1,12 +1,14 @@
 'use strict';
 
-// Images beside the pages (task 10b).
+// Images of the per-mod content layout (readContentLayout).
 //
-// The CMS stores an image an editor inserts in a page's own `images/` folder —
-// content/mechanics/images/ for a mechanic page, content/items/images/ for an
-// item page — and references it relative to the page: `![alt](images/x.png)`.
-// The build publishes each folder beside its pages (dist/mechanics/images/,
-// dist/item/images/), so one relative reference works online and from file://.
+// The CMS stores an image an editor inserts in the folder beside the file:
+// a mod's pages in content/mods/<modId>/images/, a section page in
+// content/sections/images/, a site page in content/site/images/. A page
+// references it relative to the file — `![alt](../images/x.png)` from an
+// entry or a mechanic page, `images/x.png` from a mod's own navigation page —
+// so every images/ folder is published to each place its pages look (the
+// layout lists them: imageFolders).
 //
 // Only bitmaps are published. An SVG is refused: it can hold a script, and on
 // this site it would be served from the same origin as the CMS, whose sign-in
@@ -14,12 +16,6 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-
-/** A folder of pages in content/, and the folder its pages are published to. */
-const PAGE_FOLDERS = Object.freeze([
-  ['mechanics', 'mechanics'],
-  ['items', 'item'],
-]);
 
 /** The name of the folder the CMS stores a page's images in. */
 const IMAGES_DIR = 'images';
@@ -51,51 +47,6 @@ async function listFiles(dir) {
     else files.push(full);
   }
   return files.sort();
-}
-
-/**
- * The images/ folders of the pages, each with the folder its pages are
- * published to. None when there is no content directory.
- */
-function pageImageFolders(contentDir) {
-  if (contentDir == null) return [];
-  return PAGE_FOLDERS.map(([folder, route]) => ({
-    imagesDir: path.join(contentDir, folder, IMAGES_DIR),
-    route,
-  }));
-}
-
-/**
- * Every file under a page's images/ folder that is not a bitmap, by its path.
- * A pre-flight check: the build refuses these before touching dist.
- * @returns {Promise<string[]>} Sorted absolute paths.
- */
-async function findUnsupportedImages(contentDir) {
-  const unsupported = [];
-  for (const { imagesDir } of pageImageFolders(contentDir)) {
-    for (const file of await listFiles(imagesDir)) {
-      if (!BITMAP_EXT.has(path.extname(file).toLowerCase())) unsupported.push(file);
-    }
-  }
-  return unsupported.sort();
-}
-
-/**
- * Copy the bitmaps of every page's images/ folder to the folder its pages are
- * published to. Run it after findUnsupportedImages: what is left is a bitmap.
- * @returns {Promise<number>} Files copied.
- */
-async function copyPageImages(contentDir, distDir) {
-  let copied = 0;
-  for (const { imagesDir, route } of pageImageFolders(contentDir)) {
-    for (const file of await listFiles(imagesDir)) {
-      const to = path.join(distDir, route, IMAGES_DIR, path.relative(imagesDir, file));
-      await fs.mkdir(path.dirname(to), { recursive: true });
-      await fs.copyFile(file, to);
-      copied += 1;
-    }
-  }
-  return copied;
 }
 
 /**
@@ -139,7 +90,4 @@ async function copyLayoutImages(layout, distDir) {
   return copied;
 }
 
-module.exports = {
-  findUnsupportedImages, copyPageImages, BITMAP_EXT, PAGE_FOLDERS, IMAGES_DIR,
-  findUnsupportedImagesIn, copyLayoutImages,
-};
+module.exports = { BITMAP_EXT, IMAGES_DIR, findUnsupportedImagesIn, copyLayoutImages };

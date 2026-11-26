@@ -9,11 +9,12 @@
 // decompile cache: the site is rendered from the data files (tests inject the frozen FIXTURE_DATA literal)
 // plus the hand-written content/ layer. Flow (task contract + rulings C, 4a):
 //   0. pre-flight, nothing on disk touched:
-//      rm guard → CMS shell source → item id lint → item slug lint → mechanic
-//      page name lint → image formats → table rows wider than their header
-//      → asset sources
-//   1. data prep (drop missing icons, merge content/mechanics — mechanics.js,
-//      at most one page declaring the top-nav about entry)
+//      rm guard → CMS shell source → the content lint (content-lint.js, on
+//      the layout content-layout.js reads) → image formats → table rows
+//      wider than their header → asset sources
+//   1. data prep (merge the item entries and the mechanic pages of every mod
+//      — supplements.js, mechanics.js —, drop missing icons, at most one page
+//      declaring the top-nav about entry)
 //   2. render
 //   3. rm dist → 4. write files → 5. copy repo assets
 //   6. dangling references (dangling-refs.js: pages + stylesheet must only
@@ -33,11 +34,11 @@
 //
 // Contributor-facing failures (BuildError): the CMS lets contributors edit
 // and delete pages, so many checks exist only to tell THEM what to fix —
-// the rm guard's refusal, a content/items file that is not named after an
-// item or does not declare the slug it is named after, a mechanic page
-// with a file name that is not its address, an image that is not a bitmap,
-// two pages declaring the top-nav label, a table row wider than its header,
-// a dangling link, an audit violation. Their message is the
+// the rm guard's refusal, anything the content lint finds (a page filed
+// under the wrong mod, an item entry that is no exported item or does not
+// say its own id, a file name the site cannot address, …), an image that is
+// not a bitmap, two pages declaring the top-nav label, a table row wider
+// than its header, a dangling link, an audit violation. Their message is the
 // whole report — in Chinese: the files, what is wrong, what to do — and
 // main() prints it without a stack trace.
 
@@ -49,16 +50,16 @@ const { renderSite } = require('./render.js');
 const { loadWikiData } = require('./wiki-data.js');
 const { mergeSupplements } = require('./supplements.js');
 const { resolveItemId } = require('./item-ids.js');
+const { lintContent, formatContentIssues } = require('./content-lint.js');
 const { auditExternalLinks, HEAD_ONLY_TAGS } = require('./audit.js');
 const { dropMissingIcons } = require('./item-textures.js');
-const { findUnsupportedImages, copyPageImages } = require('./content-images.js');
+const { findUnsupportedImagesIn, copyLayoutImages } = require('./content-images.js');
 const { readContentLayout } = require('./content-layout.js');
 const { writeCmsAssets } = require('./cms-assets.js');
 const { findWideTableRows, formatWideTableRows } = require('./wide-tables.js');
 const { isInsideDir, isAllowedDistDir } = require('./paths.js');
 const { mergeMechanicsContent, mechanicsWithNavLabel } = require('./mechanics.js');
 const { findDanglingRefs, formatDanglingRefs } = require('./dangling-refs.js');
-const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { FIXTURE_DATA } = require('../../data/fixture-model.js');
 
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '..', '..', 'assets-src');
@@ -119,147 +120,6 @@ const ASSET_MAP = Object.freeze([
 const TEXTURES_DIR = 'mods';
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
-
-/**
- * Lint content/items/: every markdown file there must be named exactly
- * `<item.id>.md`. render.js reads content/items/<item.id>.md and nothing
- * else, so a file with any other name (a slug the CMS derived from a title,
- * an alias, a typo, a case-variant suffix) is committed happily and then
- * silently never renders. The build goes red instead. A name that differs from
- * the real id by case only is accepted: Sveltia CMS lowercases entry file names
- * when it saves, and every lookup goes through resolveItemId.
- * @param {string} contentItemsDir the content/items directory
- * @param {Iterable<string>} validIds the real item ids (aliases are not ids)
- * @returns {Promise<string[]>} offending file names, sorted. Empty when every
- *   markdown file is named after an id, when the directory does not exist, or
- *   when it holds only non-.md files / directories (not id claims).
- * @throws {Error} rethrown as is when the directory cannot be listed for a
- *   reason other than "missing" (e.g. EACCES).
- */
-async function validateItemContentIds(contentItemsDir, validIds) {
-  const ids = [...validIds];
-  let entries;
-  try {
-    entries = await fs.readdir(contentItemsDir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissing(err)) return [];
-    throw err;
-  }
-  return itemIdViolations(entries, ids);
-}
-
-/**
- * The id-lint findings for a directory listing (pure): a file name that names
- * no real item, or a second file that names an item another file already
- * names — gear.maidDress.md and gear.maiddress.md would silently split a
- * page's body and front matter between them.
- * @param {Array<{ name: string, isFile: () => boolean }>} entries
- * @param {Iterable<string>} ids the real item ids
- * @returns {string[]} offending file names, sorted
- */
-function itemIdViolations(entries, ids) {
-  const known = [...ids];
-  const violations = [];
-  const seen = new Map(); // realId -> the first file that names it
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (!/\.md$/i.test(entry.name)) continue;
-    // The extension must be exactly .md (a .MD finds a file on Windows and
-    // misses it on Linux/CI), and the id must name a real item — possibly
-    // differing by case only (Sveltia CMS lowercases entry file names when it
-    // saves). resolveItemId is the one rule the lints, the supplement merge
-    // and the body read all use, so every platform agrees.
-    const fileId = entry.name.replace(/\.md$/i, '');
-    const realId = /\.md$/.test(entry.name) ? resolveItemId(fileId, known) : null;
-    if (realId === null) {
-      violations.push(entry.name);
-      continue;
-    }
-    // Two files that name the same item — gear.maidDress.md and
-    // gear.maiddress.md — would silently split the body and the front matter
-    // between them. Report both.
-    if (seen.has(realId)) {
-      violations.push(seen.get(realId), entry.name);
-      continue;
-    }
-    seen.set(realId, entry.name);
-  }
-  return [...new Set(violations)].sort();
-}
-
-/**
- * Lint content/items/ a second time (task 6b D8): every `<item.id>.md` must
- * declare `slug` in its front matter, equal to the file name without .md
- * (ignoring case: the CMS may have lowercased the file name).
- * In the CMS the 物品 dropdown is what an item file is NAMED after, and
- * render.js names the page after the FILE whatever the front matter says —
- * so a slug that disagrees with the file name usually means the wrong item
- * was picked while editing, and nothing would say so. A missing slug counts
- * the same as a disagreeing one. Runs right after validateItemContentIds,
- * in the same pre-flight.
- * @param {string} contentItemsDir the content/items directory
- * @returns {Promise<Array<{ file: string, slug: string|null }>>} offending
- *   file names with the slug each declares (null = none, or not a string),
- *   sorted. Empty when every entry file declares its own name, when the
- *   directory does not exist, or when it holds only non-.md files and
- *   directories.
- * @throws {Error} rethrown as is when a file cannot be read.
- */
-async function validateItemContentSlugs(contentItemsDir) {
-  let entries;
-  try {
-    entries = await fs.readdir(contentItemsDir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissing(err)) return [];
-    throw err;
-  }
-  const violations = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !/\.md$/i.test(entry.name)) continue;
-    const expected = entry.name.replace(/\.md$/i, '');
-    const source = await fs.readFile(path.join(contentItemsDir, entry.name), 'utf8');
-    const { slug } = splitFrontmatter(source).fm;
-    // Case-insensitive: the CMS may have lowercased the file name, while the
-    // slug field keeps the real id (gear.maidDress in gear.maiddress.md).
-    if (typeof slug !== 'string' || slug.toLowerCase() !== expected.toLowerCase()) {
-      violations.push({ file: entry.name, slug: typeof slug === 'string' ? slug : null });
-    }
-  }
-  return violations.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
-}
-
-/** A mechanic page's slug (its file name without .md): lowercase ASCII letters, digits, single hyphens between words. */
-const MECHANIC_SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-/**
- * Lint content/mechanics/ (task 6b D11): a page's slug is its file name
- * without .md, and it becomes mechanics/<slug>.html — the page's address on
- * the site. Only ^[a-z0-9]+(-[a-z0-9]+)*$ is allowed. In the CMS the file is
- * named after the title, so a contributor can end up with 安装指南.md.
- * Same pre-flight as the item lints, next to them.
- * @param {string} contentMechanicsDir the content/mechanics directory
- * @returns {Promise<string[]>} offending file names, sorted. Empty when
- *   every page has a legal name, when the directory does not exist, or when
- *   it holds only non-.md files / directories.
- * @throws {Error} rethrown as is when the directory cannot be listed for a
- *   reason other than "missing".
- */
-async function validateMechanicSlugs(contentMechanicsDir) {
-  let entries;
-  try {
-    entries = await fs.readdir(contentMechanicsDir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissing(err)) return [];
-    throw err;
-  }
-  // The files mergeMechanicsContent reads are the pages it judges: an .md
-  // file of any suffix case (a .MD is a page too), by the name without it.
-  return entries
-    .filter((entry) => entry.isFile() && /\.md$/i.test(entry.name))
-    .map((entry) => entry.name)
-    .filter((name) => !MECHANIC_SLUG_RE.test(name.replace(/\.md$/i, '')))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-}
 
 /** Absolute path of an ASSET_MAP source inside assetsDir. */
 const assetSource = (assetsDir, src) => path.join(assetsDir, ...src.split('/'));
@@ -369,22 +229,32 @@ async function copyAssets(assetsDir, distDir) {
 }
 
 /**
- * The file a contributor edits to change the links of a dist page — shown in
- * brackets in the dangling-reference report — or null when no such file
- * exists: the structural pages are generated by the build, the stylesheet
- * and assets come from the repo. Pure string work on posix paths.
- *   mechanics/<slug>.html ← <contentDir>/mechanics/<slug>.md
- *   item/<id>.html        ← <contentDir>/items/<id>.md(its 详解 section)
+ * The file a contributor edits to change what a dist page shows — shown in
+ * brackets in the dangling-reference and audit reports — or null when no such
+ * file exists: the structural pages are generated by the build, the stylesheet
+ * and assets come from the repo, and an item with no entry has no file.
+ * Both are looked up in the layout, so the path printed is the real one:
+ *   mechanics/<slug>.html ← the mechanic page of that slug, mods/<modId>/mechanics/<slug>.md
+ *   item/<id>.html        ← the item entry that names that item, mods/<modId>/items/<物品ID>.md
  * @param {string} distFile posix path relative to dist
- * @param {string|null} contentDir
+ * @param {object} layout readContentLayout 的结果
+ * @param {Array<{id: string}>} items the loaded items (their ids)
  * @returns {string|null}
  */
-function editableSourceOf(distFile, contentDir) {
-  const content = toPosix(contentDir ?? 'content');
-  const mechanic = /^mechanics\/([^/]+)\.html$/.exec(distFile);
-  if (mechanic !== null) return `${content}/mechanics/${mechanic[1]}.md`;
-  const item = /^item\/([^/]+)\.html$/.exec(distFile);
-  if (item !== null) return `${content}/items/${item[1]}.md`;
+function editableSourceOf(distFile, layout, items) {
+  const file = toPosix(distFile);
+  const mechanic = /^mechanics\/([^/]+)\.html$/.exec(file);
+  if (mechanic !== null) {
+    const page = (layout?.mods ?? []).flatMap((mod) => mod.mechanics).find((p) => p.slug === mechanic[1]);
+    return page === undefined ? null : toPosix(page.file);
+  }
+  const item = /^item\/([^/]+)\.html$/.exec(file);
+  if (item !== null) {
+    const ids = (items ?? []).map((it) => it.id);
+    // The rule everywhere: a file name that differs from the id by case only names its item.
+    const entry = (layout?.mods ?? []).flatMap((mod) => mod.items).find((e) => resolveItemId(e.id, ids) === item[1]);
+    return entry === undefined ? null : toPosix(entry.file);
+  }
   return null;
 }
 
@@ -652,8 +522,8 @@ async function injectAdmin(adminSource, distDir) {
  * Render the fixture site into distDir.
  * @param {{distDir?: string, contentDir?: string|null, assetsDir?: string,
  *   adminDir?: string|null, warn?: (message: string) => void}} [options]
- *   contentDir supplies the hand-written content/items/<id>.md and
- *   content/mechanics/<slug>.md layers (null skips both).
+ *   contentDir supplies the per-mod content tree (content/mods/<modId>/…:
+ *   the item entries, the mechanic pages, the images); null skips it.
  *   assetsDir is the repo's assets-src/ tree; warn receives the
  *   dropped-icon notices (defaults to console.warn).
  *   adminDir is the CMS shell, copied to distDir/admin after the audit
@@ -665,7 +535,7 @@ async function injectAdmin(adminSource, distDir) {
  *   pages = rendered pages + data.js (assets and admin/ are not pages).
  *   iconsDropped = declared icons with no texture file (→ 无图 fallback);
  *   texturesCopied = item textures copied from assets-src/mods/;
- *   imagesPublished = images copied from the pages' images/ folders.
+ *   imagesPublished = images copied from the content layout's images/ folders.
  *   adminInjected = whether an admin tree was copied into dist.
  *   cmsAssets = the CMS's scripts and catalogs written after the shell ({ templates, items }),
  *   or null when no shell was injected.
@@ -673,18 +543,16 @@ async function injectAdmin(adminSource, distDir) {
  *   one inside the system temp directory (in particular the repo root, one
  *   of its ancestors, or any other directory inside the repo — paths.js
  *   isAllowedDistDir), when adminDir lies inside distDir or is not a directory (all three refused before anything
- *   is removed), when a content/items markdown file is not named
- *   `<item.id>.md`, when such a file does not declare `slug` equal to its
- *   own name (D8), when a content/mechanics file name is not a legal page
- *   slug (D11), when an asset source is missing, when more than one
+ *   is removed), when the content lint (content-lint.js) finds anything, when
+ *   an asset source is missing, when more than one
  *   mechanics page declares a top-nav label (`nav_label`), when a table row
  *   of an edited page has more cells than its header (wide-tables.js), on any
  *   render/write/asset-copy/admin-copy failure, when a page or the
  *   stylesheet references a file dist does not ship, or on a site-audit
  *   violation; process.exitCode is set to 1 before the throw.
- *   Contributor-facing failures (the rm guard's refusal, the item id and
- *   slug lints, the mechanic page name lint, the nav_label conflict, a
- *   table row wider than its header, dangling references, the site audit)
+ *   Contributor-facing failures (the rm guard's refusal, the content lint,
+ *   the nav_label conflict, a table row wider than its header, dangling
+ *   references, the site audit)
  *   are BuildErrors whose message says what to do and names the files to edit.
  *   The pre-flight (step 0), data-prep and render failures happen before the
  *   old dist is removed, which therefore stays as it was; the dangling-
@@ -726,64 +594,35 @@ async function buildSkeleton({
     //    one Chinese line from loadWikiData.
     const payload = data != null ? structuredClone(data) : await loadWikiData(dataDir);
     const adminSource = await resolveAdminSource(adminDir, distPath);
-    // The per-mod content layout, read here because it is read-only like everything else in the
-    // pre-flight. The CMS's item catalog uses it to tell which items already have an entry; the
-    // checks and the image publishing join when the build moves to the new layout.
+    //    The content layout (tools/build/content-layout.js): every page of
+    //    every mod, read here because it is read-only like everything else in
+    //    the pre-flight. The checks, the data prep, the render and the image
+    //    publishing all start from this one object, and so does the CMS's
+    //    item catalog (which items already have an entry).
     const layout = await readContentLayout(contentDir);
-    //    id lint (the CMS can create content/items files under any slug),
-    //    then the slug lint (task 6b D8): what a file declares in its front
-    //    matter must be the item it is named after.
-    if (contentDir != null) {
-      const itemsPath = path.join(contentDir, 'items');
-      const idViolations = await validateItemContentIds(itemsPath, payload.items.map((it) => it.id));
-      if (idViolations.length > 0) {
-        // Paths from the real contentDir (a contributor is told where the
-        // file is), in Chinese, one actionable hint last — like the other
-        // contributor-facing reports.
-        const itemsDir = toPosix(itemsPath);
-        throw new BuildError(
-          `[lint] FAIL — ${idViolations.length} 个文件的文件名与真实物品的 ID 不一致,或两个文件指向同一件物品`
-          + '(只有「<物品ID>.md」会被渲染成该物品页的「详解」;大小写可以不同,但不能重复):\n'
-          + idViolations.map((v) => `  ${itemsDir}/${v}`).join('\n')
-          + '\n提示:请把文件改名为真实物品的 ID(物品详情页的「物品ID」一栏可以查到),扩展名保持 .md;不需要的文件请删除。');
-      }
-      const slugViolations = await validateItemContentSlugs(itemsPath);
-      if (slugViolations.length > 0) {
-        const itemsDir = toPosix(itemsPath);
-        throw new BuildError(
-          `[slug] FAIL — ${slugViolations.length} 个物品详解文件的 slug 与文件名不一致:\n`
-          + slugViolations.map((v) => `  ${itemsDir}/${v.file}(${v.slug === null ? '开头没有 slug' : `开头写的是 slug: ${v.slug}`})`).join('\n')
-          + '\n提示:slug 必须与文件名相同(去掉 .md)。这通常是在编辑器里编辑时选错了物品:'
-          + '请打开文件,把开头 slug: 后面改成和文件名一样的物品 ID;不需要的文件请删除。');
-      }
-      //    Mechanic page names (task 6b D11): a page's file name is its
-      //    address on the site — lowercase English words joined by hyphens.
-      const badPageNames = await validateMechanicSlugs(path.join(contentDir, 'mechanics'));
-      if (badPageNames.length > 0) {
-        const mechanicsDir = toPosix(path.join(contentDir, 'mechanics'));
-        throw new BuildError(
-          `[slug] FAIL — ${badPageNames.length} 个机制页的文件名不合规:\n`
-          + badPageNames.map((name) => `  ${mechanicsDir}/${name}`).join('\n')
-          + '\n提示:机制页的文件名就是它在网站上的地址,只能用小写英文字母、数字和短横线。'
-          + '请把文件名改成小写英文单词,单词之间用短横线,例如 `install-compat`。');
-      }
-      //    Image formats (task 10b): an image the CMS stored beside a page
-      //    has to be a bitmap — an SVG can hold a script.
-      const badImages = await findUnsupportedImages(contentDir);
-      if (badImages.length > 0) {
-        throw new BuildError(
-          `[images] FAIL — ${badImages.length} 个图片文件不是支持的格式:\n`
-          + badImages.map((file) => `  ${toPosix(file)}`).join('\n')
-          + '\n提示:只支持 png、jpg、jpeg、gif、webp、avif 位图。SVG 等其它格式不能上传'
-          + '(SVG 可以内嵌脚本,对所有读者都有风险),请把图片转成 PNG 后重新上传。');
-      }
-      //    Table rows wider than their header (rich text in the CMS): an
-      //    image dropped at the end of a table row is written as one more
-      //    cell, which the renderer drops. The page would lose the image
-      //    without a word, so the contributor is told which line to fix.
-      const wideRows = await findWideTableRows(contentDir);
-      if (wideRows.length > 0) throw new BuildError(formatWideTableRows(wideRows, contentDir));
+    //    The content checks (tools/build/content-lint.js): where every page is
+    //    filed, what its front matter says, what a file may be named. What a
+    //    contributor is told is the lint's own report, in Chinese — nothing
+    //    is added or reformatted here. No content directory, or an empty one,
+    //    is an empty layout: nothing to check.
+    const issues = await lintContent({ layout, data: payload });
+    if (issues.length > 0) throw new BuildError(formatContentIssues(issues));
+    //    Image formats: an image the CMS stored in a mod's images/ folder
+    //    has to be a bitmap — an SVG can hold a script.
+    const badImages = await findUnsupportedImagesIn(layout);
+    if (badImages.length > 0) {
+      throw new BuildError(
+        `[images] FAIL — ${badImages.length} 个图片文件不是支持的格式:\n`
+        + badImages.map((file) => `  ${toPosix(file)}`).join('\n')
+        + '\n提示:只支持 png、jpg、jpeg、gif、webp、avif 位图。SVG 等其它格式不能上传'
+        + '(SVG 可以内嵌脚本,对所有读者都有风险),请把图片转成 PNG 后重新上传。');
     }
+    //    Table rows wider than their header (rich text in the CMS): an
+    //    image dropped at the end of a table row is written as one more
+    //    cell, which the renderer drops. The page would lose the image
+    //    without a word, so the contributor is told which line to fix.
+    const wideRows = await findWideTableRows(layout, contentDir);
+    if (wideRows.length > 0) throw new BuildError(formatWideTableRows(wideRows, contentDir));
     //    asset sources: a missing one is a certain failure, known right now.
     await assertAssetSources(assetsDir);
 
@@ -792,7 +631,7 @@ async function buildSkeleton({
     const modDirs = new Map(payload.mods.map(({ id }) => [id, id]));
     //    The hand-written layer first: its icon overrides must go through
     //    dropMissingIcons too, and its empty values never overwrite the data.
-    await mergeSupplements(payload, contentDir, warn);
+    await mergeSupplements(payload, layout, warn);
     // The category chips follow the merged items, as the offline build's
     // facets do: a category a contributor adds in the CMS shows up in the
     // filter without waiting for a data re-export.
@@ -800,7 +639,7 @@ async function buildSkeleton({
     const iconsDropped = await dropMissingIcons(payload.items, {
       modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
     });
-    payload.mechanics = await mergeMechanicsContent(payload.mechanics, contentDir);
+    payload.mechanics = await mergeMechanicsContent(payload.mechanics, layout);
 
     //    The top-nav about entry is declared by a page (frontmatter
     //    `nav_label`, task 5b A). Exactly one page may declare it: two would
@@ -809,7 +648,8 @@ async function buildSkeleton({
     if (aboutPages.length > 1) {
       // Heading, the pages, then the hint as the last line — the shape of
       // every contributor-facing report.
-      const files = aboutPages.map((m) => `  ${toPosix(path.join(contentDir ?? 'content', 'mechanics', `${m.slug}.md`))}(nav_label: ${m.navLabel})`);
+      const fileOf = (slug) => layout.mods.flatMap((mod) => mod.mechanics).find((page) => page.slug === slug)?.file;
+      const files = aboutPages.map((m) => `  ${fileOf(m.slug) === undefined ? `${m.slug}(数据文件里的条目,没有对应的文件)` : toPosix(fileOf(m.slug))}(nav_label: ${m.navLabel})`);
       throw new BuildError(
         `[nav] FAIL — ${aboutPages.length} 个机制页都设置了 nav_label,顶部导航只能有一个这样的入口`
         + `(${aboutPages.map((m) => m.slug).join('、')})。\n`
@@ -818,7 +658,7 @@ async function buildSkeleton({
     }
 
     // 2. Render — before rm, so a failed build keeps the previous dist.
-    const rendered = await renderSite(payload, { contentDir });
+    const rendered = await renderSite(payload, { layout });
 
     // 3. Clean rebuild → idempotent file list (no stale pages survive).
     //    Retries (RETRY): on Windows the rm of a directory that was just
@@ -840,8 +680,8 @@ async function buildSkeleton({
     // 5b. Item textures → the paths the item pages reference.
     const texturesCopied = await copyItemTextures(payload.items, assetsDir, distPath);
 
-    // 5c. Images beside the pages → the folders the pages are published to.
-    const imagesPublished = await copyPageImages(contentDir, distPath);
+    // 5c. Images of the content layout → every folder its pages reference them from.
+    const imagesPublished = await copyLayoutImages(layout, distPath);
 
     // 6. Dangling references (dangling-refs.js): pages and assets are both on
     //    disk now, so this is the first moment the whole site can be asked
@@ -851,7 +691,7 @@ async function buildSkeleton({
     const links = await findDanglingRefs(distPath);
     if (links.dangling.length > 0) {
       throw new BuildError(formatDanglingRefs(links, {
-        sourceOf: (file) => editableSourceOf(file, contentDir),
+        sourceOf: (file) => editableSourceOf(file, layout, payload.items),
       }));
     }
 
@@ -862,7 +702,7 @@ async function buildSkeleton({
     const violations = await auditExternalLinks(distPath);
     if (violations.length > 0) {
       throw new BuildError(formatAuditViolations(violations, {
-        sourceOf: (file) => editableSourceOf(file, contentDir),
+        sourceOf: (file) => editableSourceOf(file, layout, payload.items),
       }));
     }
 
@@ -912,7 +752,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
-  buildSkeleton, validateItemContentIds, itemIdViolations, validateItemContentSlugs, validateMechanicSlugs,
-  formatAuditViolations, RETRY,
-};
+module.exports = { buildSkeleton, formatAuditViolations, RETRY };

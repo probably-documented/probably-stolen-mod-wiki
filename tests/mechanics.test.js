@@ -1,11 +1,11 @@
 'use strict';
 
-// Task 5b C1 tests: tools/build/mechanics.js — the content/mechanics merge
-// step (mergeMechanicsContent, mechanicTitle), moved out of the build entry
-// (skeleton-build.js) so that entry is pure orchestration again. The
-// behaviour is the one the build entry had inlined since Task 4: slug = file
-// name, title = frontmatter title > first ATX h1 > slug, same slug replaces,
-// new slugs append.
+// tools/build/mechanics.js — the merge of content/mods/<modId>/mechanics/*.md
+// into `mechanics` (mergeMechanicsContent, mechanicTitle), read through the
+// layout (tools/build/content-layout.js) so that the build entry stays pure
+// orchestration. slug = file name, title = frontmatter title > first ATX h1 >
+// slug, same slug replaces, new slugs append — and the pages of every mod
+// come out in ONE file-name order: never grouped by mod.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,9 +14,12 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { mergeMechanicsContent, mechanicTitle, mechanicsWithNavLabel } = require('../tools/build/mechanics.js');
+const { readContentLayout } = require('../tools/build/content-layout.js');
 const { FIXTURE_DATA } = require('../data/fixture-model.js');
 
 const REPO_CONTENT = path.join(__dirname, '..', 'tests', 'fixtures', 'content');
+/** The mod directory the fixture content's pages live in. */
+const FIXTURE_MOD = 'lewd_meme';
 
 async function tmpDir(t, label) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `mechanics-${label}-`));
@@ -32,14 +35,33 @@ const BASE = () => [
   { slug: 'barrel-system', title: '桶装系统', source: '# 桶装系统\n\n正文。' },
 ];
 
-/** A content dir holding content/mechanics/<name> files as given. */
-async function contentWith(t, label, files) {
-  const contentDir = await tmpDir(t, label);
-  const dir = path.join(contentDir, 'mechanics');
-  await fs.mkdir(dir, { recursive: true });
-  for (const [name, text] of Object.entries(files)) await fs.writeFile(path.join(dir, name), text);
-  return contentDir;
+const EMPTY_LAYOUT = { home: null, sections: [], site: [], mods: [], strayFiles: [], legacyDirs: [], imageFolders: [] };
+
+/**
+ * A layout, built by hand, whose mods hold the given mechanic pages, written
+ * to disk: `{ modId: { '<file name>': text } }`. The mods and their pages are
+ * left in the order given — what order the result comes out in is the
+ * function's job, not the layout reader's.
+ */
+async function layoutWith(t, label, mods) {
+  const root = await tmpDir(t, label);
+  const layout = { ...EMPTY_LAYOUT, mods: [] };
+  for (const [id, files] of Object.entries(mods)) {
+    const dir = path.join(root, 'mods', id);
+    const mechanics = [];
+    for (const [name, text] of Object.entries(files)) {
+      const file = path.join(dir, 'mechanics', name);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, text);
+      mechanics.push({ slug: name.replace(/\.md$/i, ''), file });
+    }
+    layout.mods.push({ id, dir, indexFile: null, redirectsFile: null, items: [], mechanics, nestedIndexFiles: [] });
+  }
+  return layout;
 }
+
+/** One merged entry, as the build uses it: no matter in which order the keys were set. */
+const entry = ({ slug, title, source, navLabel, mod }) => ({ slug, title, source, navLabel, mod });
 
 // ---------- mechanicTitle ----------
 
@@ -55,101 +77,122 @@ test('mechanicTitle: frontmatter title > first ATX h1 > slug', () => {
 
 // ---------- mergeMechanicsContent ----------
 
-test('mergeMechanicsContent (D2): contentDir null / a missing directory → the same entries in the same order, and every one of them carries navLabel (null)', async (t) => {
+test('mergeMechanicsContent (D2): a null layout / a layout without mods → the base entries as they came, each with navLabel null and mod null', async () => {
   const base = BASE();
-  const expected = base.map((m) => ({ ...m, navLabel: null }));
+  const expected = base.map((m) => entry({ ...m, navLabel: null, mod: null }));
 
-  const viaNull = await mergeMechanicsContent(base, null);
-  const viaMissing = await mergeMechanicsContent(base, path.join(await tmpDir(t, 'no-dir'), 'no-such-content'));
-
-  for (const [what, merged] of [['contentDir null', viaNull], ['a missing content dir', viaMissing]]) {
-    assert.deepEqual(merged, expected, `${what}: the base entries, each with navLabel: null`);
+  for (const [what, layout] of [['a null layout', null], ['a layout without mods', EMPTY_LAYOUT]]) {
+    const merged = await mergeMechanicsContent(base, layout);
+    assert.deepEqual(merged, expected, `${what}: the base entries, each with navLabel: null and mod: null`);
     assert.deepEqual(merged.map((m) => m.slug), base.map((m) => m.slug), `${what}: same order`);
     for (const m of merged) {
-      assert.ok(Object.hasOwn(m, 'navLabel'), `${what}: ${m.slug} has the navLabel key`);
+      assert.ok(Object.hasOwn(m, 'navLabel') && Object.hasOwn(m, 'mod'), `${what}: ${m.slug} has the navLabel and mod keys`);
       assert.equal(m.navLabel, null);
+      assert.equal(m.mod, null);
     }
   }
-  assert.ok(base.every((m) => !Object.hasOwn(m, 'navLabel')), 'the input is left as it was');
+  assert.ok(base.every((m) => !Object.hasOwn(m, 'navLabel') && !Object.hasOwn(m, 'mod')), 'the input is left as it was');
 });
 
-test('mergeMechanicsContent (D2): whatever the path, every entry of the result has the same keys', async (t) => {
+test('mergeMechanicsContent (D2): whatever the layout holds, every entry of the result has the same keys', async (t) => {
   const base = BASE();
   const keysOf = (merged) => merged.map((m) => Object.keys(m).sort());
-  const expectedKeys = [['navLabel', 'slug', 'source', 'title']];
+  const sameKeys = [['mod', 'navLabel', 'slug', 'source', 'title']];
 
-  // nothing merged: base entries keep what they came with, plus navLabel
-  assert.deepEqual(keysOf(await mergeMechanicsContent(base, null)), [expectedKeys[0], expectedKeys[0]]);
+  // nothing merged: base entries keep what they came with, plus navLabel and mod
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, null)), [sameKeys[0], sameKeys[0]]);
   // a base entry that declares a label comes back with it normalised
   const declaring = [{ ...base[0], navLabel: '  顶部入口  ' }, base[1]];
   assert.deepEqual((await mergeMechanicsContent(declaring, null)).map((m) => m.navLabel), ['顶部入口', null]);
   // merged: a replaced entry and an appended one have the same shape as the untouched base entries
-  const contentDir = await contentWith(t, 'shape', {
-    'barrel-system.md': '---\ntitle: 替换\n---\n\n正文',
-    'z-new.md': '正文',
+  const layout = await layoutWith(t, 'shape', {
+    [FIXTURE_MOD]: { 'barrel-system.md': '---\ntitle: 替换\n---\n\n正文', 'z-new.md': '正文' },
   });
-  assert.deepEqual(keysOf(await mergeMechanicsContent(base, contentDir)), [expectedKeys[0], expectedKeys[0], expectedKeys[0]]);
+  assert.deepEqual(keysOf(await mergeMechanicsContent(base, layout)), [sameKeys[0], sameKeys[0], sameKeys[0]]);
   // and no mechanics at all is an empty list, not an error
   assert.deepEqual(await mergeMechanicsContent([], null), []);
   assert.deepEqual(await mergeMechanicsContent(null, null), []);
 });
 
-test('mergeMechanicsContent: slug = file name, source = the file as written; same slug replaces, new slugs append in file-name order', async (t) => {
-  const contentDir = await contentWith(t, 'merge', {
-    'z-new.md': '---\ntitle: 新页面\n---\n\n新页面正文。\n',
-    'barrel-system.md': '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', // replaces BASE[1]
-    'a-first.md': '无标题页正文。\n', // no fm, no h1 → title is the slug
-    'notes.txt': 'not a page', // not markdown: ignored
-    'README.MD': 'case-variant suffix: still a markdown page',
+test('every page carries mod = the mod directory it is in; the pages of all mods come out sorted by file name, whatever mod they are in', async (t) => {
+  // Deliberately unsorted: the later mod (zeta) holds the page that sorts first.
+  const layout = await layoutWith(t, 'across-mods', {
+    zeta: { 'mmm.md': '正文。', 'aaa.md': '正文。' },
+    alpha: { 'zzz.md': '正文。', 'bbb.md': '正文。' },
   });
-  await fs.mkdir(path.join(contentDir, 'mechanics', 'drafts'));
-  await fs.writeFile(path.join(contentDir, 'mechanics', 'drafts', 'nested.md'), 'a directory entry is not a page\n');
 
-  const merged = await mergeMechanicsContent(BASE(), contentDir);
+  const merged = await mergeMechanicsContent([], layout);
 
   assert.deepEqual(
-    merged.map((m) => [m.slug, m.title]),
-    [
-      ['night-settlement', '夜间结算与疲劳'],
-      ['barrel-system', '手写替换标题'],
-      ['README', 'README'], // .MD stripped case-insensitively; no title → slug
-      ['a-first', 'a-first'],
-      ['z-new', '新页面'],
-    ],
-    'base order kept, replaced in place, new slugs appended in file-name order',
+    merged.map((m) => [m.slug, m.mod]),
+    [['aaa', 'zeta'], ['bbb', 'alpha'], ['mmm', 'zeta'], ['zzz', 'alpha']],
+    'one file-name order across mods: mods/zeta/mechanics/aaa.md comes before mods/alpha/mechanics/zzz.md',
   );
-  const replaced = merged.find((m) => m.slug === 'barrel-system');
-  assert.equal(replaced.source, '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', 'source is the file as written');
-  assert.equal(merged.find((m) => m.slug === 'night-settlement').source, BASE()[0].source, 'an untouched base entry keeps its source');
-  assert.deepEqual(Object.keys(replaced).sort(), ['navLabel', 'slug', 'source', 'title'], 'an entry carries exactly slug, title, source, navLabel');
+  for (const m of merged) assert.deepEqual(Object.keys(m).sort(), ['mod', 'navLabel', 'slug', 'source', 'title'], `${m.slug}: exactly these five keys`);
 });
 
-test('mergeMechanicsContent: the repo\'s content/mechanics/install-compat.md merges as the page it is', async () => {
-  const raw = await fs.readFile(path.join(REPO_CONTENT, 'mechanics', 'install-compat.md'), 'utf8');
-  const merged = await mergeMechanicsContent(BASE(), REPO_CONTENT);
-  const page = merged.find((m) => m.slug === 'install-compat');
-  assert.deepEqual(page, { slug: 'install-compat', title: '安装与兼容性', source: raw, navLabel: '关于本站' });
-  assert.equal(merged.length, BASE().length + 1);
+test('mergeMechanicsContent: slug = file name, source = the file as written; with base entries, same slug replaces in place and new pages append in file-name order across mods', async (t) => {
+  const layout = await layoutWith(t, 'merge', {
+    zeta: {
+      'z-new.md': '---\ntitle: 新页面\n---\n\n新页面正文。\n',
+      'a-first.md': '无标题页正文。\n', // no fm, no h1 → title is the slug
+    },
+    alpha: {
+      'barrel-system.md': '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', // replaces BASE[1]; `mod:` comes from the directory
+      'README.MD': 'case-variant suffix: still a markdown page',
+    },
+  });
+
+  const merged = await mergeMechanicsContent(BASE(), layout);
+
+  assert.deepEqual(
+    merged.map((m) => [m.slug, m.title, m.mod]),
+    [
+      ['night-settlement', '夜间结算与疲劳', null], // a base entry: no mod
+      ['barrel-system', '手写替换标题', 'alpha'], // replaced in place by a page of alpha
+      ['README', 'README', 'alpha'], // .MD stripped case-insensitively; no title → slug
+      ['a-first', 'a-first', 'zeta'],
+      ['z-new', '新页面', 'zeta'],
+    ],
+    'base order kept, replaced in place, new pages appended in one file-name order (a-first of zeta before z-new)',
+  );
+  const replaced = merged.find((m) => m.slug === 'barrel-system');
+  assert.equal(replaced.source, '---\n---\n\n# 手写替换标题\n\n手写替换正文。\n', 'source is the file as written — the front matter need not say mod:');
+  assert.equal(merged.find((m) => m.slug === 'night-settlement').source, BASE()[0].source, 'an untouched base entry keeps its source');
+  assert.deepEqual(entry(replaced), {
+    slug: 'barrel-system', title: '手写替换标题', navLabel: null, mod: 'alpha', source: replaced.source,
+  }, 'a page carries exactly slug, title, source, navLabel and mod');
+});
+
+test("the repo's fixture page mods/lewd_meme/mechanics/install-compat.md merges as the page it is, under lewd_meme", async () => {
+  const raw = await fs.readFile(path.join(REPO_CONTENT, 'mods', FIXTURE_MOD, 'mechanics', 'install-compat.md'), 'utf8');
+  const merged = await mergeMechanicsContent(BASE(), await readContentLayout(REPO_CONTENT));
+  assert.deepEqual(merged.map((m) => [m.slug, m.mod]), [['night-settlement', null], ['barrel-system', null], ['install-compat', FIXTURE_MOD]],
+    'the base entries, then the fixture page — the one page of the one mod in the fixture content');
+  assert.deepEqual(entry(merged.find((m) => m.slug === 'install-compat')),
+    { slug: 'install-compat', title: '安装与兼容性', source: raw, navLabel: '关于本站', mod: FIXTURE_MOD });
 });
 
 // ---------- Task 5b A — nav_label ----------
 
 test('navLabel: frontmatter `nav_label` → the label (trimmed); empty, blank, missing or not a string → null', async (t) => {
-  const contentDir = await contentWith(t, 'nav-label', {
-    'set.md': '---\ntitle: A\nnav_label: 关于本站\n---\n\n正文',
-    'padded.md': '---\nnav_label:   关于本站  \n---\n\n正文',
-    'quoted.md': '---\nnav_label: "关于本站"\n---\n\n正文',
-    'single-quoted.md': "---\nnav_label: '关于本站'\n---\n\n正文",
-    'empty.md': '---\nnav_label: ""\n---\n\n正文',
-    'bare.md': '---\nnav_label:\n---\n\n正文', // a key without a value parses to ''
-    'blank.md': '---\nnav_label: "   "\n---\n\n正文',
-    'number.md': '---\nnav_label: 123\n---\n\n正文', // the YAML subset parses numbers → not a string
-    'boolean.md': '---\nnav_label: true\n---\n\n正文',
-    'list.md': '---\nnav_label:\n  - 关于本站\n---\n\n正文', // a block list → not a string
-    'none.md': '---\ntitle: 没有 nav_label\n---\n\n正文',
+  const layout = await layoutWith(t, 'nav-label', {
+    [FIXTURE_MOD]: {
+      'set.md': '---\ntitle: A\nnav_label: 关于本站\n---\n\n正文',
+      'padded.md': '---\nnav_label:   关于本站  \n---\n\n正文',
+      'quoted.md': '---\nnav_label: "关于本站"\n---\n\n正文',
+      'single-quoted.md': "---\nnav_label: '关于本站'\n---\n\n正文",
+      'empty.md': '---\nnav_label: ""\n---\n\n正文',
+      'bare.md': '---\nnav_label:\n---\n\n正文', // a key without a value parses to ''
+      'blank.md': '---\nnav_label: "   "\n---\n\n正文',
+      'number.md': '---\nnav_label: 123\n---\n\n正文', // the YAML subset parses numbers → not a string
+      'boolean.md': '---\nnav_label: true\n---\n\n正文',
+      'list.md': '---\nnav_label:\n  - 关于本站\n---\n\n正文', // a block list → not a string
+      'none.md': '---\ntitle: 没有 nav_label\n---\n\n正文',
+    },
   });
 
-  const merged = await mergeMechanicsContent(BASE(), contentDir);
+  const merged = await mergeMechanicsContent(BASE(), layout);
   const navLabelOf = Object.fromEntries(merged.map((m) => [m.slug, m.navLabel]));
 
   assert.deepEqual(navLabelOf, {
@@ -209,7 +252,7 @@ test('D1 — 对每一种 navLabel 形态,页面上有没有「关于本站」�
     const answer = mechanicsWithNavLabel(data.mechanics);
     assert.equal(answer.length, declared ? 1 : 0, `navLabel ${JSON.stringify(shape)}: mechanicsWithNavLabel`);
     // …and what the page shows: the about entry is the LAST link of the menu-row.
-    const out = await renderSite(data, { contentDir: null });
+    const out = await renderSite(data, { layout: null });
     const menuRow = out.get('index.html').split('class="menu-row"')[1].split('</div>')[0];
     const lastLink = (menuRow.match(/<a [^>]*>.*?<\/a>/g) ?? []).at(-1);
     if (declared) {

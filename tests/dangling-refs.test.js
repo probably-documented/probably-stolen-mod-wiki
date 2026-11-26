@@ -163,12 +163,12 @@ test('formatDanglingRefs: one line per reference "page → missing target", then
       { file: 'index.html', ref: 'css/gone.css' },
     ],
   }, {
-    sourceOf: (file) => (file.startsWith('mechanics/') ? `content/mechanics/${file.slice('mechanics/'.length).replace(/\.html$/, '.md')}` : null),
+    sourceOf: (file) => (file.startsWith('mechanics/') ? `content/mods/lewd_meme/mechanics/${file.slice('mechanics/'.length).replace(/\.html$/, '.md')}` : null),
   });
   const lines = report.split('\n');
   assert.equal(lines.length, 4);
   assert.match(lines[0], /^\[links\] FAIL — 2 处链接指向不存在的文件:$/);
-  assert.equal(lines[1], '  mechanics/install-compat.html → mechanics/nope.html(编辑 content/mechanics/install-compat.md)');
+  assert.equal(lines[1], '  mechanics/install-compat.html → mechanics/nope.html(编辑 content/mods/lewd_meme/mechanics/install-compat.md)');
   assert.equal(lines[2], '  index.html → css/gone.css', 'a page with no editable source gets no bracket');
   assert.match(lines[3], /^提示:/);
   for (const word of ['删除', '恢复', '修正']) assert.ok(lines[3].includes(word), `the hint mentions ${word}`);
@@ -182,7 +182,7 @@ test('formatDanglingRefs: one line per reference "page → missing target", then
 
 // D3 (task 6b): the hint used to be one dense paragraph of some 300
 // characters, and it spelled a page-to-file mapping into itself
-// ("mechanics/<名字>.html 对应 content/mechanics/<名字>.md") — a path that
+// ("mechanics/<名字>.html 对应 content/mods/lewd_meme/mechanics/<名字>.md") — a path that
 // could disagree with the contentDir the build was actually given. Every path
 // in the report now comes from sourceOf, in the brackets of its own line.
 

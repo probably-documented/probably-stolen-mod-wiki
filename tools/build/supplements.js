@@ -1,7 +1,8 @@
 'use strict';
 
-// 手写补充层（导入计划 Task 6）：`content/items/<id>.md` 的 frontmatter 覆盖
-// `data/mods/*.json` 里同一件物品的字段——贡献者在 CMS 里改的就是这一层。
+// 手写补充层（导入计划 Task 6）：`content/mods/<modId>/items/<物品ID>.md` 的 frontmatter
+// 覆盖 `data/mods/*.json` 里同一件物品的字段——贡献者在 CMS 里改的就是这一层。构建通过
+// 布局（tools/build/content-layout.js）找到这些词条。
 //
 // 规则与离线仓库 `tools/extract/merge.js` 的 applySupplement 一致，只有一处
 // 不同：**空值不覆盖**（空字符串、空数组、null）。CMS 会把它声明的每个字段
@@ -12,7 +13,7 @@
 //   - shape：两个有限数字的数组才覆盖；
 //   - categories / tags / usage / sources / related / aliases：非空数组才覆盖。
 // 覆盖过的字段在 provenance 里记成 `content:items/<文件名>`（与离线的
-// `content:items/<fileName>` 标签一致）。
+// `content:items/<fileName>` 标签一致；改它，每一个物品页的「数据来源」表都会变）。
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -23,26 +24,21 @@ const { resolveItemId } = require('./item-ids.js');
 const SCALAR_FIELDS = Object.freeze(['name', 'description', 'flavor', 'notes', 'icon']);
 const ARRAY_FIELDS = Object.freeze(['categories', 'tags', 'usage', 'sources', 'related', 'aliases']);
 
+const toPosix = (p) => p.split(path.sep).join('/');
+
 /**
- * content/items/*.md → `[{ id, frontmatter, fileName }]`, sorted by file name.
- * A missing directory (or no content layer at all) is no supplement.
- * @param {string|null} contentDir
- * @returns {Promise<Array<{ id: string, frontmatter: object, fileName: string }>>}
+ * 布局里的物品词条 → `[{ id, frontmatter, fileName, file }]`，按布局列出的顺序
+ * （一个 mod 一个 mod、一个词条一个词条）。没有布局就没有补充层。
+ * @param {object|null} layout readContentLayout 的结果
+ * @returns {Promise<Array<{ id: string, frontmatter: object, fileName: string, file: string }>>}
  */
-async function readSupplements(contentDir) {
-  if (contentDir == null) return [];
-  const dir = path.join(contentDir, 'items');
-  let names;
-  try {
-    names = await fs.readdir(dir);
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
+async function readSupplements(layout) {
   const out = [];
-  for (const name of names.filter((entry) => entry.endsWith('.md')).sort()) {
-    const text = await fs.readFile(path.join(dir, name), 'utf8');
-    out.push({ id: name.slice(0, -'.md'.length), frontmatter: splitFrontmatter(text).fm, fileName: name });
+  for (const mod of layout?.mods ?? []) {
+    for (const { id, file } of mod.items) {
+      const text = await fs.readFile(file, 'utf8');
+      out.push({ id, frontmatter: splitFrontmatter(text).fm, fileName: path.basename(file), file });
+    }
   }
   return out;
 }
@@ -87,19 +83,19 @@ function applySupplement(item, frontmatter, fileName) {
  * Overwrite the fields the contributors filled in; leave everything else as
  * the data files describe it.
  * @param {object} data  the loaded model (its items are mutated)
- * @param {string|null} contentDir
+ * @param {object|null} layout readContentLayout 的结果(null 时不做任何事)
  * @param {(line: string) => void} [warn]
  */
-async function mergeSupplements(data, contentDir, warn = console.warn) {
+async function mergeSupplements(data, layout, warn = console.warn) {
   const byId = new Map((data.items ?? []).map((item) => [item.id, item]));
-  for (const { id, frontmatter, fileName } of await readSupplements(contentDir)) {
+  for (const { id, frontmatter, fileName, file } of await readSupplements(layout)) {
     // A file name the CMS lowercased still names its item (resolveItemId).
     const realId = resolveItemId(id, byId.keys());
     const item = realId === null ? undefined : byId.get(realId);
     if (item === undefined) {
-      // The id lint rejects unknown file names before this; be forgiving here
-      // (a file without an item is skipped, never turned into a new item).
-      warn(`[build] supplement skipped: content/items/${fileName} names no item (${id})`);
+      // The content lint rejects unknown file names before this; be forgiving
+      // here (a file without an item is skipped, never turned into a new item).
+      warn(`[build] supplement skipped: ${toPosix(file)} names no item (${id})`);
       continue;
     }
     applySupplement(item, frontmatter, fileName);

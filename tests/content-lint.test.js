@@ -32,9 +32,9 @@ const filesOf = (files) => async (file) => {
 
 const codes = (issues) => issues.map((i) => i.code);
 
-test('ISSUE_ORDER is the fourteen checks, A to N, and NAME_RE is what the CMS accepts for a file name', () => {
-  assert.equal(ISSUE_ORDER.length, 14);
-  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMN'].sort());
+test('ISSUE_ORDER is the sixteen checks, A to P, and NAME_RE is what the CMS accepts for a file name', () => {
+  assert.equal(ISSUE_ORDER.length, 16);
+  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMNOP'].sort());
   for (const ok of ['barrel-system', 'a.b', 'A_B', '中文.别名', 'a..b', 'gear.maidDress', '_index']) assert.match(ok, NAME_RE, ok);
   for (const bad of ['a b', 'a/b', 'a~b', 'a#b', 'a\\b']) assert.doesNotMatch(bad, NAME_RE, bad);
 });
@@ -51,7 +51,7 @@ test('a clean layout has no issues, whatever the checks look at', async () => {
   });
   const files = {
     'c/mods/alpha/mechanics/one.md': fm('title: 一\nmod: alpha'),
-    'c/mods/alpha/items/egg.md': fm('title: 卵\nmod: alpha'),
+    'c/mods/alpha/items/egg.md': fm('title: 卵\nitem_id: egg\nmod: alpha'),
     'c/mods/alpha/redirects.yaml': 'mod: alpha\naliases:\n  - 卵\nkeywords: []\n',
     'c/sections/lewd-meme-series.md': fm('title: 系列\nmods:\n  - alpha\n  - beta'),
   };
@@ -73,7 +73,7 @@ test('A — a mechanic page whose mod: is another mod, or is not written', async
 
 test('B — an item entry whose mod: is another mod', async () => {
   const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'egg')] }), mod('beta')] });
-  const issues = await lintContent({ layout, data: { items: [{ id: 'egg', mod: 'alpha' }] }, readFile: filesOf({ 'c/mods/alpha/items/egg.md': fm('title: 卵\nmod: beta') }) });
+  const issues = await lintContent({ layout, data: { items: [{ id: 'egg', mod: 'alpha' }] }, readFile: filesOf({ 'c/mods/alpha/items/egg.md': fm('title: 卵\nitem_id: egg\nmod: beta') }) });
   assert.deepEqual(codes(issues), ['B']);
   assert.match(issues[0].problem, /alpha[\s\S]*beta/);
 });
@@ -103,7 +103,7 @@ test('E and F — a stray file under mods/, and the old directories', async () =
   assert.match(by.F.fix, /删掉这个目录/);
 });
 
-test('G — file names: a space, a slash, a leading dot (the slash one is no exported item either, so L follows)', async () => {
+test('G — file names: a space, a slash, a leading dot (the slash one is no exported item either and says no item_id, so L and P follow)', async () => {
   const layout = layoutOf({
     sections: [page('sections', 'a b')],
     site: [page('site', '.hidden')],
@@ -115,7 +115,9 @@ test('G — file names: a space, a slash, a leading dot (the slash one is no exp
     'c/sections/a b.md': fm('mods:\n  - alpha'),
   };
   const issues = await lintContent({ layout, data: { items: [] }, readFile: filesOf(files) });
-  assert.deepEqual(codes(issues), ['G', 'L', 'G', 'G'], 'by file: the item entry, the section, the site page');
+  assert.deepEqual(codes(issues), ['G', 'L', 'P', 'G', 'G'], 'by file: the item entry, the section, the site page');
+  assert.deepEqual(issues.slice(0, 3).map((i) => i.file), ['c/mods/alpha/items/x/y.md', 'c/mods/alpha/items/x/y.md', 'c/mods/alpha/items/x/y.md'],
+    'all three findings of the item entry come together, before the next file');
   assert.match(issues[0].problem, /只能用英文、数字、短横线、下划线、点和中文/);
 });
 
@@ -146,7 +148,7 @@ test('I, J, K — a mod named in a file that does not exist as a directory', asy
 
 test('L — an item entry whose file name is no exported item, until hand-written items are allowed', async () => {
   const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'made_up')] })] });
-  const files = { 'c/mods/alpha/items/made_up.md': fm('mod: alpha') };
+  const files = { 'c/mods/alpha/items/made_up.md': fm('item_id: made_up\nmod: alpha') };
   const data = { items: [{ id: 'egg', mod: 'alpha' }] };
   const issues = await lintContent({ layout, data, readFile: filesOf(files) });
   assert.deepEqual(codes(issues), ['L']);
@@ -156,9 +158,93 @@ test('L — an item entry whose file name is no exported item, until hand-writte
 
 test('M — an item entry filed under a mod the item does not belong to', async () => {
   const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'egg')] }), mod('beta')] });
-  const issues = await lintContent({ layout, data: { items: [{ id: 'egg', mod: 'beta' }] }, readFile: filesOf({ 'c/mods/alpha/items/egg.md': fm('mod: alpha') }) });
+  const issues = await lintContent({ layout, data: { items: [{ id: 'egg', mod: 'beta' }] }, readFile: filesOf({ 'c/mods/alpha/items/egg.md': fm('item_id: egg\nmod: alpha') }) });
   assert.deepEqual(codes(issues), ['M']);
   assert.match(issues[0].fix, /mods\/beta\/items\//, 'says where to move it');
+});
+
+test('O — two item entries of one mod that name one item (a hand-typed id that differs by case only): both files are listed, and the fix says to keep one', async () => {
+  const layout = layoutOf({
+    mods: [mod('alpha', { items: [item('alpha', 'gear.maidDress'), item('alpha', 'egg'), item('alpha', 'gear.maiddress')] })],
+  });
+  const files = {
+    'c/mods/alpha/items/gear.maidDress.md': fm('item_id: gear.maidDress\nmod: alpha'),
+    'c/mods/alpha/items/gear.maiddress.md': fm('item_id: gear.maiddress\nmod: alpha'),
+    'c/mods/alpha/items/egg.md': fm('item_id: egg\nmod: alpha'),
+  };
+  const data = { items: [{ id: 'gear.maidDress', mod: 'alpha' }, { id: 'egg', mod: 'alpha' }] };
+
+  const issues = await lintContent({ layout, data, readFile: filesOf(files) });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [
+    ['c/mods/alpha/items/gear.maidDress.md', 'O'],
+    ['c/mods/alpha/items/gear.maiddress.md', 'O'],
+  ], 'both files, and nothing else: the entry that names egg is left alone');
+  for (const issue of issues) {
+    assert.match(issue.problem, /物品「gear\.maidDress」/, 'names the item');
+    assert.ok(issue.problem.includes('gear.maidDress.md') && issue.problem.includes('gear.maiddress.md'),
+      `lists every file, on each of them: ${issue.problem}`);
+    assert.match(issue.fix, /只保留一份/, issue.fix);
+    assert.match(issue.fix, /删掉/, issue.fix);
+  }
+});
+
+test('O — the two entries may sit in different mods: they are found across mods', async () => {
+  const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'egg')] }), mod('beta', { items: [item('beta', 'EGG')] })] });
+  const files = {
+    'c/mods/alpha/items/egg.md': fm('item_id: egg\nmod: alpha'),
+    'c/mods/beta/items/EGG.md': fm('item_id: EGG\nmod: beta'),
+  };
+  const data = { items: [{ id: 'egg', mod: 'alpha' }] };
+
+  const issues = await lintContent({ layout, data, readFile: filesOf(files) });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [
+    ['c/mods/alpha/items/egg.md', 'O'],
+    ['c/mods/beta/items/EGG.md', 'M'], // the entry in the wrong mod is M as well …
+    ['c/mods/beta/items/EGG.md', 'O'], // … and O, after it
+  ]);
+});
+
+test('P — an item entry whose item_id is not its own file name: not written, another item, or the same item in another case', async () => {
+  const ids = ['egg', 'ham', 'bare', 'Egg', 'padded'];
+  const layout = layoutOf({ mods: [mod('alpha', { items: ids.map((id) => item('alpha', id)) })] });
+  const files = {
+    'c/mods/alpha/items/egg.md': fm('item_id: egg\nmod: alpha'), // agrees with the file name: nothing to report
+    'c/mods/alpha/items/ham.md': fm('item_id: egg\nmod: alpha'), // names another item
+    'c/mods/alpha/items/bare.md': fm('title: 没写 item_id\nmod: alpha'), // not written at all
+    'c/mods/alpha/items/Egg.md': fm('item_id: egg\nmod: alpha'), // the same item, another case
+    'c/mods/alpha/items/padded.md': fm("item_id: ' padded '\nmod: alpha"), // blank around the value does not count
+  };
+  const data = { items: ids.map((id) => ({ id, mod: 'alpha' })) };
+
+  const issues = await lintContent({ layout, data, readFile: filesOf(files) });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [
+    ['c/mods/alpha/items/Egg.md', 'P'],
+    ['c/mods/alpha/items/bare.md', 'P'],
+    ['c/mods/alpha/items/ham.md', 'P'],
+  ]);
+  assert.match(issues[0].problem, /文件名是「Egg」[\s\S]*item_id[\s\S]*「egg」/, 'names the file name and what the file says');
+  assert.match(issues[1].problem, /文件名是「bare」[\s\S]*没有写 item_id/, '…and says so when nothing is written');
+  assert.match(issues[2].problem, /文件名是「ham」[\s\S]*「egg」/);
+  for (const issue of issues) {
+    assert.match(issue.fix, /「物品 ID」/, issue.fix);
+    assert.match(issue.fix, /保存/, issue.fix);
+    assert.match(issue.fix, /改名/, `${issue.file}: says that the CMS renames the file by this field`);
+  }
+});
+
+test('P — a hand-written item (no exported item behind it) is held to the same rule', async () => {
+  const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'made_up'), item('alpha', 'other')] })] });
+  const files = {
+    'c/mods/alpha/items/made_up.md': fm('item_id: made_up\nmod: alpha'),
+    'c/mods/alpha/items/other.md': fm('item_id: something_else\nmod: alpha'),
+  };
+
+  const issues = await lintContent({ layout, data: { items: [] }, handwrittenItems: true, readFile: filesOf(files) });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [['c/mods/alpha/items/other.md', 'P']]);
 });
 
 test('N — two images that would be published to the same place: every source file is listed', async (t) => {
@@ -201,6 +287,13 @@ test('the issues come out by file, and inside a file in the order of the checks'
     ['c/mods/alpha/items/made up.md', 'I'],
     ['c/mods/alpha/items/made up.md', 'L'],
   ]);
+  // The file says no item_id either: that is the last finding of this file, after L.
+  assert.deepEqual(issues[3], {
+    code: 'P', file: 'c/mods/alpha/items/made up.md',
+    problem: '这一篇的文件名是「made up」,但开头没有写 item_id',
+    fix: '文件名和开头的 item_id 必须是同一个物品 ID。在 CMS 里打开这一篇,把「物品 ID」一栏改成这一篇实际写的那件物品,再保存:'
+      + 'CMS 保存时会按这一栏给文件命名,两处不一致的话,下次保存文件会被悄悄改名,换成别的物品。',
+  });
 });
 
 test('formatContentIssues: a heading with the count, three lines per issue, and the hint last', () => {

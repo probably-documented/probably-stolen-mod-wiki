@@ -1,0 +1,38 @@
+---
+item_id: 'brood_tentacle_aqua'
+mod: claude.lewdMemeBrood
+title: ''
+usage:
+  - type: 'feed'
+    text: '把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手,给它倒液体走容器互倒、不算喂食);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求水支基因等级 ≥ 触手当前等级,最高可升到 对应水支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬蓝触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)'
+    source: '据 TentacleItems.cs CanFeed/Feed/ExpToNext/LiquidPair、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条'
+  - type: 'drag-target'
+    text: '喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):每天集水与去杂质,存水悄悄补进孵卵巢的水巢;对苗床温和得多'
+    source: '据 zh.csv ab.aqu 词条、item.brood_tentacle_aqua.desc 与 tip.adult.lv0'
+  - type: 'drag-target'
+    text: '把蓝触手贴到 [[brood_water_nest]] 上灌水'
+    source: '据 item.brood_water_nest.desc'
+  - type: 'drag-target'
+    text: '直接拖到 [[maiden_lower]] 苗床身上交配:口交/性交/肛交次数各 +1~2、调教值 +3~6,首次使用会同时转换处女与后庭标记;同一只触手每天限用一次,效果与触手等级无关'
+    source: '据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的默认分支、Apply'
+  - type: 'drag-target'
+    text: '让 [[tentacle_body]] 本体吞下:获得水支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定'
+    source: '据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条'
+  - type: 'process'
+    text: '不需要时可以用刀切了获取肉块'
+    source: '据 item.brood_tentacle_aqua.desc'
+sources:
+  - source: '卵孵化'
+    detail: '[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果'
+    probability: '孵化产出(据 manifest Description 与 item.brood_egg.desc)'
+related:
+  - 'brood_sym_nest'
+  - 'brood_water_nest'
+  - 'brood_egg'
+  - 'brood_tentacle_red'
+  - 'brood_tentacle_green'
+  - 'brood_tentacle_yellow'
+  - 'brood_tentacle_purple'
+  - 'maiden_lower'
+notes: '「会呼吸的淡蓝触手,表面总凝着一层水雾,身体像一口活着的水囊。」(据 zh.csv item.brood_tentacle_aqua.desc)'
+---

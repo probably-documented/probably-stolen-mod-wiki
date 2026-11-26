@@ -1,27 +1,36 @@
 'use strict';
 
-// content/mechanics/<slug>.md → mechanic pages (the hand-written content
-// layer). This is the merge step the build entry (skeleton-build.js) had
-// inlined since Task 4, moved here (task 5b C1) so that entry is pure
-// orchestration again and the step can be unit-tested on its own.
+// content/mods/<modId>/mechanics/<slug>.md → mechanic pages (the hand-written
+// content layer), read through the layout (tools/build/content-layout.js) so
+// that the build entry (skeleton-build.js) stays pure orchestration and the
+// step can be unit-tested on its own.
 //
-// Contract — same as modwiki merge.js readMechanics:
+// Contract:
 //   slug     = the file name without .md
 //   title    = frontmatter `title` > first ATX h1 > slug
 //   navLabel = frontmatter `nav_label`, when it declares the top-nav about
 //              entry (see normalizeNavLabel); null otherwise (task 5b A)
+//   mod      = the mod directory the page is in (layout.mods[].id); null for
+//              an entry that came from `mechanics`, the data
 //   source   = the file as written
-// Every entry of the result carries navLabel, set or not (task 6b D2).
-// A slug already present in `mechanics` is replaced by the file; new slugs
-// are appended in file-name order. A missing directory (or a null
-// contentDir) returns the base entries as they came, navLabel normalised.
+// Every entry of the result carries navLabel and mod, set or not.
+// A slug already present in `mechanics` is replaced by the page; new slugs
+// are appended — the pages of ALL mods in one file-name order, never grouped
+// by mod: that order is the mechanics index, the item pages' 相关页面 and
+// data.js. A null layout (or one without mods) returns the base entries as
+// they came, navLabel normalised and mod null.
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 
-const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+/** By the file name of each — the order of the pages, across mods. */
+const byFileName = (a, b) => {
+  const left = path.basename(a.file);
+  const right = path.basename(b.file);
+  return left < right ? -1 : left > right ? 1 : 0;
+};
 
 /** frontmatter `title` (already parsed) > first ATX h1 > slug. */
 function titleFrom(fromFm, body, slug) {
@@ -65,41 +74,33 @@ function mechanicsWithNavLabel(mechanics) {
 }
 
 /**
- * Merge content/mechanics/*.md into `mechanics` (see the header).
+ * Merge the mechanic pages of every mod (content/mods/<modId>/mechanics/*.md,
+ * as the layout lists them) into `mechanics` (see the header).
  * The result has the same shape on every path (task 6b D2): each entry
- * carries `navLabel` — the label, or null — whether it is an untouched
- * base entry, a replaced one or an appended one.
+ * carries `navLabel` — the label, or null — and `mod`, whether it is an
+ * untouched base entry, a replaced one or an appended one.
  * @param {Array<{slug: string, title: string, source: string, navLabel?: string|null}>} mechanics
- * @param {string|null} contentDir the content root (null skips the merge)
- * @returns {Promise<Array<{slug: string, title: string, navLabel: string|null, source: string}>>}
+ * @param {object|null} layout readContentLayout 的结果(null 时只有基线条目)
+ * @returns {Promise<Array<{slug: string, title: string, navLabel: string|null, source: string, mod: string|null}>>}
  */
-async function mergeMechanicsContent(mechanics, contentDir) {
+async function mergeMechanicsContent(mechanics, layout) {
   // Base entries keep everything they came with; navLabel is normalised so
-  // that "which page declares the about entry" is answered one way everywhere.
-  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, { ...m, navLabel: normalizeNavLabel(m.navLabel) }]));
+  // that "which page declares the about entry" is answered one way everywhere,
+  // and mod is null: the data does not say which mod a page belongs to.
+  const bySlug = new Map((mechanics ?? []).map((m) => [m.slug, { ...m, navLabel: normalizeNavLabel(m.navLabel), mod: m.mod ?? null }]));
   const baseEntries = () => [...bySlug.values()];
-  if (contentDir == null) return baseEntries();
-  const dir = path.join(contentDir, 'mechanics');
-  let entries;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if (isMissing(err)) return baseEntries();
-    throw err;
-  }
-  const names = entries
-    .filter((e) => e.isFile() && /\.md$/i.test(e.name))
-    .map((e) => e.name)
-    .sort();
-  for (const name of names) {
-    const source = await fs.readFile(path.join(dir, name), 'utf8');
-    const slug = name.replace(/\.md$/i, '');
+  const pages = (layout?.mods ?? [])
+    .flatMap((mod) => mod.mechanics.map((page) => ({ ...page, mod: mod.id })))
+    .sort(byFileName);
+  for (const { slug, file, mod } of pages) {
+    const source = await fs.readFile(file, 'utf8');
     const { fm, body } = splitFrontmatter(source);
     bySlug.set(slug, {
       slug,
       title: titleFrom(fm.title, body, slug),
       navLabel: normalizeNavLabel(fm.nav_label),
       source,
+      mod,
     });
   }
   return [...bySlug.values()];

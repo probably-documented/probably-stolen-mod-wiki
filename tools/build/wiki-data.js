@@ -28,7 +28,7 @@ async function readJson(file, label) {
 
 /**
  * 读 `dataDir` 下按 mod 拆分的完整数据，组装成 `renderSite` 要的形状。
- * `mechanics` 是空数组：机制页由 `content/mechanics/` 重建。
+ * `mechanics` 是空数组：机制页由 `content/mods/<modId>/mechanics/` 重建。
  * @param {string} [dataDir]
  * @returns {Promise<{ baseline: object, mods: object[], items: object[], mechanics: [], news: object[], changelog: object[], facets: object }>}
  */

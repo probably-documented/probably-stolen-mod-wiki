@@ -4,8 +4,9 @@
 //
 // Fixture strategy (per the controller's recommendation): a hand-built
 // minimal WIKI_DATA literal — 6 mods, a handful of items — fast and focused,
-// no fake modsDir tree needed. Item-body markdown comes from a temp
-// contentDir so the "用法正文" branch is covered with a real file read.
+// no fake modsDir tree needed. Item-body markdown comes from a layout built
+// over a temp directory (what readContentLayout would list), so the "用法
+// 正文" branch is covered with a real file read.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -110,7 +111,7 @@ async function buildFixture(options = {}) {
 // ---------- 路由完整性 ----------
 
 test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + data.js)', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   for (const rel of [
     'index.html', 'items.html', 'mechanics.html', 'changelog.html', 'search.html', 'data.js',
     ...MODS.map((m) => `mods/${m.id}.html`),
@@ -127,7 +128,7 @@ test('renderSite: 产物覆盖全部路由(页面 + 每物品/机制/mod 页 + d
 // ---------- ① 物品页 ----------
 
 test('item 页:infobox 贴图相对路径、面包屑、内链与表格', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('item/wondrous_milk.html');
   assert.ok(html.includes('src="../assets/items/lewd_meme/item_milk.png"'), '贴图相对路径 ../assets/');
   assert.ok(html.includes('href="../css/theme.css"'));
@@ -162,7 +163,7 @@ test('item 页:infobox 贴图相对路径、面包屑、内链与表格', async 
 });
 
 test('item 页:name=null 时标题与卡片回退显示 id,不输出字面 null(I2)', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('item/tear_merchant.html');
   assert.ok(html.includes('<h1 class="page-title">tear_merchant</h1>'));
   assert.ok(!html.includes('>null<'));
@@ -177,42 +178,73 @@ test('item 页:name=null 时标题与卡片回退显示 id,不输出字面 null(
 });
 
 test('item 页:icon/price null 用占位,严格 null 判断', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('item/tear_merchant.html');
   assert.ok(html.includes('class="no-icon"'));
   assert.ok(!html.includes('src="../assets/items/'), '无物品贴图');
   assert.ok(html.includes('待补充'));
 });
 
-test('item 页:content/items/<id>.md 正文渲染,[[id]] 展开;md 缺失时跳过', async () => {
+test('item 页:布局里的物品词条正文渲染,[[id]] 展开;没有词条时跳过', async (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'modwiki-render-'));
-  fs.mkdirSync(path.join(tmp, 'items'), { recursive: true });
-  // 真实方言(final review Critical):content/items 的 md 无闭合 ---,
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 }));
+  const write = (id, text) => {
+    const file = path.join(tmp, 'mods', 'lewd_meme_remake', 'items', `${id}.md`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    return { id, file };
+  };
+  // 真实方言(final review Critical):物品词条的 md 无闭合 ---,
   // frontmatter 之后空行隔开正文——不得把 frontmatter 当正文泄漏成 JSON。
-  fs.writeFileSync(path.join(tmp, 'items', 'wondrous_milk.md'),
-    '---\nnotes: 覆盖说明\n\n## 详解小节\n\n每晚产出 [[tentacle_body]] 相关结算。\n');
+  const milk = write('wondrous_milk', '---\nnotes: 覆盖说明\n\n## 详解小节\n\n每晚产出 [[tentacle_body]] 相关结算。\n');
   // 只有 frontmatter、无正文的变体:详解节必须连同标题一起跳过。
-  fs.writeFileSync(path.join(tmp, 'items', 'tentacle_body.md'), '---\nnotes: 只有头\n');
-  const out = await renderSite(structuredClone(FIXTURE), { contentDir: tmp });
+  const headOnly = write('tentacle_body', '---\nnotes: 只有头\n');
+  // 文件名与真实 id 只差大小写:仍然归到那件物品。
+  const rich = write('MILK_RICH', '---\n\n浓郁乳汁的详解。\n');
+  const layout = {
+    home: null, sections: [], site: [], strayFiles: [], legacyDirs: [], imageFolders: [],
+    mods: [{ id: 'lewd_meme_remake', dir: path.join(tmp, 'mods', 'lewd_meme_remake'), indexFile: null, redirectsFile: null, items: [milk, headOnly, rich], mechanics: [], nestedIndexFiles: [] }],
+  };
+  const out = await renderSite(structuredClone(FIXTURE), { layout });
 
   const withMd = out.get('item/wondrous_milk.html');
   assert.ok(withMd.includes('详解小节'));
   assert.ok(withMd.includes('href="../item/tentacle_body.html"'), '正文 wikilink 展开为内链卡');
   assert.ok(!withMd.includes('notes: 覆盖说明'), 'frontmatter 不得泄漏进正文');
 
-  const headOnly = out.get('item/tentacle_body.html');
-  assert.ok(!headOnly.includes('<h2 class="sec">详解</h2>'), '无正文的 md 连详解标题一起跳过');
-  assert.ok(!headOnly.includes('notes: 只有头'), 'frontmatter 不泄漏');
+  const headOnlyPage = out.get('item/tentacle_body.html');
+  assert.ok(!headOnlyPage.includes('<h2 class="sec">详解</h2>'), '无正文的 md 连详解标题一起跳过');
+  assert.ok(!headOnlyPage.includes('notes: 只有头'), 'frontmatter 不泄漏');
 
-  const withoutMd = await buildFixture({ contentDir: null });
-  assert.ok(!withoutMd.get('item/wondrous_milk.html').includes('详解小节'));
-  fs.rmSync(tmp, { recursive: true, force: true });
+  assert.ok(out.get('item/milk_rich.html').includes('浓郁乳汁的详解。'), 'a file name that differs by case only lands on the real item');
+  assert.ok(!out.get('item/MILK_RICH.html'), 'the page is named after the item, never after the file');
+
+  const without = await buildFixture({ layout: null });
+  assert.ok(!without.get('item/wondrous_milk.html').includes('详解小节'), 'no layout → no item body is read');
+});
+
+test('机制页底部:提取自 content/mods/<mod>/mechanics/<slug>.md;数据里的条目(没有文件)不写路径', async () => {
+  const data = structuredClone(FIXTURE);
+  const [base, file] = data.mechanics;
+  file.mod = 'lewd_meme_remake';
+
+  const out = await renderSite(data, { layout: null });
+
+  // The footer of every page says 数据提取自模组安装文件, so the look is at the page's own `updated` line.
+  const updatedLine = (slug) => /<div class="updated">[^<]*<\/div>/.exec(out.get(`mechanics/${slug}.html`))[0];
+  assert.equal(updatedLine(file.slug), `<div class="updated">数据基线 ${FIXTURE.baseline.date} · 提取自 content/mods/lewd_meme_remake/mechanics/barrel-system.md</div>`,
+    'the line names the file under its mod');
+  assert.equal(updatedLine(base.slug), `<div class="updated">数据基线 ${FIXTURE.baseline.date}</div>`, 'an entry that came from the data has no file');
+  for (const [rel, html] of out) {
+    assert.ok(!html.includes('content/mechanics/'), `${rel}: the old directory is named nowhere`);
+    assert.ok(!html.includes('content/items/'), `${rel}: …nor this one`);
+  }
 });
 
 // ---------- ② items.html ----------
 
 test('items.html:概述文案、品类/来源 chips、按 mod 分区、卡片 data 属性', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('items.html');
   assert.ok(html.includes('<h1 class="page-title">物品图鉴</h1>'));
   // 概述段(mockup 文案)
@@ -260,7 +292,7 @@ test('items.html:概述文案、品类/来源 chips、按 mod 分区、卡片 da
 // ---------- ③ data.js ----------
 
 test('data.js:可 require 加载、单行、精简字段、search 索引接线(Task 9)', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const src = out.get('data.js');
   assert.ok(src.startsWith('window.WIKI_DATA = '));
   assert.equal(src.trim().split('\n').length, 1, '单行');
@@ -298,7 +330,7 @@ test('data.js:可 require 加载、单行、精简字段、search 索引接线(T
 // ---------- ④ index.html ----------
 
 test('index.html:六张模组卡、锚点、热门物品、统计、基线通知、无内部路径', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('index.html');
   assert.ok(html.includes('id="mod-family"'), '模组家族锚点容器');
   assert.equal((html.match(/class="mod-card"/g) || []).length, 6, '六张模组卡');
@@ -329,7 +361,7 @@ test('index.html:六张模组卡、锚点、热门物品、统计、基线通知
 test('index.html: news 为空时最近更新显示数据基线日期', async () => {
   const data = structuredClone(FIXTURE);
   data.news = [];
-  const out = await renderSite(data, { contentDir: null });
+  const out = await renderSite(data, { layout: null });
   const html = out.get('index.html');
   assert.ok(html.includes('最近更新'));
   assert.ok(html.includes('数据基线 2026-11-18'));
@@ -338,7 +370,7 @@ test('index.html: news 为空时最近更新显示数据基线日期', async () 
 // ---------- ⑤ 机制页 ----------
 
 test('mechanics/<slug>.html:TOC(title 转义)、[[id]] 内链卡、frontmatter title', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('mechanics/night-settlement.html');
   assert.ok(html.includes('<h1 class="page-title">夜间结算与疲劳</h1>'));
   // TOC:mdToHtml 的 toc title 渲染时转义(Ruling 7)
@@ -356,7 +388,7 @@ test('mechanics/<slug>.html:TOC(title 转义)、[[id]] 内链卡、frontmatter t
 });
 
 test('mechanics.html 索引页(Ruling 6):全部机制卡 + 摘要', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('mechanics.html');
   assert.ok(html.includes('href="mechanics/night-settlement.html"'));
   assert.ok(html.includes('href="mechanics/barrel-system.html"'));
@@ -366,7 +398,7 @@ test('mechanics.html 索引页(Ruling 6):全部机制卡 + 摘要', async () => 
 // ---------- ⑥ 通用:面包屑 + 返回路径 ----------
 
 test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   for (const [rel, html] of out) {
     if (rel === 'data.js') continue;
     assert.ok(html.includes('class="crumb"'), `${rel} 缺面包屑`);
@@ -387,7 +419,7 @@ test('每页均有面包屑与返回首页链接;导航目标已接线(Ruling 6)
 // ---------- mods 页 / changelog / search / install-compat ----------
 
 test('mods/<modId>.html:信息表、物品清单、changelog 节选', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('mods/lewd_meme_remake.html');
   assert.ok(html.includes('<h1 class="page-title">暗流交易</h1>'));
   assert.ok(html.includes('<th>项目</th>'));
@@ -403,7 +435,7 @@ test('mods/<modId>.html:信息表、物品清单、changelog 节选', async () =
 });
 
 test('changelog.html:按 mod 分组、版本号+文本、无日期字段', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('changelog.html');
   assert.ok(html.includes('暗流交易'));
   assert.ok(html.includes('1.6.4'));
@@ -413,7 +445,7 @@ test('changelog.html:按 mod 分组、版本号+文本、无日期字段', async
 });
 
 test('search.html:输入框 + results 容器 + 引用 data.js 与 assets/js/search.js', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   const html = out.get('search.html');
   assert.ok(html.includes('type="search"'));
   assert.ok(html.includes('id="search-results"'));
@@ -422,7 +454,7 @@ test('search.html:输入框 + results 容器 + 引用 data.js 与 assets/js/sear
 });
 
 test('关于本站:占位页已删,全站无占位文案', async () => {
-  const out = await buildFixture({ contentDir: null });
+  const out = await buildFixture({ layout: null });
   assert.ok(!out.has('mods/install-compat.html'), '占位页必须删除');
   for (const [rel, html] of out) {
     if (rel === 'data.js') continue;
@@ -452,7 +484,7 @@ function navAnchors(html, spot) {
 }
 
 test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLabel、href = mechanics/<slug>.html、只在 menu-row、位于更新日志之后、全站每页都有', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { contentDir: null });
+  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { layout: null });
   for (const [rel, html] of out) {
     if (rel === 'data.js') continue;
     const prefix = rel.includes('/') ? '../' : '';
@@ -467,7 +499,7 @@ test('A1 — 机制页的 navLabel 成为顶部导航的 about 项:label = navLa
 });
 
 test('A2 — 没有任何页面带 navLabel → 顶部导航没有 about 项;其余页面照常渲染', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system'), { contentDir: null });
+  const out = await renderSite(fixtureWithNavLabel('barrel-system'), { layout: null });
   assert.equal(out.size, 6 + 6 + 7 + 2, 'every route is still rendered');
   for (const [rel, html] of out) {
     if (rel === 'data.js') continue;
@@ -479,17 +511,17 @@ test('A2 — 没有任何页面带 navLabel → 顶部导航没有 about 项;其
 
 test('A4 — navLabel 为空串或仅空白 → 视为未设置(无 about 项)', async () => {
   for (const bad of ['', '   ', '\t\n']) {
-    const out = await renderSite(fixtureWithNavLabel('barrel-system', bad), { contentDir: null });
+    const out = await renderSite(fixtureWithNavLabel('barrel-system', bad), { layout: null });
     const menuRow = navAnchors(out.get('index.html'), 'menu-row');
     assert.equal(menuRow.at(-1)[0], '更新日志', `navLabel ${JSON.stringify(bad)}: menu-row ends with 更新日志, i.e. no about entry`);
   }
   // …while surrounding whitespace of a real label is not part of it
-  const padded = await renderSite(fixtureWithNavLabel('barrel-system', '  桶装指南 \n'), { contentDir: null });
+  const padded = await renderSite(fixtureWithNavLabel('barrel-system', '  桶装指南 \n'), { layout: null });
   assert.equal(navAnchors(padded.get('index.html'), 'menu-row').at(-1)[0], '桶装指南');
 });
 
 test('A6 — about 页的高亮与改动前一致:active 的是「机制说明」,about 项本身不高亮', async () => {
-  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { contentDir: null });
+  const out = await renderSite(fixtureWithNavLabel('barrel-system', '桶装指南'), { layout: null });
   const page = out.get('mechanics/barrel-system.html');
   for (const spot of ['menu-row', 'ps-site__links']) {
     assert.deepEqual(

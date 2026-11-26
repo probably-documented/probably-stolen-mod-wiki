@@ -3,22 +3,23 @@
 // Task 8: page renderers + inline data.js — assembles the whole static site
 // from Task 5's WIKI_DATA, Task 6's mdToHtml and Task 7's templates.
 //
-// renderSite(data, { contentDir = 'content' }) -> Promise<Map<relPath, string>>
+// renderSite(data, { layout = null }) -> Promise<Map<relPath, string>>
 //   relPath keys are posix-style ('item/<id>.html'); values are full HTML
 //   documents (or the data.js script). fs.mkdir/write is left to the Task 10
-//   build entry. contentDir supplies the optional per-item 用法正文
-//   (content/items/<id>.md); pass null to skip the section entirely.
+//   build entry. layout is the content layout (tools/build/content-layout.js)
+//   and supplies the optional per-item 详解 body
+//   (content/mods/<modId>/items/<物品ID>.md); null skips the section entirely.
 //
 // Missing-value discipline (project rule): strictly-null checks everywhere —
 // empty string is a VALID value, price 0 is valid, only null/undefined (and
 // for icon, '') render the 待补充 / 无图 placeholders.
 
 const fs = require('node:fs/promises');
-const path = require('node:path');
 
 const { mdToHtml, restoreItemLinks } = require('./markdown.js');
 const { buildSearchIndex } = require('./search-index.js');
 const { mechanicsWithNavLabel } = require('./mechanics.js');
+const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem,
@@ -58,7 +59,7 @@ function modOverview(description) {
 
 /** 源 md 正文:剥 frontmatter,再剥首个 h1(页面已有 page-title,防重复)。
  * frontmatter 解析来自 tools/extract/frontmatter.js(final review Critical:
- * 与 merge 共用 lenient 方言,无闭合 --- 的 content/items md 不再把
+ * 与 merge 共用 lenient 方言,无闭合 --- 的物品词条 md 不再把
  * frontmatter 当正文泄漏)。 */
 function stripTitleBlock(source) {
   const { fm, body } = splitFrontmatter(source);
@@ -153,7 +154,7 @@ function buildSiteModel(data) {
   }
   const lookup = (id) => byId.get(id) ?? null;
   // 顶部导航的「关于本站」由页面自己声明:机制页的 navLabel(mergeMechanicsContent
-  // 读自 content/mechanics/<slug>.md 的 frontmatter `nav_label`,task 5b A)。
+  // 读自 content/mods/<modId>/mechanics/<slug>.md 的 frontmatter `nav_label`,task 5b A)。
   // 「navLabel 是否已设置」只问 mechanics.js 一处(mechanicsWithNavLabel,
   // task 6b D1):这里不再自己判定。没有页面声明 → null → 导航没有这一项;
   // 构建入口保证最多一页带它。
@@ -355,8 +356,8 @@ function renderItemPage(data, model, item, mdBody) {
     ? `<p>${MISSING}</p>`
     : renderWikiTable(['来源', '说明', '概率/数量'], sourceRows);
 
-  // 详解:content/items/<id>.md 正文(存在且非空白时;只有 frontmatter 的
-  // md 连标题一起跳过——final review Critical 件套之二)。
+  // 详解:布局里这件物品的词条(content/mods/<modId>/items/<物品ID>.md)正文(存在且非空白时;
+  // 只有 frontmatter 的 md 连标题一起跳过——final review Critical 件套之二)。
   const detailHtml = mdBody == null || mdBody.trim() === ''
     ? ''
     : `<h2 class="sec">详解</h2>\n${mdToHtml(mdBody, lookup, card).html}`;
@@ -428,6 +429,10 @@ function renderMechanicPage(data, model, mech) {
   const { fm, body } = stripTitleBlock(mech.source);
   const title = fm.title ?? mech.title ?? mech.slug;
   const { html, toc } = mdToHtml(body, model.lookup, (it) => itemInline(it, relRoot));
+  // 这一页来自哪个文件:布局里的机制页带 mod(mergeMechanicsContent);数据里的条目没有文件。
+  const extractedFrom = mech.mod == null
+    ? ''
+    : ` · 提取自 content/mods/${esc(mech.mod)}/mechanics/${esc(mech.slug)}.md`;
 
   const page = layout({
     title,
@@ -439,7 +444,7 @@ function renderMechanicPage(data, model, mech) {
       { text: title },
     ],
     bodyHtml: `<h1 class="page-title">${esc(title)}</h1>
-<div class="updated">数据基线 ${esc(data.baseline?.date ?? '')} · 提取自 content/mechanics/${esc(mech.slug)}.md</div>
+<div class="updated">数据基线 ${esc(data.baseline?.date ?? '')}${extractedFrom}</div>
 ${tocHtml(toc)}
 ${html}`,
     aboutNav: model.aboutNav,
@@ -558,7 +563,7 @@ function renderSearch(data, model) {
 // renderInstallCompat 已删除(final review Important 4):不再有
 // mods/install-compat.html 占位骨架。「关于本站」导航项由机制页自己声明
 // (frontmatter `nav_label` → navLabel → model.aboutNav,task 5b A),
-// 目前是 content/mechanics/install-compat.md。
+// 目前是 content/mods/lewd_meme/mechanics/install-compat.md。
 
 /** 精简客户端数据包:不含 provenance / notes 等内部字段;search 由 Task 9 填充。 */
 function renderDataJs(data, model) {
@@ -610,7 +615,7 @@ async function readOptional(file) {
 }
 
 async function renderSite(data, options = {}) {
-  const contentDir = options.contentDir === undefined ? 'content' : options.contentDir;
+  const layout = options.layout ?? null;
   const model = buildSiteModel(data);
   const out = new Map();
 
@@ -629,26 +634,24 @@ async function renderSite(data, options = {}) {
     out.set(`mechanics/${mech.slug}.html`, renderMechanicPage(data, model, mech));
   }
 
-  // Sveltia lowercases entry file names when it saves (measured: gear.maidDress
-  // becomes gear.maiddress.md), so the body file is found by name, ignoring
-  // case — the same rule resolveItemId gives the lints and the supplement merge.
-  let itemFiles = null;
-  if (contentDir != null) {
-    itemFiles = new Map();
-    let names = [];
-    try {
-      names = await fs.readdir(path.join(contentDir, 'items'));
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
+  // Every item entry of every mod, by the item it names. A file name that
+  // differs from the id by case only names its item too (resolveItemId) —
+  // the same rule the content lint and the supplement merge go by. Two
+  // entries for one item are refused by the lint; the first one is read.
+  const entryOf = new Map();
+  const itemIds = model.items.map((it) => it.id);
+  for (const mod of layout?.mods ?? []) {
+    for (const entry of mod.items) {
+      const realId = resolveItemId(entry.id, itemIds);
+      if (realId !== null && !entryOf.has(realId)) entryOf.set(realId, entry.file);
     }
-    for (const name of names) itemFiles.set(name.toLowerCase(), name);
   }
 
   for (const item of model.items) {
     let mdBody = null;
-    if (itemFiles !== null) {
-      const wanted = `${item.id}.md`;
-      const raw = await readOptional(path.join(contentDir, 'items', itemFiles.get(wanted.toLowerCase()) ?? wanted));
+    const file = entryOf.get(item.id);
+    if (file !== undefined) {
+      const raw = await readOptional(file);
       if (raw != null) mdBody = splitFrontmatter(raw).body;
     }
     out.set(`item/${item.id}.html`, renderItemPage(data, model, item, mdBody));

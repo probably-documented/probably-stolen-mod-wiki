@@ -299,9 +299,9 @@ test('packSite: a failed build aborts packing — no zip is written and a previo
   const root = await tmpDir(t, 'pack-build-fail');
   const zipPath = path.join(root, 'offline-wiki-test.zip');
   await fs.writeFile(zipPath, 'previous zip');
-  const contentDir = path.join(root, 'content'); // an id-lint violation: the build must go red before anything else
-  await fs.mkdir(path.join(contentDir, 'items'), { recursive: true });
-  await fs.writeFile(path.join(contentDir, 'items', 'fake_id.md'), 'x');
+  const contentDir = path.join(root, 'content'); // a content-lint violation: the build must go red before anything else
+  await fs.mkdir(path.join(contentDir, 'mods', 'lewd_meme', 'items'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'mods', 'lewd_meme', 'items', 'fake_id.md'), 'x');
 
   const { err, exitCode } = await capturingExitCode(() =>
     packSite({ distDir: path.join(root, 'dist'), zipPath, contentDir, adminDir: null, data: structuredClone(FIXTURE_DATA), warn: noop }));

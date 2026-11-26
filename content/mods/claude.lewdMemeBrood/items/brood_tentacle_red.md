@@ -1,0 +1,34 @@
+---
+item_id: 'brood_tentacle_red'
+mod: claude.lewdMemeBrood
+title: ''
+usage:
+  - type: 'feed'
+    text: '把任意带卡路里的食物拖到它身上喂食:每 10 卡路里 = 1 经验(堆叠按数量结算;触手不能喂触手);每级所需经验 = 50×当前等级(Lv0→1 需 50),可连升多级。喂食要求力支基因等级 ≥ 触手当前等级,最高可升到 对应力支基因等级 + 1(封顶 Lv10)——升级吃食物、上限靠本体吞噬红触手积累基因经验抬高,详见[本体吞噬进化](../mechanics/brood-devour-evolution.html)'
+    source: '据 TentacleItems.cs CanFeed/Feed/ExpToNext、Genes.cs TentacleCap 与 zh.csv tip.adult.level / tip.adult.capped 词条'
+  - type: 'drag-target'
+    text: '喂养升级后放进 [[brood_sym_nest]] 部署区(6×6)共生(出场 Lv0,需先喂到 Lv1 才生效):拾荒次数 +(不同条取最高)· 捕获概率 +(可叠加);鞭打力道足以破开石壁,可疑造型或许会迎来盘查'
+    source: '据 zh.csv ab.str 词条、item.brood_tentacle_red.desc 与 tip.adult.lv0'
+  - type: 'drag-target'
+    text: '直接拖到 [[maiden_lower]] 苗床身上交配:性交次数 +3~5、调教值同步 +3~5,首次使用会把处女标记转换为破身(影响收购商的处女加价);同一只触手每天限用一次,效果与触手等级无关'
+    source: '据 TentacleItems.cs 成体拖拽注册与 TentacleUse.cs Use 的 Str 分支、Apply'
+  - type: 'drag-target'
+    text: '让 [[tentacle_body]] 本体吞下:获得力支基因经验 =(20 + 8×触手等级)×(1 + 0.1×基因同化点数),Lv1 给 28、Lv10 给 100;巢穴觉醒前该功能锁定'
+    source: '据 BodyActions.cs Absorb/OnTarget、Genes.cs GainFor 与 zh.csv body.locked / tip.adult.absorb 词条'
+  - type: 'process'
+    text: '不需要时可以用刀切了获取肉块'
+    source: '据 item.brood_tentacle_red.desc'
+sources:
+  - source: '卵孵化'
+    detail: '[[brood_egg]] 孵化出的五种功能触手之一;孵化时喂给卵的液体成分影响孵出结果'
+    probability: '孵化产出(据 manifest Description 与 item.brood_egg.desc)'
+related:
+  - 'brood_sym_nest'
+  - 'brood_egg'
+  - 'brood_tentacle_green'
+  - 'brood_tentacle_yellow'
+  - 'brood_tentacle_aqua'
+  - 'brood_tentacle_purple'
+  - 'maiden_lower'
+notes: '部署数值为运行时等级数值,本地化文本未给出具体数字,待补充(据 zh.csv ab.str 模板);等级只改名字不改贴图(据 TentacleItems.cs RefreshName)。'
+---
