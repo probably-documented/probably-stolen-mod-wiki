@@ -511,6 +511,28 @@ test('卡片模式:分区文件写 cards: true 时分区块是一张张卡片(�
   assert.ok(!home.includes('class="mod-card"'), 'the home page has no cards');
 });
 
+// ---------- 阶段 5 补：mod 的显示名以页面标题为准，全站一致 ----------
+
+test('mod 的显示名:nav 模型里的名字在物品页、面包屑、更新日志、data.js 和 mod 页里都是同一个', async (t) => {
+  const layout = await modTree(t);
+  const data = await prepared(layout);
+  data.mechanics = [{ slug: 'guide', title: '指南', mod: 'lewd_meme', source: '# 指南\n\n正文。' }];
+  const nav = { ...NAV, mods: NAV.mods.map((m) => (m.id === 'lewd_meme' ? { ...m, name: '触手（编辑者改的名）' } : m)) };
+  const out = await renderSite(structuredClone(data), { layout, nav });
+
+  const item = out.get('item/wondrous_milk.html');
+  assert.ok(item.includes('适用于 触手（编辑者改的名） 1.9.2'), 'the item page says which mod it belongs to, by the shown name');
+  assert.ok(item.includes('<div class="crumb"><a href="../index.html">首页</a> &gt; <a href="../mods/lewd_meme.html">触手（编辑者改的名）</a> &gt; 神奇乳汁</div>'), 'and in its crumb');
+  const mech = out.get('mechanics/guide.html');
+  assert.ok(mech.includes('<a href="../mods/lewd_meme.html">触手（编辑者改的名）</a>'), "the mechanic page's crumb too");
+  const changelog = out.get('changelog.html');
+  assert.ok(changelog.includes('<a href="mods/lewd_meme.html">触手（编辑者改的名）</a>'), 'the changelog groups by it');
+  const payload = WINDOW('WIKI_DATA')(out.get('data.js'));
+  assert.equal(payload.mods.find((m) => m.id === 'lewd_meme').name, '触手（编辑者改的名）');
+  assert.equal(payload.items.find((it) => it.id === 'wondrous_milk').modName, '触手（编辑者改的名）');
+  assert.ok(out.get('mods/lewd_meme.html').includes('<title>触手（编辑者改的名） · probably-documented</title>'), 'the mod page is titled by it');
+});
+
 // ---------- 阶段 5 Task 5:两个概述 ----------
 
 test('概述:分区的 items_intro 显示在物品图鉴页、mechanics_intro 显示在机制说明页;空的不出这一节;分区页上不显示', async (t) => {

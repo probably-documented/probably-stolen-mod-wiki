@@ -143,11 +143,13 @@ function multiLine(text) {
 function buildSiteModel(data, nav = null, about = null) {
   const mods = data.mods ?? [];
   const modsById = new Map(mods.map((m) => [m.id, m]));
-  // A hand-written mod's name lives in its page file; the search model (nav) carries it.
+  // The name a mod is shown under: the search model's (its page file's title first, then the
+  // data, then the directory — nav-search.js), so every page says the same thing.
   const navNames = new Map((nav?.mods ?? []).map((m) => [m.id, m.name]));
+  const nameOf = (id) => navNames.get(id) ?? modsById.get(id)?.name ?? null;
   const items = (data.items ?? []).map((it) => ({
     ...it,
-    modName: modsById.get(it.mod)?.name ?? navNames.get(it.mod) ?? null,
+    modName: nameOf(it.mod),
     // M1:infobox「适用版本」接线为所属 mod 的版本(item 自身无 version 字段)。
     version: validVersion(modsById.get(it.mod)?.version),
   }));
@@ -162,7 +164,7 @@ function buildSiteModel(data, nav = null, about = null) {
   // `nav_label`(mechanics.js 的 sitePagesWithNavLabel 读出来,阶段 3 Task 5)。
   // 没有页面声明 → null → 导航没有这一项;构建入口保证最多一页声明。
   const aboutNav = about == null ? null : aboutNavItem(about.navLabel, about.slug);
-  return { mods, modsById, items, lookup, aboutNav };
+  return { mods, modsById, items, lookup, aboutNav, nameOf };
 }
 
 /** 首页通知条:数据基线 = 各 mod 版本列表(mods 顺序)。 */
@@ -716,7 +718,7 @@ function renderChangelog(data, model) {
     }))
     .filter((g) => g.entries.length > 0);
 
-  const sections = groups.map(({ mod, entries }) => `<h2 class="sec"><a href="mods/${esc(mod.id)}.html">${mod.name == null ? esc(mod.id) : esc(mod.name)}</a></h2>
+  const sections = groups.map(({ mod, entries }) => `<h2 class="sec"><a href="mods/${esc(mod.id)}.html">${esc(model.nameOf(mod.id) ?? mod.id)}</a></h2>
 ${entries.map((c) => `<h3 class="sub">v${esc(c.version)}</h3>\n<p style="font-size:13px">${multiLine(c.text ?? '')}</p>`).join('\n')}`).join('\n');
 
   return layout({
@@ -760,7 +762,7 @@ function renderDataJs(data, model) {
     generatedAt: data.generatedAt ?? null,
     baseline: data.baseline ?? { date: null, versions: {} },
     mods: (data.mods ?? []).map((m) => ({
-      id: m.id, name: m.name, version: m.version, author: m.author,
+      id: m.id, name: model.nameOf(m.id) ?? m.name, version: m.version, author: m.author,
       prerequisites: m.prerequisites ?? [], itemCount: m.itemCount ?? 0,
     })),
     items: model.items.map((it) => ({
@@ -812,8 +814,8 @@ async function renderSite(data, options = {}) {
   // build entry refuses more than one long before it gets here.
   const about = (await sitePagesWithNavLabel(layout))[0] ?? null;
   const model = buildSiteModel(data, nav, about);
-  // A mod's name for a page that belongs to it: the data's, or — for a hand-written mod — the search model's.
-  const modNameOf = (id) => model.modsById.get(id)?.name ?? (nav.mods ?? []).find((m) => m.id === id)?.name ?? null;
+  // A mod's name for a page that belongs to it: the one the search model shows (see buildSiteModel).
+  const modNameOf = (id) => model.nameOf(id);
   const out = new Map();
 
   out.set('index.html', await renderHomePage(data, model, layout, nav));
