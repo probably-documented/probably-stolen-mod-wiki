@@ -853,6 +853,52 @@ test("the repository's own content passes every check of the content lint (and s
   assert.deepEqual(await lintContent({ layout: await readContentLayout(REPO_CONTENT), data: structuredClone(FIXTURE_DATA) }), []);
 });
 
+test('what the CMS writes passes the build: a mechanic page with an uploaded image, an item entry left blank, a mod with a title only, a redirects.yaml', async (t) => {
+  // The four shapes below are the files Sveltia CMS 0.271.0 wrote in the browser smoke test of
+  // stage 2b, copied from the virtual repository: every declared field is written, a blank one
+  // as an empty string or an empty list; an uploaded image gets a slugified name with a short
+  // uuid and is referenced URL-encoded.
+  const distDir = await tmpDir(t, 'cms-output');
+  const contentDir = await tmpDir(t, 'cms-output-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+
+  // Uploaded as 冒烟 图片.PNG in a mechanic page of lewd_meme: stored in the mod's images/.
+  const images = path.join(contentDir, 'mods', FIXTURE_MOD, 'images');
+  await fs.mkdir(images);
+  await fs.writeFile(path.join(images, '冒烟-图片-639ef49482e0.png'), PNG_1PX);
+  await fs.writeFile(pageIn(contentDir, 'smoke-mechanic'),
+    `---\ntitle: 冒烟测试 机制页\nmod: ${FIXTURE_MOD}\nnav_label: ''\n---\n\n正文。![](../images/%E5%86%92%E7%83%9F-%E5%9B%BE%E7%89%87-639ef49482e0.png)\n`);
+
+  // An item entry saved with nothing typed but the id and the mod.
+  await fs.writeFile(entryIn(contentDir, 'tentacle_body'), [
+    '---', 'item_id: tentacle_body', `mod: ${FIXTURE_MOD}`, "title: ''", "description: ''", "flavor: ''", "notes: ''",
+    'usage: []', 'sources: []', 'related: []', 'categories: []', 'price: null', "icon: ''", 'shape: []', '---', '',
+  ].join('\n'));
+
+  // A mod created from a title only; its directory name is the alias set by hand.
+  const newMod = path.join(contentDir, 'mods', 'smoke-Mod.X');
+  await fs.mkdir(newMod);
+  await fs.writeFile(path.join(newMod, '_index.md'), "---\ntitle: 冒烟测试Mod\nsummary: ''\nauthor: ''\nversion: ''\nprerequisites: []\n---\n");
+
+  // A redirects file of a mod this content tree had no folder for yet: plain YAML, no front matter.
+  const withRedirects = path.join(contentDir, 'mods', 'lewd_meme_remake');
+  await fs.mkdir(withRedirects);
+  await fs.writeFile(path.join(withRedirects, 'redirects.yaml'), 'mod: lewd_meme_remake\naliases:\n  - 暗流\nkeywords: []\n');
+
+  const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+  assert.equal(exitCode, before, err && err.message);
+
+  // The mod's image is published to both places its pages look, and the page keeps the reference as
+  // the CMS wrote it — the build finds the file behind the encoded name.
+  assert.equal(result.imagesPublished, 2);
+  for (const dest of ['images', path.join('mods', 'images')]) {
+    assert.deepEqual(await fs.readFile(path.join(distDir, dest, '冒烟-图片-639ef49482e0.png')), PNG_1PX, `${dest}/`);
+  }
+  const page = await fs.readFile(path.join(distDir, 'mechanics', 'smoke-mechanic.html'), 'utf8');
+  assert.ok(page.includes('<img src="../images/%E5%86%92%E7%83%9F-%E5%9B%BE%E7%89%87-639ef49482e0.png"'), 'the reference as written');
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, [], 'nothing dangles: the build itself checked, and so does this');
+});
+
 // ---------------------------------------------------------------------------
 // Task 5 D → Task 5b D1 — rm guard
 //
