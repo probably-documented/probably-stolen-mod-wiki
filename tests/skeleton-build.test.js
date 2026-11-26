@@ -801,6 +801,51 @@ test('a hand-written item entry with a title builds: the item gets a page of its
   assert.equal(result.pages, await countRenderedFiles(distDir));
 });
 
+test('an uploaded icon is published with the item: content/mods/<mod>/images/<文件名> → dist/assets/items/<mod>/<文件名>, and the item shows it', async (t) => {
+  const distDir = await tmpDir(t, 'uploaded-icon');
+  const contentDir = await tmpDir(t, 'uploaded-icon-content');
+  await fs.cp(REPO_CONTENT, contentDir, { recursive: true });
+  // The picture the CMS stored and the entry as the CMS wrote it — both read off the lab site.
+  const picture = '冒烟-图标-3d8794085559.png';
+  await fs.mkdir(path.join(contentDir, 'mods', FIXTURE_MOD, 'images'), { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'mods', FIXTURE_MOD, 'images', picture), PNG_1PX);
+  await fs.writeFile(entryIn(contentDir, 'smoke-icon-item'),
+    `---\nitem_id: smoke-icon-item\nmod: ${FIXTURE_MOD}\ntitle: 冒烟图标物品\nicon: ../images/${picture}\n---\n`);
+  const warnings = [];
+
+  const { result, exitCode, before, err } = await capturingExitCode(() => build({ distDir, contentDir, warn: (line) => warnings.push(line) }));
+  assert.equal(exitCode, before, err && err.message);
+
+  // …published where item pages look for icons, byte for byte…
+  assert.deepEqual(await fs.readFile(path.join(distDir, 'assets', 'items', FIXTURE_MOD, picture)), PNG_1PX);
+  // …and beside the pages too, as every picture of a mod is.
+  assert.deepEqual(await fs.readFile(path.join(distDir, 'images', picture)), PNG_1PX);
+  const page = await fs.readFile(path.join(distDir, 'item', 'smoke-icon-item.html'), 'utf8');
+  assert.ok(page.includes(`src="../assets/items/${FIXTURE_MOD}/${picture}"`), 'the item shows its uploaded icon');
+  assert.ok(!page.includes('无图'), 'not the placeholder');
+  assert.ok(!warnings.some((line) => /icon dropped/.test(line) && line.includes(picture)), 'not taken for a missing texture: its home is not the game files');
+  assert.equal(result.uploadedIconsCopied, 1);
+  assert.deepEqual((await findDanglingRefs(distDir)).dangling, []);
+});
+
+test('an uploaded icon whose picture is gone → the build fails before rm dist, names the entry and the picture, and keeps the previous dist', async (t) => {
+  const distDir = await tmpDir(t, 'uploaded-icon-lost');
+  await fs.writeFile(path.join(distDir, 'sentinel-from-previous-build.html'), '<title>previous build</title>');
+  const before = await snapshotTree(distDir);
+  const contentDir = await tmpDir(t, 'uploaded-icon-lost-content');
+  await writeItemEntry(contentDir, 'smoke-icon-item', ['title: 冒烟图标物品', 'icon: ../images/gone.png']);
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+
+  assert.ok(err instanceof Error, `expected the content lint to fail the build, got ${err}`);
+  assert.equal(err.name, 'BuildError');
+  assert.equal(exitCode, 1);
+  assert.match(err.message, /^\[content\] FAIL — 发现 1 处问题:/);
+  assert.match(err.message, /gone\.png/, 'names the picture');
+  assert.match(err.message, /重新上传/, 'says what to do');
+  assert.deepEqual(await snapshotTree(distDir), before, 'previous dist untouched (a pre-flight check, before rm dist)');
+});
+
 test('buildSkeleton with contentDir: null has no content to lint and builds as before', async (t) => {
   const distDir = await tmpDir(t, 'lint-skip');
   const { exitCode, before, result } = await capturingExitCode(() => build({ distDir, contentDir: null, warn: noop }));

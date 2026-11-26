@@ -32,9 +32,9 @@ const filesOf = (files) => async (file) => {
 
 const codes = (issues) => issues.map((i) => i.code);
 
-test('ISSUE_ORDER is the seventeen checks, A to Q, and NAME_RE is what the CMS accepts for a file name', () => {
-  assert.equal(ISSUE_ORDER.length, 17);
-  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMNOPQ'].sort());
+test('ISSUE_ORDER is the eighteen checks, A to R, and NAME_RE is what the CMS accepts for a file name', () => {
+  assert.equal(ISSUE_ORDER.length, 18);
+  assert.deepEqual([...ISSUE_ORDER].sort(), [...'ABCDEFGHIJKLMNOPQR'].sort());
   for (const ok of ['barrel-system', 'a.b', 'A_B', '中文.别名', 'a..b', 'gear.maidDress', '_index']) assert.match(ok, NAME_RE, ok);
   for (const bad of ['a b', 'a/b', 'a~b', 'a#b', 'a\\b']) assert.doesNotMatch(bad, NAME_RE, bad);
 });
@@ -181,6 +181,23 @@ test('M — an item entry filed under a mod the item does not belong to', async 
   const issues = await lintContent({ layout, data: { items: [{ id: 'egg', mod: 'beta' }] }, readFile: filesOf({ 'c/mods/alpha/items/egg.md': fm('item_id: egg\nmod: alpha') }) });
   assert.deepEqual(codes(issues), ['M']);
   assert.match(issues[0].fix, /mods\/beta\/items\//, 'says where to move it');
+});
+
+test('R — an entry whose icon was uploaded needs the picture to be in its mod\'s images/ folder; an icon written any other way is not asked for', async () => {
+  const layout = layoutOf({ mods: [mod('alpha', { items: [item('alpha', 'has'), item('alpha', 'lost'), item('alpha', 'old')] })] });
+  const files = {
+    'c/mods/alpha/items/has.md': fm('item_id: has\nmod: alpha\ntitle: 有图\nicon: ../images/a.png'),
+    'c/mods/alpha/items/lost.md': fm('item_id: lost\nmod: alpha\ntitle: 丢了图\nicon: ../images/gone.png'),
+    'c/mods/alpha/items/old.md': fm('item_id: old\nmod: alpha\ntitle: 游戏贴图\nicon: items/alpha/old.png'), // a game texture's own path
+  };
+  const there = async (file) => file === path.join('c/mods/alpha', 'images', 'a.png');
+
+  const issues = await lintContent({ layout, data: { items: [] }, handwrittenItems: true, readFile: filesOf(files), fileExists: there });
+
+  assert.deepEqual(issues.map((i) => [i.file, i.code]), [['c/mods/alpha/items/lost.md', 'R']]);
+  assert.match(issues[0].problem, /alpha[\s\S]*gone\.png/, 'names the folder and the picture');
+  assert.match(issues[0].fix, /重新上传/, 'says what to do in the CMS');
+  assert.deepEqual(await lintContent({ layout, data: { items: [] }, handwrittenItems: true, readFile: filesOf(files), fileExists: async () => true }), []);
 });
 
 test('O — two item entries of one mod that name one item (a hand-typed id that differs by case only): both files are listed, and the fix says to keep one', async () => {

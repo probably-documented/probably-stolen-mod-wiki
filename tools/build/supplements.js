@@ -13,6 +13,8 @@
 //   - shape：两个有限数字的数组才覆盖；
 //   - categories / tags / usage / sources / related / aliases：非空数组才覆盖。
 //   - title：非空时就是物品在站上的名字（纯手写的物品靠它起名）。
+//   - icon：上传的图片（CMS 的图片控件写成 ../images/<文件名>）记成 items/<mod>/<文件名>，
+//     图片由构建从这个 mod 的 images/ 里发布；别的写法照旧。
 // 覆盖过的字段在 provenance 里记成 `content:items/<文件名>`（与离线的
 // `content:items/<fileName>` 标签一致；改它，每一个物品页的「数据来源」表都会变）。
 
@@ -21,8 +23,9 @@ const path = require('node:path');
 
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const { resolveItemId } = require('./item-ids.js');
+const { uploadedIconName } = require('./content-lint.js');
 
-const SCALAR_FIELDS = Object.freeze(['name', 'description', 'flavor', 'notes', 'icon']);
+const SCALAR_FIELDS = Object.freeze(['name', 'description', 'flavor', 'notes']);
 const ARRAY_FIELDS = Object.freeze(['categories', 'tags', 'usage', 'sources', 'related', 'aliases']);
 
 const toPosix = (p) => p.split(path.sep).join('/');
@@ -49,8 +52,9 @@ async function readSupplements(layout) {
  * @param {object} item
  * @param {object} frontmatter
  * @param {string} fileName
+ * @param {Set<object>} [uploadedIcons] 上传了图标的物品记在这里(构建入口发布它们时用)
  */
-function applySupplement(item, frontmatter, fileName) {
+function applySupplement(item, frontmatter, fileName, uploadedIcons = new Set()) {
   const label = `content:items/${fileName}`;
   // 「数据来源」说的是哪个字段盖住了游戏数据。纯手写物品没有游戏数据可盖,词条里写的
   // 字段就是它的全部内容,不记这张表。
@@ -68,6 +72,19 @@ function applySupplement(item, frontmatter, fileName) {
   // 填的正好是数据里已有的名字时什么也没盖住,来源照旧是游戏文本。
   const title = typeof frontmatter.title === 'string' ? frontmatter.title.trim() : '';
   if (title !== '' && title !== item.name) set('name', title);
+
+  // 图标:上传的图片记成 items/<mod>/<文件名>(构建要的路径,图片由构建从这个 mod 的 images/ 里
+  // 发布);别的写法照旧。是不是上传的写法,和内容检查的 R 用同一条规则。
+  const rawIcon = frontmatter.icon;
+  if (typeof rawIcon === 'string' && rawIcon !== '') {
+    const uploaded = item.mod == null ? null : uploadedIconName(rawIcon);
+    if (uploaded !== null) {
+      set('icon', `items/${item.mod}/${uploaded}`);
+      uploadedIcons.add(item);
+    } else {
+      set('icon', rawIcon);
+    }
+  }
 
   const price = frontmatter.price;
   if (typeof price === 'number' && Number.isFinite(price)) {
@@ -93,11 +110,13 @@ function applySupplement(item, frontmatter, fileName) {
  * @param {object} data  the loaded model (its items are mutated)
  * @param {object|null} layout readContentLayout 的结果(null 时不做任何事)
  * @param {(line: string) => void} [warn]
+ * @returns {Promise<Set<object>>} 上传了图标的物品(它们的 icon 已经是 items/<mod>/<文件名>)
  */
 async function mergeSupplements(data, layout, warn = console.warn) {
   const byId = new Map((data.items ?? []).map((item) => [item.id, item]));
+  const uploadedIcons = new Set();
   for (const { id, frontmatter, fileName, file } of await readSupplements(layout)) {
-    // A file name the CMS lowercased still names its item (resolveItemId).
+    // A file name that differs from the id by case only still names its item (resolveItemId).
     const realId = resolveItemId(id, byId.keys());
     const item = realId === null ? undefined : byId.get(realId);
     if (item === undefined) {
@@ -106,8 +125,9 @@ async function mergeSupplements(data, layout, warn = console.warn) {
       warn(`[build] supplement skipped: ${toPosix(file)} names no item (${id})`);
       continue;
     }
-    applySupplement(item, frontmatter, fileName);
+    applySupplement(item, frontmatter, fileName, uploadedIcons);
   }
+  return uploadedIcons;
 }
 
 /**

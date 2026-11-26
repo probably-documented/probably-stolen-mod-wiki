@@ -20,6 +20,7 @@
 //   O  两份物品词条指向同一件物品
 //   P  物品词条开头的 item_id 不是它自己的文件名(或没写)
 //   Q  纯手写物品的词条(对不上任何已导出的物品)没有填 title:物品得有个名字
+//   R  词条的图标是上传的(CMS 写成 ../images/<文件名>),但所属 mod 的 images/ 里没有这张图片
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -34,7 +35,7 @@ const NAME_RE = /^[A-Za-z0-9._\-\u4e00-\u9fff]+$/;
 const REDIRECTS_MOD_RE = /^mod:[ \t]*(.*?)[ \t]*$/m;
 
 /** 检查的先后。报告里同一个文件的问题按这个顺序排。 */
-const ISSUE_ORDER = Object.freeze([...'ABCDEFGHIJKLMNOPQ']);
+const ISSUE_ORDER = Object.freeze([...'ABCDEFGHIJKLMNOPQR']);
 
 const isMissing = (err) => err != null && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
 
@@ -59,6 +60,30 @@ async function listFiles(dir) {
 }
 
 const defaultReadFile = (file) => fs.readFile(file, 'utf8');
+
+/** 文件在不在;读不了(不是「不存在」)照常抛出。 */
+async function defaultFileExists(file) {
+  try {
+    await fs.access(file);
+    return true;
+  } catch (err) {
+    if (isMissing(err)) return false;
+    throw err;
+  }
+}
+
+/**
+ * 词条的图标是不是上传的。CMS 的图片控件把它写成 ../images/<文件名>(相对词条文件);
+ * 构建要的是 items/<mod>/<文件名>,图片由构建从这个 mod 的 images/ 里发布。
+ * 这一条规则补充层(supplements.js)和这里的检查 R 共用,免得两边对「什么算上传的」有出入。
+ * 只认 ../images/ 加上不含路径的单个文件名,文件名不能以点开头。别的写法都不是上传的。
+ * @param {unknown} value 词条开头的 icon
+ * @returns {string|null} 文件名;不是上传的写法时是 null
+ */
+function uploadedIconName(value) {
+  const match = /^\.\.\/images\/([^/\\]+)$/.exec(typeof value === 'string' ? value.trim() : '');
+  return match !== null && !match[1].startsWith('.') ? match[1] : null;
+}
 
 /**
  * 一篇词条开头的 `mod:`:没写、写的不是已有的 Mod、写的是别的 Mod 目录。
@@ -146,10 +171,11 @@ function itemIdFieldIssue(entry, fm) {
  * @param {object} args.data 载入的站点数据,用到 items(每件的 id 和 mod)
  * @param {boolean} [args.handwrittenItems] 允许对不上数据的物品词条(纯手写物品)时为 true
  * @param {(file: string) => Promise<string>} [args.readFile] 读文件,默认读磁盘
+ * @param {(file: string) => Promise<boolean>} [args.fileExists] 文件在不在,默认问磁盘
  * @returns {Promise<Array<{ code: string, file: string, problem: string, fix: string }>>}
  *   按文件排序;同一个文件里按 ISSUE_ORDER
  */
-async function lintContent({ layout, data, handwrittenItems = false, readFile = defaultReadFile }) {
+async function lintContent({ layout, data, handwrittenItems = false, readFile = defaultReadFile, fileExists = defaultFileExists }) {
   const issues = [];
   const add = (file, issue) => {
     if (issue !== null) issues.push({ code: issue.code, file, problem: issue.problem, fix: issue.fix });
@@ -243,6 +269,15 @@ async function lintContent({ layout, data, handwrittenItems = false, readFile = 
       const fm = splitFrontmatter(await readFile(entry.file)).fm;
       add(entry.file, modIssue(fm, { mod, modIds, what: '物品词条', code: 'B' }));
       add(entry.file, itemIdFieldIssue(entry, fm));
+      // An uploaded icon: the picture has to be where the CMS puts it, in this mod's images/.
+      const picture = uploadedIconName(fm.icon);
+      if (picture !== null && !(await fileExists(path.join(mod.dir, 'images', picture)))) {
+        add(entry.file, {
+          code: 'R',
+          problem: `这一篇的图标指向 ${mod.id} 的 images/ 文件夹里没有的图片「${picture}」`,
+          fix: '在 CMS 里打开这一篇,重新上传图标;或者把开头 icon: 那一行改成 images/ 里确实有的文件名。',
+        });
+      }
       // A file name that differs from the id by case only still names its item (resolveItemId).
       const realId = resolveItemId(entry.id, itemIds);
       if (realId === null) {
@@ -323,4 +358,4 @@ function formatContentIssues(issues) {
   ].join('\n');
 }
 
-module.exports = { lintContent, formatContentIssues, ISSUE_ORDER, NAME_RE };
+module.exports = { lintContent, formatContentIssues, uploadedIconName, ISSUE_ORDER, NAME_RE };

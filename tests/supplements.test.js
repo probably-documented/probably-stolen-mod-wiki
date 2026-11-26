@@ -258,3 +258,55 @@ test('title: a non-empty title in the entry overwrites the name of an exported i
   assert.equal(itemOf(kept, 'wondrous_milk').name, milkBefore.name);
   assert.equal(itemOf(kept, 'wondrous_milk').provenance.name, milkBefore.provenance.name, 'still the game text, not the entry');
 });
+
+// ---------- 阶段 3 Task 4:物品的图标可以上传 ----------
+//
+// Tried on the lab site first: with the field as an image control, a picture uploaded in an
+// item entry is stored in the mod's images/ folder and the field reads ../images/<文件名>.
+
+test('an uploaded icon: the entry says ../images/<文件名> (as the CMS writes it), the item takes items/<mod>/<文件名>, and the merge says which items have one', async (t) => {
+  const contentDir = tmpDir(t, 'uploaded-icon');
+  const layout = layoutWith(contentDir, [writeEntry(contentDir, 'lewd_meme_remake', 'milk_rich', ['icon: ../images/冒烟-图标-3d8794085559.png'])]);
+  const data = structuredClone(FIXTURE_DATA);
+  const uploaded = await mergeSupplements(data, layout, () => {});
+
+  assert.equal(itemOf(data, 'milk_rich').icon, 'items/lewd_meme_remake/冒烟-图标-3d8794085559.png');
+  assert.equal(itemOf(data, 'milk_rich').provenance.icon, 'content:items/milk_rich.md');
+  assert.deepEqual([...uploaded], [itemOf(data, 'milk_rich')], 'the merge hands back the items whose icon was uploaded');
+});
+
+test('an icon written any other way is left as it was, and is not taken for an upload', async (t) => {
+  for (const [i, icon] of [
+    'items/lewd_meme/x.png', // the game texture's own path (what the data says)
+    'x.png', // a bare file name
+    '../other/a.png', // another folder
+    '../images/sub/a.png', // a folder inside images/
+    '../images/.hidden.png', // a leading dot
+    '../../etc/passwd', // a climb
+    '../images\\a.png', // a backslash
+  ].entries()) {
+    const contentDir = tmpDir(t, `icon-kept-${i}`);
+    const layout = layoutWith(contentDir, [writeEntry(contentDir, 'lewd_meme_remake', 'milk_rich', [`icon: '${icon}'`])]);
+    const data = structuredClone(FIXTURE_DATA);
+    const uploaded = await mergeSupplements(data, layout, () => {});
+    assert.equal(itemOf(data, 'milk_rich').icon, icon, icon);
+    assert.equal(uploaded.size, 0, `${icon}: not an upload`);
+  }
+  // …and an entry that says no icon does not touch the item's
+  const blank = tmpDir(t, 'icon-blank');
+  const data = structuredClone(FIXTURE_DATA);
+  assert.equal((await mergeSupplements(data, layoutWith(blank, [writeEntry(blank, 'lewd_meme_remake', 'milk_rich', ["icon: ''"])]), () => {})).size, 0);
+});
+
+test('a hand-written item can have an uploaded icon too', async (t) => {
+  const contentDir = tmpDir(t, 'uploaded-handwritten');
+  const thing = writeEntry(contentDir, 'ghost_mod', 'thing', ["title: '东西'", 'icon: ../images/thing.png']);
+  const layout = { ...layoutWith(contentDir, []), mods: [modDir(contentDir, 'ghost_mod', [thing])] };
+  const data = structuredClone(FIXTURE_DATA);
+  await addHandwrittenItems(data, layout);
+  const uploaded = await mergeSupplements(data, layout, () => {});
+
+  const item = data.items.find((it) => it.id === 'thing');
+  assert.equal(item.icon, 'items/ghost_mod/thing.png');
+  assert.deepEqual([...uploaded], [item]);
+});

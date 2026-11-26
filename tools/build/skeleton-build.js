@@ -170,12 +170,16 @@ async function sourceIsMissing(file) {
  * `dist/assets/items/<mod id>/<file>`. Run it after dropMissingIcons: an
  * icon that survived it has a file, found by the same lookup (the item's
  * own mod first, then the mod named in the icon path).
+ * @param {Set<object>} [uploaded] the items whose icon was uploaded: their
+ *   picture is the contributor's, not the game's — copyUploadedIcons
+ *   publishes those, so they are skipped here
  * @returns {Promise<number>} Textures copied.
  */
-async function copyItemTextures(items, assetsDir, distDir) {
+async function copyItemTextures(items, assetsDir, distDir, uploaded = new Set()) {
   const texturesDir = path.join(assetsDir, TEXTURES_DIR);
   let copied = 0;
   for (const item of items ?? []) {
+    if (uploaded.has(item)) continue;
     const rel = item.icon;
     if (typeof rel !== 'string' || rel === '') continue;
     const segs = rel.split('/');
@@ -201,6 +205,36 @@ async function findTextureFile(texturesDir, itemMod, iconMod, fileName) {
     if (!(await sourceIsMissing(candidate))) return candidate;
   }
   return null;
+}
+
+/**
+ * The icons contributors uploaded (stage 3, task 4): the items supplements.js
+ * hands back, whose icon reads items/<mod>/<文件名>. The picture is in that
+ * mod's images/ folder of the content tree; it is published to
+ * dist/assets/items/<mod>/<文件名> — where the item pages and the search page
+ * look for icons, next to the game's own textures. The content lint (R) has
+ * already made sure every one of them is there.
+ * @param {Set<object>} uploaded
+ * @param {object|null} layout
+ * @returns {Promise<number>} Pictures copied.
+ */
+async function copyUploadedIcons(uploaded, layout, distDir) {
+  let copied = 0;
+  for (const item of uploaded) {
+    const rel = typeof item.icon === 'string' ? /^items\/([^/]+)\/([^/]+)$/.exec(item.icon) : null;
+    if (rel === null) continue;
+    const mod = (layout?.mods ?? []).find((m) => m.id === rel[1]);
+    const from = mod === undefined ? null : path.join(mod.dir, 'images', rel[2]);
+    if (from === null || await sourceIsMissing(from)) {
+      // Not a contributor's doing any more: the content lint has just passed this.
+      throw new Error(`[build:skeleton] uploaded icon not found after the content check passed: ${item.icon}`);
+    }
+    const to = path.join(distDir, 'assets', ...item.icon.split('/'));
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    await fs.copyFile(from, to);
+    copied += 1;
+  }
+  return copied;
 }
 
 /**
@@ -549,11 +583,12 @@ async function injectAdmin(adminSource, distDir) {
  *   (relative paths resolve against cwd, like distDir/contentDir). A missing
  *   directory skips the injection; null skips it on purpose.
  * @returns {Promise<{pages: number, iconsDropped: number, assetsCopied: number,
- *   texturesCopied: number, imagesPublished: number, adminInjected: boolean,
+ *   texturesCopied: number, uploadedIconsCopied: number, imagesPublished: number, adminInjected: boolean,
  *   cmsAssets: { templates: number, items: number } | null}>}
- *   pages = rendered pages + data.js (assets and admin/ are not pages).
+ *   pages = rendered pages + data.js + nav-search.js (assets and admin/ are not pages).
  *   iconsDropped = declared icons with no texture file (→ 无图 fallback);
  *   texturesCopied = item textures copied from assets-src/mods/;
+ *   uploadedIconsCopied = icons contributors uploaded, copied from the content tree;
  *   imagesPublished = images copied from the content layout's images/ folders.
  *   adminInjected = whether an admin tree was copied into dist.
  *   cmsAssets = the CMS's scripts and catalogs written after the shell ({ templates, items }),
@@ -655,14 +690,20 @@ async function buildSkeleton({
     //    items, those included: an icon override must go through dropMissingIcons too, and an
     //    empty value never overwrites the data.
     await addHandwrittenItems(payload, layout);
-    await mergeSupplements(payload, layout, warn);
+    const uploadedIcons = await mergeSupplements(payload, layout, warn);
     // The category chips follow the merged items, as the offline build's
     // facets do: a category a contributor adds in the CMS shows up in the
     // filter without waiting for a data re-export.
     payload.facets = { categories: [...new Set(payload.items.flatMap((it) => it.categories ?? []))].sort() };
+    // An uploaded icon lives in its mod's images/ folder, not in the game's
+    // texture tree that dropMissingIcons probes: those icons are parked while
+    // it runs, so that it neither drops them nor warns about them.
+    const parked = [...uploadedIcons].map((item) => [item, item.icon]);
+    for (const [item] of parked) item.icon = null;
     const iconsDropped = await dropMissingIcons(payload.items, {
       modsDir: path.join(assetsDir, TEXTURES_DIR), modDirs, warn,
     });
+    for (const [item, icon] of parked) item.icon = icon;
     payload.mechanics = await mergeMechanicsContent(payload.mechanics, layout);
     //    The home page's search model: the mods in their global order, the
     //    sections, and what each mod's redirects.yaml adds to the search.
@@ -705,7 +746,10 @@ async function buildSkeleton({
     const assetsCopied = await copyAssets(assetsDir, distPath);
 
     // 5b. Item textures → the paths the item pages reference.
-    const texturesCopied = await copyItemTextures(payload.items, assetsDir, distPath);
+    const texturesCopied = await copyItemTextures(payload.items, assetsDir, distPath, uploadedIcons);
+
+    // 5b'. Uploaded icons → the same folder, from the content tree.
+    const uploadedIconsCopied = await copyUploadedIcons(uploadedIcons, layout, distPath);
 
     // 5c. Images of the content layout → every folder its pages reference them from.
     const imagesPublished = await copyLayoutImages(layout, distPath);
@@ -744,7 +788,7 @@ async function buildSkeleton({
       ? await writeCmsAssets({ repoRoot: REPO_ROOT, distDir: distPath, layout, data: payload })
       : null;
 
-    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, imagesPublished, adminInjected, cmsAssets };
+    return { pages: rendered.size, iconsDropped, assetsCopied, texturesCopied, uploadedIconsCopied, imagesPublished, adminInjected, cmsAssets };
   } catch (err) {
     process.exitCode = 1;
     throw err;

@@ -442,11 +442,13 @@ collections:
         preview: false
         hint: '留空就用游戏数据里的价格。'
       - name: icon
-        label: 图标路径
-        widget: string
+        label: 图标
+        widget: image
         required: false
         preview: false
-        hint: '一般不用填:留空就用游戏里的贴图。'
+        # 不给「粘贴图片地址」的入口:图片只能上传,存在这个 mod 的 images/ 里,构建发布到物品页找图标的地方。
+        choose_url: false
+        hint: '物品的图标,显示在物品卡片和详情页上。上传一张图片(位图),它存在这个 mod 的 images/ 文件夹里;留空就用游戏里的贴图。'
       - name: shape
         label: 占格尺寸
         widget: list

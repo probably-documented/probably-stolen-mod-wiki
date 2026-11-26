@@ -125,7 +125,7 @@ const COLLECTIONS = Object.freeze({
   items: [
     ['item_id', 'item-id'], ['mod', 'relation'], ['title', 'string'], ['description', 'string'], ['flavor', 'string'],
     ['notes', 'string'], ['usage', 'list'], ['sources', 'list'], ['related', 'list'], ['categories', 'list'],
-    ['price', 'number'], ['icon', 'string'], ['shape', 'list'], ['template_starter', 'template-starter'], ['body', 'markdown'],
+    ['price', 'number'], ['icon', 'image'], ['shape', 'list'], ['template_starter', 'template-starter'], ['body', 'markdown'],
   ],
   redirects: [['mod', 'relation'], ['aliases', 'list'], ['keywords', 'list']],
   site: [['title', 'string'], ['nav_label', 'string'], ['body', 'markdown']],
@@ -534,6 +534,15 @@ test('the fields of every collection are exactly this list, in this order, each 
     assert.deepEqual(fields.map((f) => unquote(value(f, 'name'))), expected.map(([fieldName]) => fieldName), `${name}: field names, in order`);
     assert.deepEqual(fields.map((f) => value(f, 'widget')), expected.map(([, widget]) => widget), `${name}: widgets, in the same order`);
   }
+});
+
+test('the item\'s icon is a picture that can be uploaded (stage 3, task 4): an image control with no way to paste an outside address', async () => {
+  const icon = field(collection(await readConfig(), 'items'), 'icon');
+  assert.equal(value(icon, 'widget'), 'image');
+  assert.equal(value(icon, 'choose_url'), 'false', 'no URL to type: the picture is stored in the mod\'s own images/ folder');
+  assert.equal(value(icon, 'required'), 'false', 'an item with no picture shows 无图');
+  // …and the collection's images are the mod's (media_folder ../../images), which is where the build looks for them
+  assert.equal(unquote(value(collection(await readConfig(), 'items'), 'media_folder')), '../../images');
 });
 
 // ---------------------------------------------------------------------------
