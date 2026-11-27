@@ -6,7 +6,7 @@
 //   ├─ home.md                    主站导航页(单文件)
 //   ├─ sections/<分区>.md         分区导航页
 //   ├─ mods/<modId>/              每个 mod 恰好一份
-//   │  ├─ _index.md               mod 导航页
+//   │  ├─ _index.md               mod 导航页(或 main/index.md)
 //   │  ├─ redirects.yaml          别名和关键词(可缺失)
 //   │  ├─ items/<物品ID>.md       物品词条
 //   │  ├─ mechanics/<文件名>.md   机制词条
@@ -24,6 +24,7 @@ const path = require('node:path');
 
 const MD = /\.md$/i;
 const INDEX_FILE = '_index.md';
+const MAIN_INDEX_FILE = path.join('main', 'index.md');
 const REDIRECTS_FILE = 'redirects.yaml';
 const IMAGES_DIR = 'images';
 
@@ -96,11 +97,18 @@ async function nestedIndexFiles(dir) {
 async function readMod(modsDir, entry) {
   const dir = path.join(modsDir, entry.name);
   const indexFile = path.join(dir, INDEX_FILE);
+  const mainIndexFile = path.join(dir, MAIN_INDEX_FILE);
   const redirectsFile = path.join(dir, REDIRECTS_FILE);
+  // Existing mods use _index.md. Some hand-authored content, including the
+  // installation-guide collection, stores its landing page at main/index.md.
+  // Prefer the canonical file whenever both layouts are present.
+  const resolvedIndexFile = (await exists(indexFile))
+    ? indexFile
+    : (await exists(mainIndexFile)) ? mainIndexFile : null;
   return {
     id: entry.name,
     dir,
-    indexFile: (await exists(indexFile)) ? indexFile : null,
+    indexFile: resolvedIndexFile,
     redirectsFile: (await exists(redirectsFile)) ? redirectsFile : null,
     items: await mdFiles(path.join(dir, 'items')),
     mechanics: (await mdFiles(path.join(dir, 'mechanics'))).map(({ id, file }) => ({ slug: id, file })),

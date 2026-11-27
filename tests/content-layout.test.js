@@ -83,6 +83,30 @@ test('readContentLayout: the whole shape, sorted, every path joined under the co
   });
 });
 
+
+test('readContentLayout: main/index.md is recognized as a mod landing page when _index.md is absent', async (t) => {
+  const root = await tmpDir(t);
+  const at = p(root);
+  await touch(root, 'mods/installation_guide_list/main/index.md');
+
+  const layout = await readContentLayout(root);
+
+  assert.equal(layout.mods.length, 1);
+  assert.equal(layout.mods[0].id, 'installation_guide_list');
+  assert.equal(layout.mods[0].indexFile, at('mods/installation_guide_list/main/index.md'));
+});
+
+test('readContentLayout: the canonical _index.md takes precedence over main/index.md', async (t) => {
+  const root = await tmpDir(t);
+  const at = p(root);
+  await touch(root, 'mods/example/_index.md');
+  await touch(root, 'mods/example/main/index.md');
+
+  const layout = await readContentLayout(root);
+
+  assert.equal(layout.mods[0].indexFile, at('mods/example/_index.md'));
+});
+
 test('readContentLayout: a nested _index.md, a stray file and a legacy directory are reported, not hidden', async (t) => {
   const root = await tmpDir(t);
   const at = p(root);
