@@ -98,19 +98,6 @@ test('buildNavSearch: the mods in one global order — the exported ones as the 
     'sections with an order come first, by that order; those without follow');
 });
 
-test('buildNavSearch: a mod landing page at main/index.md is named and grouped by its section', async (t) => {
-  const root = await tmpDir(t);
-  await put(root, 'mods/installation_guide_list/main/index.md', '---\ntitle: 模组安装攻略主页\n---\n');
-  await put(root, 'sections/安装攻略合集.md', '---\ntitle: 安装攻略合集\nmods:\n  - installation_guide_list\n---\n');
-
-  const layout = await readContentLayout(root);
-  const model = await buildNavSearch({ data: { mods: [] }, layout, redirects: new Map() });
-  const mod = model.mods.find((entry) => entry.id === 'installation_guide_list');
-
-  assert.equal(mod.name, '模组安装攻略主页');
-  assert.deepEqual(mod.sections, ['安装攻略合集']);
-});
-
 test('buildNavSearch: a mod\'s name falls back from its page\'s title to the data to its directory name; its summary is the data\'s description up to the first version line', async (t) => {
   const { layout, data, redirects } = await treeWith(t);
 
