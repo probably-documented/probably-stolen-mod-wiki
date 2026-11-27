@@ -1,5 +1,5 @@
 ---
-title: 模组安装攻略主页
+title: 安装攻略合集
 summary: ''
 author: ''
 version: ''
