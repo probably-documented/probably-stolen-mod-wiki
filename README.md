@@ -54,7 +54,7 @@ Probably Stolen 模组的非官方百科，由贡献者在线维护。
 
 | 路径 | 是什么 |
 |---|---|
-| [`content/`](content) | 贡献者写的内容：`home.md`（主页）、`sections/`（分区）、`mods/<Mod ID>/`（`_index.md` 导航页、`mechanics/`、`items/`、`redirects.yaml`、`images/`）、`site/`（不属于任何 mod 的页面） |
+| [`content/`](content) | 贡献者写的内容：`home.md`（主页）、`sections/`（分区）、`mods/<Mod ID>/`（`_index.md` 导航页；也兼容 `main/index.md`、`mechanics/`、`items/`、`redirects.yaml`、`images/`）、`site/`（不属于任何 mod 的页面） |
 | [`data/`](data) | 提取出来的物品数据，只读；由另一个仓库 `modwiki` 导出 |
 | [`assets-src/`](assets-src) | 样式、脚本、BWIKI 素材；`mods/` 下是物品贴图的镜像，同样是导出的 |
 | [`templates/`](templates) | 正文模板，只读 |
