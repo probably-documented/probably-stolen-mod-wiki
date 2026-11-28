@@ -4,7 +4,7 @@
 # 构建时会一起复制到 dist/admin/,改完要重新构建才会生效。
 #
 # 内容按 mod 分目录:
-#   content/home.md                   主站导航页(只有这一个文件)
+#   content/home.md                   主站导航页(只有这一个文件),含置顶的安装攻略块和底部介绍
 #   content/sections/<文件名>.md      分区导航页;「把 Mod 显示成卡片」和两个概述也记在这个文件里。
 #                                     每个分区另有自动生成的物品图鉴页和机制说明页,没有对应的文件
 #   content/mods/<Mod ID>/_index.md   Mod 导航页;同一个目录下还有它的
@@ -73,6 +73,26 @@ collections:
             label: 标题
             widget: string
             preview: false
+          - name: pinned_section_title
+            label: 置顶分区标题
+            widget: string
+            preview: false
+            required: false
+            hint: '显示在首页最上方的独立内容块标题;留空时默认显示「安装攻略」。'
+          - name: pinned_section_body
+            label: 置顶分区内容
+            widget: markdown
+            required: false
+            modes:
+              - rich_text
+              - raw
+            editor_components:
+              - image
+              - table
+              - code-block
+            captioned_images: false
+            preview: false
+            hint: '在这里手动维护安装攻略子页面的链接;这个内容块固定显示在首页分区列表之前。'
           - name: body
             label: 正文
             widget: markdown

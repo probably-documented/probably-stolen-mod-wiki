@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const {
   layout, infobox, itemCard, itemInline, renderWikiTable, cssVars,
-  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar, modCard,
+  NAV_ITEMS, navLinks, aboutNavItem, homeSearchRow, homePinnedBlock, sectionEntries, sectionBlock, modBar, modCard,
 } = require('../tools/build/templates.js');
 
 const THEME_CSS_PATH = path.join(__dirname, '..', 'assets-src', 'theme.css');
@@ -411,6 +411,15 @@ test('homeSearchRow: 搜索栏、默认收起的「限定范围」和它的下�
   // 没有分区:面板里没有复选框,搜索照常
   const bare = homeSearchRow([], { relRoot: '' });
   assert.ok(bare.includes('id="nav-q"') && !bare.includes('type="checkbox"'));
+});
+
+test('homePinnedBlock: distinct section with escaped title and ready-for-content body', () => {
+  const html = homePinnedBlock('安装攻略 <一>', '<p><a href="site/step-one.html">第一步</a></p>');
+  assert.ok(html.startsWith('<section class="sec-block home-guide-block">'));
+  assert.ok(html.includes('<div class="sec-head"><span class="sec-title">安装攻略 &lt;一&gt;</span></div>'));
+  assert.ok(html.includes('<div class="home-guide-body"><p><a href="site/step-one.html">第一步</a></p></div>'));
+  const empty = homePinnedBlock('安装攻略', '');
+  assert.ok(empty.includes('<span class="sec-title">安装攻略</span>'), 'the section remains visible before guide links exist');
 });
 
 test('sectionEntries: 分区页标题下的入口行——物品图鉴、机制说明,地址在 sections/<slug>/ 下,带前缀,slug 转义', () => {
