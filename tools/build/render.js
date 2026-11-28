@@ -25,7 +25,7 @@ const { sitePagesWithNavLabel } = require('./mechanics.js');
 const { resolveItemId } = require('./item-ids.js');
 const { splitFrontmatter } = require('../extract/frontmatter.js');
 const {
-  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, sectionEntries, sectionBlock, modBar, modCard,
+  layout, infobox, itemCard, itemInline, renderWikiTable, aboutNavItem, homeSearchRow, homePinnedBlock, sectionEntries, sectionBlock, modBar, modCard,
 } = require('./templates.js');
 
 const MISSING = '<i class="missing">待补充</i>';
@@ -202,7 +202,7 @@ function navBars(mods, slug, hrefOf) {
 }
 
 /**
- * 主站导航页(index.html),阶段 3。从上到下:搜索栏和「限定范围」;每个分区一个可折叠的方框,
+ * 主站导航页(index.html):搜索栏和「限定范围」;置顶的安装攻略块;每个分区一个可折叠的方框,
  * 框里是只放名字的 mod 条;不属于任何分区的 mod 单独一块;底部是 home.md 的正文和三个入口
  * (离线包下载、关于本站、更新日志)。全站通知条保留。搜索在浏览器里做(assets-src/js/nav-home.js),
  * 数据是构建写出的 nav-search.js。
@@ -221,9 +221,19 @@ async function renderHomePage(data, model, content, nav) {
     blocks.push(sectionBlock({ title: '不属于任何分区的 mod', slug: NO_SECTION, intro: '' }, loose, { relRoot: '', linked: false }));
   }
 
+  let homeFm = {};
   let intro = '';
   const raw = content?.home == null ? null : await readOptional(content.home);
-  if (raw != null) intro = mdToHtml(splitFrontmatter(raw).body, model.lookup, (it) => itemCard(it, '')).html;
+  if (raw != null) {
+    const parsed = splitFrontmatter(raw);
+    homeFm = parsed.fm;
+    intro = mdToHtml(parsed.body, model.lookup, (it) => itemCard(it, '')).html;
+  }
+  const pinnedTitle = typeof homeFm.pinned_section_title === 'string' && homeFm.pinned_section_title !== ''
+    ? homeFm.pinned_section_title
+    : '安装攻略';
+  const pinnedBody = typeof homeFm.pinned_section_body === 'string' ? homeFm.pinned_section_body : '';
+  const pinnedHtml = mdToHtml(pinnedBody, model.lookup, (it) => itemCard(it, '')).html;
 
   const entries = [
     ['离线包下载', RELEASES_URL],
@@ -232,6 +242,7 @@ async function renderHomePage(data, model, content, nav) {
   ].map(([label, href]) => `<a href="${esc(href)}">${esc(label)}</a>`).join('');
 
   const body = `${homeSearchRow(sections)}
+${homePinnedBlock(pinnedTitle, pinnedHtml)}
 ${blocks.join('\n')}
 <div class="home-foot">
 ${intro === '' ? '' : `<h2 class="sec">关于本站</h2>

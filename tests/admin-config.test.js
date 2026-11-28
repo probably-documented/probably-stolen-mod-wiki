@@ -112,7 +112,7 @@ const SIDEBAR = Object.freeze(['home', 'sections', '—', 'mods', '—', 'mechan
 
 /** Every collection with a body, and its field names and widgets, in order. */
 const COLLECTIONS = Object.freeze({
-  home: [['title', 'string'], ['body', 'markdown']],
+  home: [['title', 'string'], ['pinned_section_title', 'string'], ['pinned_section_body', 'markdown'], ['body', 'markdown']],
   sections: [
     ['title', 'string'], ['order', 'number'], ['mods', 'relation'], ['cards', 'boolean'],
     ['items_intro', 'markdown'], ['mechanics_intro', 'markdown'], ['template_starter', 'template-starter'], ['body', 'markdown'],
@@ -525,6 +525,21 @@ test('分区页的重样式(阶段 5):分区有「把 Mod 显示成卡片」的�
     assert.equal(fm.category, 'nav', `${file}: filed with the navigation templates`);
     assert.deepEqual(fm.applies_to, ['sections'], `${file}: for a section only`);
   }
+});
+
+test('主页的置顶安装攻略块可在 CMS 单独编辑标题和 Markdown 内容', async () => {
+  const home = collection(await readConfig(), 'home');
+  const title = field(home, 'pinned_section_title');
+  assert.equal(value(title, 'widget'), 'string');
+  assert.equal(value(title, 'required'), 'false');
+  assert.ok(hasChinese(unquote(value(title, 'hint'))));
+
+  const body = field(home, 'pinned_section_body');
+  assert.equal(value(body, 'widget'), 'markdown');
+  assert.equal(value(body, 'required'), 'false');
+  assert.equal(value(body, 'preview'), 'false');
+  assert.deepEqual(listOf(body, 'modes'), [['rich_text'], ['raw']]);
+  assert.ok(hasChinese(unquote(value(body, 'hint'))));
 });
 
 test('「淫色深空系列」开着卡片模式:站长的这个分区按重样式显示;其余交给正文和概述', async () => {

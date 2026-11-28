@@ -245,6 +245,7 @@ test('buildSkeleton renders the fixture site to distDir', async (t) => {
   // 1) dist/index.html exists and is a real HTML document
   const index = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
   assert.match(index, /<title>/);
+  assert.ok(index.includes('<span class="sec-title">安装攻略</span>'), 'the default pinned block exists without homepage content');
   // The BWIKI footer credit — an external link — is on every page, and the
   // build is still audit-clean: since task 6b A1 an external link is allowed
   // and there is no whitelist (tests/audit.test.js pins the rule).
@@ -282,6 +283,48 @@ test('buildSkeleton renders the fixture site to distDir', async (t) => {
 
   // A clean build must not mark the process as failed.
   assert.equal(exitCode, before, 'successful build leaves process.exitCode untouched');
+});
+
+test('homepage installation-guide block renders its manual links before every mod section', async (t) => {
+  const distDir = await tmpDir(t, 'home-guide');
+  const contentDir = await tmpDir(t, 'home-guide-content');
+  const sectionsDir = path.join(contentDir, 'sections');
+  const siteDir = path.join(contentDir, 'site');
+  const modDir = path.join(contentDir, 'mods', FIXTURE_MOD);
+  await fs.mkdir(sectionsDir, { recursive: true });
+  await fs.mkdir(siteDir, { recursive: true });
+  await fs.mkdir(modDir, { recursive: true });
+  await fs.writeFile(path.join(contentDir, 'home.md'), [
+    '---',
+    'title: 首页',
+    'pinned_section_title: 安装攻略',
+    'pinned_section_body: |',
+    '  [第一步](site/step-one.html)',
+    '---',
+    '',
+    '首页介绍正文。',
+  ].join('\n'));
+  await fs.writeFile(path.join(sectionsDir, 'series.md'), [
+    '---',
+    'title: 测试分区',
+    'mods:',
+    `  - ${FIXTURE_MOD}`,
+    '---',
+    '',
+    '测试分区介绍。',
+  ].join('\n'));
+  await fs.writeFile(path.join(siteDir, 'step-one.md'), '---\ntitle: 安装第一步\n---\n\n步骤正文。\n');
+  await fs.writeFile(path.join(modDir, '_index.md'), '---\ntitle: 测试 Mod\n---\n\nMod 正文。\n');
+
+  const { err, exitCode } = await capturingExitCode(() => build({ distDir, contentDir, warn: noop }));
+  assert.equal(err, undefined, err?.message);
+  assert.equal(exitCode, undefined);
+  const index = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
+  const pinnedAt = index.indexOf('class="sec-block home-guide-block"');
+  const modSectionAt = index.indexOf('data-sec="series"');
+  assert.ok(pinnedAt >= 0, 'the pinned section is present');
+  assert.ok(index.includes('<a href="site/step-one.html">第一步</a>'), 'manual Markdown links render');
+  assert.ok(modSectionAt > pinnedAt, 'the installation-guide block comes before mod sections');
 });
 
 test('fixture content entry follows the brief Step 4 shape', async () => {

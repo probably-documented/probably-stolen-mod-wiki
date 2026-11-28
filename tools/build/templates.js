@@ -303,6 +303,14 @@ ${boxes}
 <div class="nav-results" id="nav-results" hidden></div>`;
 }
 
+/** A pinned homepage content block, independent of the mod-group sections. */
+function homePinnedBlock(title, bodyHtml) {
+  return `<section class="sec-block home-guide-block">
+<div class="sec-head"><span class="sec-title">${esc(title)}</span></div>
+<div class="home-guide-body">${bodyHtml}</div>
+</section>`;
+}
+
 /**
  * 分区页标题下的入口行(阶段 5 Task 1):「物品图鉴」「机制说明」,进到这个分区自己的两个
  * 自动页面(sections/<slug>/items.html、mechanics.html)。样式同主页底部的三个入口。
@@ -373,6 +381,7 @@ module.exports = {
   navLinks,
   aboutNavItem,
   homeSearchRow,
+  homePinnedBlock,
   sectionEntries,
   sectionBlock,
   modBar,
